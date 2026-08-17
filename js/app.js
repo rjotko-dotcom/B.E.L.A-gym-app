@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '2.0';
+  const APP_VERSION = '2.0.1';
 
   /* ---------------- state ---------------- */
 
@@ -501,9 +501,8 @@
         <button id="dayNext" aria-label="Next day" ${mealDayOffset >= 0 ? 'disabled style="opacity:0.35"' : ''}>›</button>
       </div>
 
-      <div class="home-grid2 home-row">
-        <div class="card kcal-card">
-          <span class="micro">Calories</span>
+      <div class="card meal-summary">
+        <div class="ms-left">
           <div class="gauge-wrap">
             ${gaugeSVG(frac, over)}
             <div class="gauge-center">${Math.round(frac * 100)}%</div>
@@ -511,9 +510,7 @@
           <div class="kcal-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()}</div>
           <div class="kcal-unit">kcal</div>
         </div>
-        <div class="card">
-          <div class="macro-list">${macroRowsHTML(totals, targets)}</div>
-        </div>
+        <div class="ms-right">${macroRowsHTML(totals, targets)}</div>
       </div>
 
       <button class="btn btn-primary" id="addMeal" style="margin-bottom:16px">+ Log a meal</button>
