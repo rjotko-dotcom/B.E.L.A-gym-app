@@ -433,3 +433,42 @@ body {
 .tpl-item .li-sub { color: var(--ink-muted); font-size: 0.78rem; }
 
 .section-title { font-size: 1.02rem; font-weight: 800; margin: 18px 6px 10px; }
+
+/* ---------- hevy-style additions ---------- */
+.set-num { border: none; cursor: pointer; font: inherit; font-weight: 700; font-size: 0.82rem; }
+.set-num.t-w { background: transparent; border: 1.5px dashed var(--baseline); color: var(--ink-muted); }
+.set-num.t-f { background: var(--surface-2); color: var(--critical); }
+.set-num.t-d { background: var(--ink-1); color: var(--page); }
+
+.ex-note {
+  color: var(--ink-2); font-size: 0.82rem; font-style: italic;
+  background: var(--surface-2); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px;
+}
+
+.menu-list { display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
+.menu-item {
+  display: flex; align-items: center; text-align: left;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px 16px; font: inherit; font-weight: 600; color: var(--ink-1);
+  cursor: pointer; min-height: 50px;
+}
+.menu-item:disabled { opacity: 0.4; cursor: default; }
+.menu-item.danger { color: var(--critical); }
+
+.pc-result { font-size: 1.05rem; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.pc-result b { font-size: 1.15rem; }
+
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-head { text-align: center; color: var(--ink-muted); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 2px; }
+.cal-day {
+  aspect-ratio: 1; display: grid; place-items: center; border-radius: 50%;
+  font-size: 0.78rem; color: var(--ink-2); font-variant-numeric: tabular-nums;
+}
+.cal-day.has { background: var(--pill); color: var(--pill-ink); font-weight: 700; }
+.cal-day.today { box-shadow: 0 0 0 1.5px var(--ink-1); }
+
+.field textarea {
+  width: 100%; min-height: 72px; border-radius: 14px; padding: 12px 14px;
+  border: 1px solid var(--border); background: var(--surface-1); color: var(--ink-1);
+  font: inherit; resize: vertical;
+}

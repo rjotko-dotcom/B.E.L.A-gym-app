@@ -15,8 +15,12 @@ All data stays on the device (localStorage), with JSON export/import for backups
 **Workouts**
 - Start an empty workout or pick a routine (Push / Pull / Legs / Full Body built in)
 - Log sets (weight × reps) with your previous session shown as a hint
+- Set types: normal, warm-up, drop set, failure (tap the set number to cycle)
+- Automatic PR detection with trophies when you beat your best estimated 1RM
+- Cardio exercises log distance (km) and time (min) instead of weight × reps
+- Exercise menu: reorder, replace, notes, plate calculator, records & history
 - Automatic rest timer after each set (adjustable, skippable)
-- Save any finished workout as a reusable routine
+- Workout notes on finish; save any workout as a reusable routine
 - 40+ exercise library grouped by muscle, plus custom exercises
 
 **Meals**
@@ -27,10 +31,10 @@ All data stays on the device (localStorage), with JSON export/import for backups
 
 **Progress**
 - Estimated 1RM trend per exercise (Epley), with touch/hover tooltips
-- Weekly training volume, last 8 weeks
-- Bodyweight trend
-- Full workout history — expand, repeat, or delete any session
-- Personal records per exercise
+- Weekly training volume, last 8 weeks; bodyweight trend
+- Weekly streak, total time trained, and lifetime PR count
+- Workout calendar (month view) plus full history — expand, repeat, delete
+- Per-exercise records: best weight, best est. 1RM, best session volume
 
 **Settings**
 - kg / lb, rest timer length, nutrition targets
