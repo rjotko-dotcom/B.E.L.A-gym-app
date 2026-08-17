@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '3.6';
+  const APP_VERSION = '3.7';
 
   /* ---------------- state ---------------- */
 
