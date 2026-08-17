@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '3.4';
+  const APP_VERSION = '3.5';
 
   /* ---------------- state ---------------- */
 
@@ -101,7 +101,7 @@
     // set every theme-color variant so Android honors it in system dark mode
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
       const mediaDark = (m.getAttribute('media') || '').includes('dark');
-      m.content = a === 'system' ? (mediaDark ? '#0d0d0d' : '#f7f7f6') : (a === 'dark' ? '#0d0d0d' : '#f7f7f6');
+      m.content = a === 'system' ? (mediaDark ? '#000000' : '#f7f7f6') : (a === 'dark' ? '#000000' : '#f7f7f6');
     });
   }
   applyTheme();
@@ -499,6 +499,7 @@
       <div class="week-strip">${strip}</div>
 
       <div class="card bw-card" id="bwCard" role="button" tabindex="0" aria-label="Log bodyweight">
+        <span class="bw-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4.25" y="4.25" width="15.5" height="15.5" rx="4.5"/><path d="M9.75 8.9h.01M14.25 8.9h.01"/><circle cx="12" cy="8.9" r="1.15"/></svg></span>
         <div>
           <span class="micro">Bodyweight</span>
           <div class="bw-value">${lw ? fmtNum(lw.value) : '—'}<span class="t-unit"> ${esc(unit())}</span></div>
@@ -510,31 +511,44 @@
         <div class="bw-mini">${miniBars}</div>
       </div>
 
-      <div class="home-grid2 home-row">
-        <div class="card kcal-card">
-          <span class="micro">Calories</span>
-          <div class="gauge-wrap">
-            ${gaugeSVG(frac, over)}
-            <div class="gauge-center">${Math.round(frac * 100)}%</div>
-          </div>
-          <div class="kcal-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()}</div>
-          <div class="kcal-unit">kcal</div>
+      <div class="card kcal-line">
+        <h3>Calories</h3>
+        <div class="kl-bar-row">
+          <div class="macro-track kl-track"><div class="macro-fill ${over ? 'over' : ''}" style="width:${Math.min(100, frac * 100)}%"></div></div>
+          <b class="kl-pct">${Math.round(frac * 100)}%</b>
         </div>
-        <div class="card">
-          <div class="macro-list">${macroRowsHTML(totals, targets)}</div>
-        </div>
+        <div class="kl-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()} <span>kcal</span></div>
+      </div>
+
+      <div class="macro-cards">
+        ${[
+          ['Protein', totals.protein, targets.protein, '<path d="M12.5 4.5c3.9.9 6.75 4.1 6.75 8a7.75 7.75 0 0 1-7.75 7.75H9.25A4.75 4.75 0 0 1 4.5 15.5V7a2.5 2.5 0 0 1 2.5-2.5h3l1.5 3.25c-1.4.7-2.4 1.75-3 3.25"/>'],
+          ['Carbs', totals.carbs, targets.carbs, '<path d="M4 12.5h16a8 8 0 0 1-16 0Z"/><path d="M8 9.25c0-1.1.9-2 2-2s2-.9 2-2"/><path d="M13.5 9.25c0-1.1.9-2 2-2"/>'],
+          ['Fat', totals.fat, targets.fat, '<path d="M12 3.75c3.4 4.1 5.35 6.85 5.35 9.35a5.35 5.35 0 1 1-10.7 0c0-2.5 1.95-5.25 5.35-9.35Z"/>'],
+        ].map(([label, val, target, icon]) => `
+        <div class="mc-card ${target && val > target ? 'over' : ''}">
+          <div class="mc-top"><span class="mc-name">${label}</span><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></div>
+          <div class="mc-val">${Math.round(val)}g</div>
+          <div class="mc-target">/ ${target}g</div>
+        </div>`).join('')}
       </div>
 
       <div class="home-grid2">
         <div class="card shortcut-card">
           <h3>Workouts</h3>
           <p>${active ? 'Session in progress' : 'Track and improve'}</p>
-          <button class="btn btn-primary" id="homeStart">${active ? 'Resume' : 'Start'}</button>
+          <div class="shortcut-foot">
+            <button class="btn btn-primary" id="homeStart">${active ? 'Resume' : 'Start'}</button>
+            <svg class="sf-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg>
+          </div>
         </div>
         <div class="card shortcut-card">
           <h3>Meals</h3>
           <p>Log and track nutrition</p>
-          <button class="btn btn-primary" id="homeLog">Log</button>
+          <div class="shortcut-foot">
+            <button class="btn btn-primary" id="homeLog">Log</button>
+            <svg class="sf-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5h16a8 8 0 0 1-16 0Z"/><path d="M9 9.5c1-.6 2-1.6 2-3"/></svg>
+          </div>
         </div>
       </div>`;
 

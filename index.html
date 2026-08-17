@@ -22,7 +22,7 @@
       if (a === 'dark' || a === 'light') document.documentElement.dataset.theme = a;
       document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) {
         var mediaDark = (m.getAttribute('media') || '').indexOf('dark') !== -1;
-        m.content = a === 'system' ? (mediaDark ? '#0d0d0d' : '#f7f7f6') : (a === 'dark' ? '#0d0d0d' : '#f7f7f6');
+        m.content = a === 'system' ? (mediaDark ? '#000000' : '#f7f7f6') : (a === 'dark' ? '#000000' : '#f7f7f6');
       });
     } catch (e) {}
   </script>

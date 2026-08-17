@@ -30,13 +30,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --page: #0d0d0d;
-    --surface-1: #171717;
-    --surface-2: #242423;
+    --page: #000000;
+    --surface-1: #141414;
+    --surface-2: #232322;
     --ink-1: #f5f5f4;
     --ink-2: #b3b3ae;
     --ink-muted: #7c7c77;
-    --grid: #262625;
+    --grid: #1f1f1e;
     --baseline: #3a3a38;
     --border: rgba(255, 255, 255, 0.09);
     --pill: #f5f5f4;
@@ -46,19 +46,19 @@
     --critical: #ef4444;
     --series-1: #f5f5f4;
     --series-2: #8a8a85;
-    --page-fade: rgba(13, 13, 13, 0);
+    --page-fade: rgba(0, 0, 0, 0);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --page-fade: rgba(13, 13, 13, 0);
-  --page: #0d0d0d;
-  --surface-1: #171717;
-  --surface-2: #242423;
+  --page-fade: rgba(0, 0, 0, 0);
+  --page: #000000;
+  --surface-1: #141414;
+  --surface-2: #232322;
   --ink-1: #f5f5f4;
   --ink-2: #b3b3ae;
   --ink-muted: #7c7c77;
-  --grid: #262625;
+  --grid: #1f1f1e;
   --baseline: #3a3a38;
   --border: rgba(255, 255, 255, 0.09);
   --pill: #f5f5f4;
@@ -169,7 +169,7 @@ body {
   font-weight: 700; font-size: 0.92rem; font-variant-numeric: tabular-nums;
 }
 .week-strip .wd-dot.active { background: color-mix(in srgb, var(--ink-1) 74%, var(--page)); color: var(--page); }
-.week-strip .wd-dot.today { background: var(--ink-1); color: var(--page); }
+.week-strip .wd-dot.today { background: transparent; border: 2px solid var(--ink-1); color: var(--ink-1); }
 
 .home-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .home-grid2 .card { margin-bottom: 0; }
@@ -601,4 +601,41 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
   .shortcut-card h3 { font-size: 1.05rem; }
   .shortcut-card p { margin-bottom: 8px; }
   .shortcut-card .btn { min-height: 38px; padding: 8px 22px; font-size: 0.86rem; }
+}
+
+/* ---------- home v3.5: calories bar + macro trio + card icons ---------- */
+.bw-card { position: relative; }
+.bw-icon { position: absolute; top: 15px; right: 17px; color: var(--ink-2); }
+.bw-icon svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+.kcal-line { padding: 15px 18px; }
+.kcal-line h3 { margin-bottom: 10px; font-size: 1.02rem; }
+.kl-bar-row { display: flex; align-items: center; gap: 14px; margin-bottom: 9px; }
+.kl-track { flex: 1; height: 6px; }
+.kl-pct { font-size: 1.15rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.kl-total { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kl-total .over { color: var(--critical); }
+.kl-total span { color: var(--ink-2); font-weight: 500; font-size: 0.82rem; }
+
+.macro-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.mc-card {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 20px;
+  padding: 13px 14px;
+}
+.mc-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
+.mc-name { font-size: 0.8rem; font-weight: 600; color: var(--ink-1); }
+.mc-top svg { width: 21px; height: 21px; fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.mc-val { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.mc-card.over .mc-val { color: var(--critical); }
+.mc-target { color: var(--ink-2); font-size: 0.78rem; margin-top: 1px; font-variant-numeric: tabular-nums; }
+
+.shortcut-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.shortcut-foot .btn { width: auto; min-width: 55%; }
+.sf-icon { width: 26px; height: 26px; fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; margin-right: 4px; }
+
+@media (max-height: 700px) {
+  .kcal-line { padding: 11px 15px; }
+  .kcal-line h3 { margin-bottom: 6px; }
+  .mc-card { padding: 10px 12px; }
+  .mc-val { font-size: 1.15rem; }
 }
