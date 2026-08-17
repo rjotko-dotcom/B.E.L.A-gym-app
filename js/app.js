@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '2.0.1';
+  const APP_VERSION = '2.1';
 
   /* ---------------- state ---------------- */
 
@@ -25,6 +25,7 @@
 
   let state = load();
   let currentTab = 'home';
+  let workoutOpen = !!state.activeWorkout;   // full-screen logger visible?
   let progressSeg = 'trends';      // trends | history | library
   let expandedHistoryId = null;
   let progressExerciseId = null;
@@ -106,6 +107,11 @@
     const min = Math.round(ms / 60000);
     if (min < 60) return `${min} min`;
     return `${Math.floor(min / 60)} h ${min % 60} min`;
+  }
+  function fmtElapsed(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
   }
   function fmtNum(n) { return n % 1 === 0 ? String(n) : n.toFixed(1); }
 
@@ -291,14 +297,15 @@
 
   let elapsedTimer = null;
   function tickElapsed() {
-    const el = $('#wkElapsed');
+    const el = $('#wkDur');
     if (el && state.activeWorkout) {
-      el.textContent = fmtDuration(Date.now() - state.activeWorkout.startedAt);
+      el.textContent = fmtElapsed(Date.now() - state.activeWorkout.startedAt);
     }
   }
   function ensureElapsedTimer() {
-    if (state.activeWorkout && !elapsedTimer) elapsedTimer = setInterval(tickElapsed, 30000);
-    if (!state.activeWorkout && elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+    const want = state.activeWorkout && workoutOpen;
+    if (want && !elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
+    if (!want && elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
   }
 
   /* ================= HOME TAB ================= */
@@ -445,7 +452,11 @@
 
     $('#homeSettings').addEventListener('click', openSettings);
     $('#bwCard').addEventListener('click', openWeightSheet);
-    $('#homeStart').addEventListener('click', () => { currentTab = 'workout'; render(); });
+    $('#homeStart').addEventListener('click', () => {
+      currentTab = 'workout';
+      if (state.activeWorkout) workoutOpen = true;
+      render();
+    });
     $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
   }
 
@@ -652,40 +663,73 @@
       return;
     }
 
+    // a workout is running but the logger is minimized — offer to resume
     const w = state.activeWorkout;
     v.innerHTML = `
-      <div class="wk-meta">
-        <h2>${esc(w.name)}</h2>
-        <span class="elapsed" id="wkElapsed">${fmtDuration(Date.now() - w.startedAt)}</span>
-      </div>
-      ${w.exercises.map((ex, exIdx) => renderExerciseBlock(ex, exIdx)).join('')}
-      <button class="btn btn-ghost" id="addExercise" style="margin-bottom:12px">+ Add exercise</button>
-      <div class="btn-row">
-        <button class="btn btn-danger" id="cancelWorkout">Discard</button>
-        <button class="btn btn-primary" id="finishWorkout">Finish</button>
+      <h2>Workouts</h2>
+      <p class="subtitle">Session in progress</p>
+      <div class="card">
+        <h3>${esc(w.name)}</h3>
+        <p class="muted" style="margin-bottom:12px">${loggedSets(w).length} sets logged · started ${fmtDuration(Date.now() - w.startedAt)} ago</p>
+        <button class="btn btn-primary" id="resumeWorkout">Resume workout</button>
+      </div>`;
+    $('#resumeWorkout').addEventListener('click', () => { workoutOpen = true; render(); });
+  }
+
+  /* -------- full-screen workout logger (Hevy-style) -------- */
+
+  function renderWorkoutOverlay() {
+    const root = $('#workoutRoot');
+    const w = state.activeWorkout;
+    if (!w || !workoutOpen) { root.innerHTML = ''; return; }
+    const done = loggedSets(w);
+    const vol = workoutVolume(w);
+    root.innerHTML = `
+      <div class="wk-overlay">
+        <div class="wk-bar">
+          <button class="icon-btn" id="wkMin" aria-label="Minimize workout">
+            <svg viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></svg>
+          </button>
+          <b class="wk-title">${esc(w.name)}</b>
+          <button class="chip-btn chip-strong" id="wkFinishTop">Finish</button>
+        </div>
+        <div class="wk-stats">
+          <div><span class="micro">Duration</span><b id="wkDur">${fmtElapsed(Date.now() - w.startedAt)}</b></div>
+          <div><span class="micro">Volume</span><b>${fmtNum(Math.round(vol))} ${esc(unit())}</b></div>
+          <div><span class="micro">Sets</span><b>${done.length}</b></div>
+        </div>
+        <div class="wk-body">
+          ${w.exercises.map((ex, exIdx) => renderExerciseBlock(ex, exIdx)).join('')}
+          <button class="btn btn-ghost" id="addExercise" style="margin-bottom:12px">+ Add exercise</button>
+          <button class="btn btn-danger" id="cancelWorkout" style="margin-bottom:8px">Discard workout</button>
+        </div>
       </div>`;
 
     ensureElapsedTimer();
 
-    $('#addExercise').addEventListener('click', () => openExercisePicker((exId) => {
+    $('#wkMin', root).addEventListener('click', () => { workoutOpen = false; render(); });
+    $('#wkFinishTop', root).addEventListener('click', finishWorkout);
+    $('#addExercise', root).addEventListener('click', () => openExercisePicker((exId) => {
       w.exercises.push(newExerciseEntry(exId, 3));
       save(); render();
     }));
-    $('#cancelWorkout').addEventListener('click', () => {
+    $('#cancelWorkout', root).addEventListener('click', () => {
       if (confirm('Discard this workout? Logged sets will be lost.')) {
         state.activeWorkout = null;
+        workoutOpen = false;
         stopRest(); save(); render();
       }
     });
-    $('#finishWorkout').addEventListener('click', finishWorkout);
 
-    $$('.ex-block', v).forEach((block) => {
+    $$('.ex-block', root).forEach((block) => {
       const exIdx = Number(block.dataset.ex);
       const ex = w.exercises[exIdx];
       const cardio = isCardio(ex.exerciseId);
 
       $('.ex-name', block).addEventListener('click', () => openExerciseDetail(ex.exerciseId));
       $('.ex-menu', block).addEventListener('click', () => openExerciseMenu(exIdx));
+      $('.ex-note-line', block).addEventListener('click', () => openNoteSheet(ex));
+      $('.ex-rest', block).addEventListener('click', () => openRestSheet(ex));
       $('.add-set', block).addEventListener('click', () => {
         const last = ex.sets[ex.sets.length - 1];
         ex.sets.push({ weight: last?.weight ?? null, reps: last?.reps ?? null, done: false });
@@ -728,7 +772,8 @@
               }
             }
             save(); render();
-            startRest();
+            const restSecs = ex.rest === 0 ? 0 : (ex.rest ?? state.settings.restSeconds);
+            if (restSecs) startRest(restSecs);
           } else {
             set.done = false;
             delete set.pr;
@@ -784,6 +829,28 @@
           closeSheet();
           openExerciseDetail(ex.exerciseId);
         }
+      });
+    });
+  }
+
+  function openRestSheet(ex) {
+    const current = ex.rest === 0 ? 0 : (ex.rest ?? null);
+    const options = [
+      [null, `Default (${state.settings.restSeconds}s)`],
+      [0, 'Off'], [30, '30s'], [60, '60s'], [90, '90s'], [120, '2 min'], [180, '3 min'],
+    ];
+    openSheet('Rest timer for this exercise', `
+      <div class="menu-list">
+        ${options.map(([val, label]) => `
+          <button class="menu-item ${val === current ? 'on' : ''}" data-rest="${val === null ? 'default' : val}">${esc(label)}${val === current ? ' ✓' : ''}</button>`).join('')}
+      </div>
+    `, (body) => {
+      body.addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-rest]');
+        if (!b) return;
+        if (b.dataset.rest === 'default') delete ex.rest;
+        else ex.rest = Number(b.dataset.rest);
+        save(); closeSheet(); render();
       });
     });
   }
@@ -927,7 +994,8 @@
             <svg viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
           </button>
         </div>
-        ${ex.note ? `<p class="ex-note">${esc(ex.note)}</p>` : ''}
+        <button class="ex-line ex-note-line ${ex.note ? 'has' : ''}">${ex.note ? '📝 ' + esc(ex.note) : 'Add notes here…'}</button>
+        <button class="ex-line ex-rest">⏱ Rest timer: <b>${ex.rest === 0 ? 'Off' : (ex.rest ?? state.settings.restSeconds) + 's'}</b></button>
         <div class="set-grid">
           <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(u)}</span><span class="hdr">${cardio ? 'min' : 'Reps'}</span><span class="hdr">✓</span>
           ${ex.sets.map((s, i) => {
@@ -967,6 +1035,7 @@
       startedAt: Date.now(),
       exercises: tpl ? tpl.exercises.map((e) => newExerciseEntry(e.exerciseId, e.sets)) : [],
     };
+    workoutOpen = true;
     save(); render();
     if (!tpl) {
       openExercisePicker((exId) => {
@@ -1017,6 +1086,7 @@
         }
         state.workouts.unshift(w);
         state.activeWorkout = null;
+        workoutOpen = false;
         stopRest();
         save(); closeSheet(); render();
         toast(prs.length ? `Workout saved — ${prs.length} PR${prs.length === 1 ? '' : 's'} 🏆` : 'Workout saved 💪');
@@ -1658,6 +1728,7 @@
       case 'meals': renderMeals(); break;
       case 'progress': renderProgress(); break;
     }
+    renderWorkoutOverlay();
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === currentTab));
   }
 
