@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '4.0';
+  const APP_VERSION = '4.1';
 
   /* ---------------- state ---------------- */
 
@@ -2090,11 +2090,27 @@
     const v = $('#view');
     if (!v.classList.contains('home-screen')) return;
     v.classList.remove('home-compact', 'home-tight');
-    const overflows = () => document.documentElement.scrollHeight > document.documentElement.clientHeight + 1;
+    // measure against the *visible* viewport: during a pull-to-refresh the URL
+    // bar is showing, so the usable height is smaller than the layout viewport
+    const visible = () => (window.visualViewport?.height || document.documentElement.clientHeight);
+    const overflows = () => {
+      const kids = v.children;
+      if (!kids.length) return false;
+      const bottom = kids[kids.length - 1].getBoundingClientRect().bottom;
+      const navTop = $('.tab-bar').getBoundingClientRect().top;
+      return bottom > Math.min(navTop, visible()) - 2
+        || document.documentElement.scrollHeight > visible() + 1;
+    };
     if (overflows()) v.classList.add('home-compact');
     if (overflows()) v.classList.add('home-tight');
   }
+  // browser chrome (URL bar) sliding in/out changes the usable height, so
+  // re-fit whenever it moves as well as on rotation and load
   addEventListener('resize', fitHome);
+  addEventListener('orientationchange', () => setTimeout(fitHome, 120));
+  addEventListener('pageshow', () => setTimeout(fitHome, 60));
+  window.visualViewport?.addEventListener('resize', fitHome);
+  window.visualViewport?.addEventListener('scroll', fitHome);
 
   function render() {
     ensureElapsedTimer();

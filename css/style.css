@@ -75,7 +75,8 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   background: var(--page);
   color: var(--ink-1);
-  min-height: 100dvh;
+  min-height: 100vh;   /* fallback */
+  min-height: 100svh;  /* smallest viewport: safe when the URL bar is shown */
   display: flex;
   flex-direction: column;
   overscroll-behavior-y: none;
@@ -113,7 +114,7 @@ body {
 
 /* home is a single non-scrolling screen; spare height spreads between blocks.
    gap is the single source of spacing so all gaps stay identical */
-.view.home-screen { display: flex; flex-direction: column; justify-content: space-between; gap: 10px; }
+.view.home-screen { display: flex; flex-direction: column; justify-content: space-between; gap: 10px; max-height: 100svh; }
 .view.home-screen > * { margin-bottom: 0 !important; margin-top: 0 !important; }
 .home-top { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 4px; }
 .home-top h2 { margin: 0 2px; font-size: 1.7rem; }
@@ -164,7 +165,7 @@ body {
   text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 7px;
 }
 .week-strip .wd-dot {
-  width: clamp(38px, 5.6dvh, 50px); height: clamp(38px, 5.6dvh, 50px);
+  width: clamp(38px, 5.6svh, 50px); height: clamp(38px, 5.6svh, 50px);
   max-width: 100%; margin: 0 auto;
   border-radius: 50%; display: grid; place-items: center;
   background: var(--surface-2); color: var(--ink-muted);
@@ -178,11 +179,11 @@ body {
 .home-row { margin-bottom: 0; }
 
 .bw-card { display: flex; align-items: stretch; justify-content: space-between; gap: 14px; cursor: pointer; padding: 18px 20px; }
-.bw-value { font-size: clamp(2.1rem, 4.6dvh, 2.6rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.05; margin: 8px 0 6px; }
+.bw-value { font-size: clamp(2.1rem, 4.6svh, 2.6rem); font-weight: 800; letter-spacing: -0.03em; line-height: 1.05; margin: 8px 0 6px; }
 .bw-value .t-unit { font-size: 1rem; color: var(--ink-2); font-weight: 600; }
 .bw-delta { font-size: 0.85rem; color: var(--ink-2); }
 .bw-delta b { color: var(--ink-1); font-weight: 700; }
-.bw-mini { display: flex; align-items: flex-end; gap: 6px; height: clamp(58px, 10dvh, 84px); align-self: flex-end; }
+.bw-mini { display: flex; align-items: flex-end; gap: 6px; height: clamp(58px, 10svh, 84px); align-self: flex-end; }
 .bw-mini .col { text-align: center; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
 .bw-mini .bar {
   width: 9px; border-radius: 999px; background: var(--surface-2);
@@ -193,7 +194,7 @@ body {
 .bw-mini .lbl { font-size: 0.52rem; color: var(--ink-muted); font-weight: 700; margin-top: 6px; text-transform: uppercase; }
 
 .kcal-card { padding: 16px; }
-.gauge-wrap { position: relative; width: clamp(92px, 15dvh, 126px); margin: 6px auto 4px; }
+.gauge-wrap { position: relative; width: clamp(92px, 15svh, 126px); margin: 6px auto 4px; }
 .gauge-wrap svg { display: block; width: 100%; height: auto; }
 .gauge-center {
   position: absolute; inset: 0; display: grid; place-items: center;
