@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f2f1ed" media="(prefers-color-scheme: light)" />
+  <meta name="description" content="B.E.L.A Gym — workouts, nutrition and progress in one place." />
+  <title>B.E.L.A Gym</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 10h1.5V7.5A1.5 1.5 0 0 1 6 6h1a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 7 18H6a1.5 1.5 0 0 1-1.5-1.5V14H3a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Zm18 0h-1.5V7.5A1.5 1.5 0 0 0 18 6h-1a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 17 18h1a1.5 1.5 0 0 0 1.5-1.5V14H21a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1Zm-11.5 1h5v2h-5v-2Z"/>
+      </svg>
+      <h1>B.E.L.A</h1>
+    </div>
+    <button id="settingsBtn" class="icon-btn" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Zm7.4-2.5c.05-.33.1-.66.1-1s-.05-.67-.1-1l2.1-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.65A.5.5 0 0 0 13.93 2h-4a.5.5 0 0 0-.5.42l-.37 2.65c-.63.26-1.2.6-1.73 1l-2.5-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64L4.5 11c-.05.33-.1.66-.1 1s.05.67.1 1l-2.1 1.65a.5.5 0 0 0-.12.64l2 3.46c.13.22.39.31.6.22l2.5-1c.53.4 1.1.74 1.73 1l.37 2.65a.5.5 0 0 0 .5.42h4a.5.5 0 0 0 .5-.42l.37-2.65a7.3 7.3 0 0 0 1.7-1l2.5 1c.22.09.48 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64L19.4 13Z"/></svg>
+    </button>
+  </header>
+
+  <main id="view" class="view" tabindex="-1"><!-- views are rendered here --></main>
+
+  <!-- Rest timer bar (hidden until a set is logged) -->
+  <div id="restBar" class="rest-bar" hidden>
+    <div class="rest-progress"><div id="restFill" class="rest-fill"></div></div>
+    <div class="rest-info">
+      <span class="rest-label">Rest</span>
+      <span id="restTime" class="rest-time">1:30</span>
+    </div>
+    <div class="rest-actions">
+      <button id="restMinus" class="chip-btn" aria-label="Subtract 15 seconds">−15</button>
+      <button id="restPlus" class="chip-btn" aria-label="Add 15 seconds">+15</button>
+      <button id="restSkip" class="chip-btn chip-strong" aria-label="Skip rest">Skip</button>
+    </div>
+  </div>
+
+  <nav class="tab-bar" aria-label="Main">
+    <button class="tab active" data-tab="home" aria-label="Home">
+      <span class="tab-circle">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V9.5L12 3l8 6.5V21h-6v-7h-4v7H4Z"/></svg>
+      </span>
+      <span>Home</span>
+    </button>
+    <button class="tab" data-tab="workout" aria-label="Workouts">
+      <span class="tab-circle">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10h1.5V7.5A1.5 1.5 0 0 1 6 6h1a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 7 18H6a1.5 1.5 0 0 1-1.5-1.5V14H3a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Zm18 0h-1.5V7.5A1.5 1.5 0 0 0 18 6h-1a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 17 18h1a1.5 1.5 0 0 0 1.5-1.5V14H21a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1Zm-11.5 1h5v2h-5v-2Z"/></svg>
+      </span>
+      <span>Workouts</span>
+    </button>
+    <button class="tab" data-tab="meals" aria-label="Meals">
+      <span class="tab-circle">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9c0-3 3.6-5 8-5s8 2 8 5H4Zm0 3h16v1a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-1Zm0 5h16v1a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-1Z"/></svg>
+      </span>
+      <span>Meals</span>
+    </button>
+    <button class="tab" data-tab="progress" aria-label="Progress">
+      <span class="tab-circle">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 18.5 9 13l4 4 7.6-8.56L19.1 7 13 13.87l-4-4-7 7 1.5 1.63Z"/></svg>
+      </span>
+      <span>Progress</span>
+    </button>
+  </nav>
+
+  <div id="sheetRoot"></div>
+  <div id="toastRoot" class="toast-root" aria-live="polite"></div>
+
+  <script src="js/exercises.js"></script>
+  <script src="js/foods.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+    }
+  </script>
+</body>
+</html>
