@@ -6,12 +6,12 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '1.6';
+  const APP_VERSION = '1.7';
 
   /* ---------------- state ---------------- */
 
   const defaultState = () => ({
-    settings: { unit: 'kg', restSeconds: 90, theme: 'light' },
+    settings: { unit: 'kg', restSeconds: 90, appearance: 'system' },
     nutrition: {
       targets: { kcal: 2800, protein: 180, carbs: 300, fat: 70 },
       meals: [],   // { id, date:'YYYY-MM-DD', time, name, kcal, protein, carbs, fat }
@@ -37,6 +37,11 @@
       if (!raw) return defaultState();
       const parsed = JSON.parse(raw);
       const d = defaultState();
+      // migrate the old theme setting: an explicit dark choice is kept,
+      // the old implicit light default becomes "follow the device"
+      if (parsed.settings && !parsed.settings.appearance) {
+        parsed.settings.appearance = parsed.settings.theme === 'dark' ? 'dark' : 'system';
+      }
       return {
         ...d, ...parsed,
         settings: { ...d.settings, ...(parsed.settings || {}) },
@@ -54,12 +59,13 @@
   }
 
   function applyTheme() {
-    const dark = state.settings.theme === 'dark';
-    if (dark) document.documentElement.dataset.theme = 'dark';
+    const a = state.settings.appearance;
+    if (a === 'dark' || a === 'light') document.documentElement.dataset.theme = a;
     else delete document.documentElement.dataset.theme;
     // set every theme-color variant so Android honors it in system dark mode
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
-      m.content = dark ? '#0d0d0d' : '#f7f7f6';
+      const mediaDark = (m.getAttribute('media') || '').includes('dark');
+      m.content = a === 'system' ? (mediaDark ? '#0d0d0d' : '#f7f7f6') : (a === 'dark' ? '#0d0d0d' : '#f7f7f6');
     });
   }
   applyTheme();
@@ -1263,8 +1269,9 @@
       <div class="field">
         <label>Appearance</label>
         <div class="seg" id="themeSeg" style="margin-bottom:0">
-          <button data-t="light" class="${s.theme !== 'dark' ? 'on' : ''}">Light</button>
-          <button data-t="dark" class="${s.theme === 'dark' ? 'on' : ''}">Dark</button>
+          <button data-t="system" class="${s.appearance === 'system' ? 'on' : ''}">Auto</button>
+          <button data-t="light" class="${s.appearance === 'light' ? 'on' : ''}">Light</button>
+          <button data-t="dark" class="${s.appearance === 'dark' ? 'on' : ''}">Dark</button>
         </div>
       </div>
       <div class="field">
@@ -1299,7 +1306,7 @@
       $('#themeSeg', body).addEventListener('click', (e) => {
         const b = e.target.closest('button[data-t]');
         if (!b) return;
-        state.settings.theme = b.dataset.t;
+        state.settings.appearance = b.dataset.t;
         $$('#themeSeg button', body).forEach((x) => x.classList.toggle('on', x === b));
         save(); applyTheme(); render();
       });

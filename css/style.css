@@ -24,6 +24,29 @@
   --series-1: #141414;
   --series-2: #8a8a85;
 }
+/* system dark (Auto mode): same tokens, applied when the device is dark
+   and no explicit light choice is stamped */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface-1: #171717;
+    --surface-2: #242423;
+    --ink-1: #f5f5f4;
+    --ink-2: #b3b3ae;
+    --ink-muted: #7c7c77;
+    --grid: #262625;
+    --baseline: #3a3a38;
+    --border: rgba(255, 255, 255, 0.09);
+    --pill: #f5f5f4;
+    --pill-ink: #121212;
+    --good: #22c55e;
+    --good-text: #22c55e;
+    --critical: #ef4444;
+    --series-1: #f5f5f4;
+    --series-2: #8a8a85;
+  }
+}
 :root[data-theme="dark"] {
   color-scheme: dark;
   --page: #0d0d0d;
@@ -343,7 +366,6 @@ body {
   width: 26px; height: 26px;
   fill: none; stroke: currentColor; stroke-width: 1.9;
   stroke-linecap: round; stroke-linejoin: round;
-  transition: color 0.15s ease;
 }
 /* selected: full-ink icon + dot underneath; others share one muted tone */
 .tab::after { content: ''; width: 4.5px; height: 4.5px; border-radius: 50%; background: transparent; }

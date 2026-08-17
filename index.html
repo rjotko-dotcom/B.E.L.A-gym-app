@@ -15,13 +15,14 @@
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="stylesheet" href="css/style.css" />
   <script>
-    // apply saved theme before first paint (default: light)
+    // apply saved appearance before first paint (default: follow the device)
     try {
       var s = JSON.parse(localStorage.getItem('bela-gym-v1'));
-      var dark = s && s.settings && s.settings.theme === 'dark';
-      if (dark) document.documentElement.dataset.theme = 'dark';
+      var a = (s && s.settings && (s.settings.appearance || (s.settings.theme === 'dark' ? 'dark' : ''))) || 'system';
+      if (a === 'dark' || a === 'light') document.documentElement.dataset.theme = a;
       document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) {
-        m.content = dark ? '#0d0d0d' : '#f7f7f6';
+        var mediaDark = (m.getAttribute('media') || '').indexOf('dark') !== -1;
+        m.content = a === 'system' ? (mediaDark ? '#0d0d0d' : '#f7f7f6') : (a === 'dark' ? '#0d0d0d' : '#f7f7f6');
       });
     } catch (e) {}
   </script>
@@ -45,7 +46,7 @@
 
   <nav class="tab-bar" aria-label="Main">
     <button class="tab active" data-tab="home" aria-label="Home">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.75 12 3.5l9 7.25"/><path d="M5.25 9.5V20a.75.75 0 0 0 .75.75h4v-6h4v6h4a.75.75 0 0 0 .75-.75V9.5"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.75 10.4 12 4.25l7.25 6.15V19a1.25 1.25 0 0 1-1.25 1.25h-3.75V15.5h-4.5v4.75H6A1.25 1.25 0 0 1 4.75 19Z"/></svg>
     </button>
     <button class="tab" data-tab="workout" aria-label="Workouts">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9"/><path d="M3.5 9.5v5"/><path d="M17.5 7.5v9"/><path d="M20.5 9.5v5"/><path d="M6.5 12h11"/></svg>
