@@ -111,8 +111,10 @@ body {
 .view h2 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; margin: 2px 4px; }
 .view .subtitle { color: var(--ink-2); font-size: 0.85rem; margin: 0 4px 12px; }
 
-/* home is a single non-scrolling screen; spare height spreads between blocks */
-.view.home-screen { display: flex; flex-direction: column; justify-content: space-between; }
+/* home is a single non-scrolling screen; spare height spreads between blocks.
+   gap is the single source of spacing so all gaps stay identical */
+.view.home-screen { display: flex; flex-direction: column; justify-content: space-between; gap: 10px; }
+.view.home-screen > * { margin-bottom: 0 !important; margin-top: 0 !important; }
 .home-top { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 4px; }
 .home-top h2 { margin: 0 2px; font-size: 1.7rem; }
 
