@@ -6,12 +6,12 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '3.2';
+  const APP_VERSION = '3.3';
 
   /* ---------------- state ---------------- */
 
   const defaultState = () => ({
-    settings: { unit: 'kg', restSeconds: 90, appearance: 'system', waterTarget: 8 },
+    settings: { unit: 'kg', restSeconds: 90, appearance: 'system', waterTarget: 8, name: '' },
     nutrition: {
       targets: { kcal: 2800, protein: 180, carbs: 300, fat: 70 },
       meals: [],        // { id, date:'YYYY-MM-DD', time, name, kcal, protein, carbs, fat }
@@ -478,8 +478,25 @@
     const delta = weekDelta();
     const active = state.activeWorkout;
 
+    const hour = today.getHours();
+    const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    const weekCount = state.workouts.filter((x) => {
+      const d = new Date(x.startedAt);
+      return d >= monday;
+    }).length;
+    const streak = streakWeeks();
+    const subParts = [
+      today.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }),
+      `${weekCount} workout${weekCount === 1 ? '' : 's'} this week`,
+    ];
+    if (streak >= 2) subParts.push(`${streak}-week streak 🔥`);
+
     v.innerHTML = `
-      <div class="week-strip" style="margin-top:10px">${strip}</div>
+      <div class="home-head">
+        <h2>${greeting}${state.settings.name ? ', ' + esc(state.settings.name) : ''}</h2>
+        <p class="home-sub">${subParts.join(' · ')}</p>
+      </div>
+      <div class="week-strip">${strip}</div>
 
       <div class="card bw-card" id="bwCard" role="button" tabindex="0" aria-label="Log bodyweight">
         <div>
@@ -1898,6 +1915,10 @@
     const t = state.nutrition.targets;
     openSheet('Settings', `
       <div class="field">
+        <label for="setName">Your name (for the greeting)</label>
+        <input id="setName" type="text" placeholder="e.g. Alex" value="${esc(s.name ?? '')}">
+      </div>
+      <div class="field">
         <label>Appearance</label>
         <div class="seg" id="themeSeg" style="margin-bottom:0">
           <button data-t="system" class="${s.appearance === 'system' ? 'on' : ''}">Auto</button>
@@ -1938,6 +1959,10 @@
       <button class="btn btn-danger" id="wipeBtn" style="margin-top:12px">Erase all data</button>
       <p class="muted" style="margin-top:16px;text-align:center">B.E.L.A Gym v${APP_VERSION} · data stays on this device</p>
     `, (body) => {
+      $('#setName', body).addEventListener('change', (e) => {
+        state.settings.name = e.target.value.trim();
+        save(); render();
+      });
       $('#themeSeg', body).addEventListener('click', (e) => {
         const b = e.target.closest('button[data-t]');
         if (!b) return;

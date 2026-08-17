@@ -354,8 +354,8 @@ body {
 .tab-bar {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
   display: flex; justify-content: space-evenly; align-items: center;
-  background: linear-gradient(to top, var(--page) 62%, var(--page-fade));
-  padding: 22px 12px calc(env(safe-area-inset-bottom) + 12px);
+  background: var(--page);
+  padding: 12px 12px calc(env(safe-area-inset-bottom) + 12px);
   pointer-events: none;
 }
 .tab {
@@ -579,3 +579,26 @@ body {
 /* keep the rest timer clear of the mini bar */
 body.has-mini .rest-bar { bottom: calc(env(safe-area-inset-bottom) + 146px); }
 body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px); }
+
+/* ---------- home greeting header ---------- */
+.home-head { margin: 6px 4px 2px; }
+.home-head h2 { font-size: 1.45rem; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+.home-sub { color: var(--ink-2); font-size: 0.82rem; margin-top: 3px; }
+
+/* compact home on short screens so it stays one screen */
+@media (max-height: 700px) {
+  .home-head h2 { font-size: 1.22rem; }
+  .home-sub { font-size: 0.74rem; margin-top: 2px; }
+  .week-strip .wd-dot { width: 35px; height: 35px; font-size: 0.82rem; }
+  .week-strip .wd-letter { margin-bottom: 5px; }
+  .bw-card { padding: 13px 16px; }
+  .bw-value { font-size: 1.85rem; margin: 4px 0 3px; }
+  .bw-mini { height: 50px; }
+  .kcal-card { padding: 12px; }
+  .gauge-wrap { width: 86px; }
+  .gauge-center { font-size: 1.05rem; }
+  .shortcut-card { padding: 12px 14px 13px; }
+  .shortcut-card h3 { font-size: 1.05rem; }
+  .shortcut-card p { margin-bottom: 8px; }
+  .shortcut-card .btn { min-height: 38px; padding: 8px 22px; font-size: 0.86rem; }
+}
