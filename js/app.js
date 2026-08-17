@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '3.8';
+  const APP_VERSION = '3.9';
 
   /* ---------------- state ---------------- */
 
@@ -2052,6 +2052,18 @@
 
   /* ================= router ================= */
 
+  // Home must fit one screen on any device and font-scale setting: measure the
+  // rendered result and step down through the compact tiers until it fits.
+  function fitHome() {
+    const v = $('#view');
+    if (!v.classList.contains('home-screen')) return;
+    v.classList.remove('home-compact', 'home-tight');
+    const overflows = () => document.documentElement.scrollHeight > document.documentElement.clientHeight + 1;
+    if (overflows()) v.classList.add('home-compact');
+    if (overflows()) v.classList.add('home-tight');
+  }
+  addEventListener('resize', fitHome);
+
   function render() {
     ensureElapsedTimer();
     $('#view').classList.toggle('home-screen', currentTab === 'home');
@@ -2062,6 +2074,7 @@
       case 'profile': renderProfile(); break;
     }
     renderWorkoutOverlay();
+    fitHome();
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === currentTab));
   }
 

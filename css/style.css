@@ -643,3 +643,37 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
   .mc-card { padding: 10px 12px; }
   .mc-val { font-size: 1.15rem; }
 }
+
+/* ---------- auto-fit tiers: applied by JS when home overflows ---------- */
+.home-screen.home-compact { gap: 8px; }
+.home-compact .home-head h2 { font-size: 1.25rem; }
+.home-compact .home-sub { font-size: 0.75rem; }
+.home-compact .week-strip .wd-dot { width: 36px; height: 36px; font-size: 0.84rem; }
+.home-compact .week-strip .wd-letter { margin-bottom: 5px; }
+.home-compact .card { padding: 12px 15px; border-radius: 20px; }
+.home-compact .bw-card { padding: 13px 16px; }
+.home-compact .bw-value { font-size: 1.8rem; margin: 4px 0 3px; }
+.home-compact .bw-mini { height: 50px; }
+.home-compact .kcal-line h3 { margin-bottom: 7px; }
+.home-compact .kl-bar-row { margin-bottom: 7px; }
+.home-compact .mc-val { font-size: 1.18rem; }
+.home-compact .shortcut-card h3 { font-size: 1.05rem; }
+.home-compact .shortcut-card p { margin-bottom: 9px; font-size: 0.74rem; }
+.home-compact .shortcut-card .btn { min-height: 40px; padding: 9px 20px; font-size: 0.88rem; }
+.home-compact .bw-icon svg, .home-compact .sf-icon { width: 22px; height: 22px; }
+
+.home-screen.home-tight { gap: 5px; padding-top: calc(env(safe-area-inset-top) + 6px); padding-bottom: calc(env(safe-area-inset-bottom) + 88px); }
+.home-tight .home-head h2 { font-size: 1.1rem; }
+.home-tight .home-sub { font-size: 0.7rem; }
+.home-tight .week-strip .wd-dot { width: 32px; height: 32px; font-size: 0.76rem; }
+.home-tight .card { padding: 10px 13px; border-radius: 18px; }
+.home-tight .bw-value { font-size: 1.5rem; }
+.home-tight .bw-mini { height: 40px; }
+.home-tight .mc-val { font-size: 1.05rem; }
+.home-tight .mc-top svg { width: 18px; height: 18px; }
+.home-tight .shortcut-card h3 { font-size: 0.98rem; }
+.home-tight .shortcut-card p { margin-bottom: 7px; }
+.home-tight .shortcut-card .btn { min-height: 36px; padding: 7px 18px; font-size: 0.84rem; }
+.home-tight .bw-icon svg, .home-tight .sf-icon { width: 19px; height: 19px; }
+.home-tight .week-strip { margin-top: 2px; }
+.home-tight .home-head { margin: 2px 4px 0; }
