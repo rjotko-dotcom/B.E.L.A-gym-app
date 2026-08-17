@@ -56,8 +56,10 @@
     const dark = state.settings.theme === 'dark';
     if (dark) document.documentElement.dataset.theme = 'dark';
     else delete document.documentElement.dataset.theme;
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = dark ? '#0d0d0d' : '#f7f7f6';
+    // set every theme-color variant so Android honors it in system dark mode
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+      m.content = dark ? '#0d0d0d' : '#f7f7f6';
+    });
   }
   applyTheme();
 

@@ -1,5 +1,5 @@
 /* B.E.L.A Gym — service worker: cache-first for the app shell */
-const CACHE = 'bela-gym-v4';
+const CACHE = 'bela-gym-v5';
 const ASSETS = [
   '.',
   'index.html',
@@ -25,16 +25,23 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  const sameOrigin = new URL(e.request.url).origin === location.origin;
+  const put = (res) => {
+    if (res.ok && sameOrigin) {
+      const copy = res.clone();
+      caches.open(CACHE).then((c) => c.put(e.request, copy));
+    }
+    return res;
+  };
+  // navigations go network-first so new versions appear on next launch
+  if (e.request.mode === 'navigate') {
+    e.respondWith(fetch(e.request).then(put).catch(() => caches.match(e.request).then((c) => c || caches.match('index.html'))));
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then((cached) =>
       cached ||
-      fetch(e.request).then((res) => {
-        if (res.ok && new URL(e.request.url).origin === location.origin) {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy));
-        }
-        return res;
-      }).catch(() => cached)
+      fetch(e.request).then(put).catch(() => cached)
     )
   );
 });
