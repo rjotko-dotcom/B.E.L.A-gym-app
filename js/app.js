@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '3.9';
+  const APP_VERSION = '4.0';
 
   /* ---------------- state ---------------- */
 
@@ -499,7 +499,6 @@
       <div class="week-strip">${strip}</div>
 
       <div class="card bw-card" id="bwCard" role="button" tabindex="0" aria-label="Log bodyweight">
-        <span class="bw-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4.25" y="4.25" width="15.5" height="15.5" rx="4.5"/><path d="M9.75 8.9h.01M14.25 8.9h.01"/><circle cx="12" cy="8.9" r="1.15"/></svg></span>
         <div>
           <span class="micro">Bodyweight</span>
           <div class="bw-value">${lw ? fmtNum(lw.value) : '—'}<span class="t-unit"> ${esc(unit())}</span></div>
@@ -523,8 +522,8 @@
       <div class="macro-cards">
         ${[
           ['Protein', totals.protein, targets.protein, '<path d="M12.409 13.017A5 5 0 0 1 22 15c0 3.866-4 7-9 7-4.077 0-8.153-.82-10.371-2.462-.426-.316-.631-.832-.62-1.362C2.118 12.723 2.627 2 6 2h4a2 2 0 0 1 0 4h-1a2 2 0 0 0 0 4h1a3 3 0 0 0 2.235-1"/>'],
-          ['Carbs', totals.carbs, targets.carbs, '<path d="M4 12.5h16a8 8 0 0 1-16 0Z"/><path d="M8.75 10.2h.01M12 9.4h.01M15.25 10.2h.01"/>'],
-          ['Fat', totals.fat, targets.fat, '<path d="M12 3.75c3.4 4.1 5.35 6.85 5.35 9.35a5.35 5.35 0 1 1-10.7 0c0-2.5 1.95-5.25 5.35-9.35Z"/>'],
+          ['Carbs', totals.carbs, targets.carbs, '<path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/>'],
+          ['Fat', totals.fat, targets.fat, '<path d="M12 4.4c3.2 3.9 5 6.5 5 8.85a5 5 0 0 1-10 0c0-2.35 1.8-4.95 5-8.85Z"/>'],
         ].map(([label, val, target, icon]) => `
         <div class="mc-card ${target && val > target ? 'over' : ''}">
           <div class="mc-top"><span class="mc-name">${label}</span><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></div>
@@ -547,7 +546,7 @@
           <p>Log and track nutrition</p>
           <div class="shortcut-foot">
             <button class="btn btn-primary" id="homeLog">Log</button>
-            <svg class="sf-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5h16a8 8 0 0 1-16 0Z"/><path d="M9 9.5c1-.6 2-1.6 2-3"/></svg>
+            <svg class="sf-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg>
           </div>
         </div>
       </div>`;
@@ -2052,6 +2051,39 @@
 
   /* ================= router ================= */
 
+  /* ---------------- swipe between tabs ---------------- */
+
+  const TAB_ORDER = ['home', 'workout', 'meals', 'profile'];
+  let swipeStart = null;
+  let slideDir = null;
+
+  addEventListener('touchstart', (e) => {
+    swipeStart = null;
+    if (e.touches.length !== 1) return;
+    // never hijack gestures inside the logger, a sheet, inputs or charts
+    if (workoutOpen || $('#sheetRoot').children.length) return;
+    if (e.target.closest('input, textarea, select, button, .chart-wrap, .cal-grid')) return;
+    const t = e.touches[0];
+    swipeStart = { x: t.clientX, y: t.clientY, at: Date.now() };
+  }, { passive: true });
+
+  addEventListener('touchend', (e) => {
+    if (!swipeStart) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - swipeStart.x;
+    const dy = t.clientY - swipeStart.y;
+    const dt = Date.now() - swipeStart.at;
+    swipeStart = null;
+    // horizontal, long enough, and not a slow drag
+    if (dt > 700 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const i = TAB_ORDER.indexOf(currentTab);
+    const next = dx < 0 ? i + 1 : i - 1;
+    if (i < 0 || next < 0 || next >= TAB_ORDER.length) return;
+    slideDir = dx < 0 ? 'slide-left' : 'slide-right';
+    window.scrollTo(0, 0);
+    goTab(TAB_ORDER[next]);
+  }, { passive: true });
+
   // Home must fit one screen on any device and font-scale setting: measure the
   // rendered result and step down through the compact tiers until it fits.
   function fitHome() {
@@ -2075,6 +2107,13 @@
     }
     renderWorkoutOverlay();
     fitHome();
+    if (slideDir) {
+      const v = $('#view');
+      v.classList.remove('slide-left', 'slide-right');
+      void v.offsetWidth; // restart the animation
+      v.classList.add(slideDir);
+      slideDir = null;
+    }
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === currentTab));
   }
 

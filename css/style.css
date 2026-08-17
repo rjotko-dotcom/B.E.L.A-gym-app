@@ -608,9 +608,6 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 }
 
 /* ---------- home v3.5: calories bar + macro trio + card icons ---------- */
-.bw-card { position: relative; }
-.bw-icon { position: absolute; top: 15px; right: 17px; color: var(--ink-2); }
-.bw-icon svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 
 .kcal-line { padding: 15px 18px; }
 .kcal-line h3 { margin-bottom: 10px; font-size: 1.02rem; }
@@ -626,7 +623,7 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
   background: var(--surface-1); border: 1px solid var(--border); border-radius: 20px;
   padding: 13px 14px;
 }
-.mc-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
+.mc-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; min-height: 22px; }
 .mc-name { font-size: 0.8rem; font-weight: 600; color: var(--ink-1); }
 .mc-top svg { width: 21px; height: 21px; fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 .mc-val { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
@@ -635,7 +632,7 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 
 .shortcut-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .shortcut-foot .btn { width: auto; min-width: 55%; }
-.sf-icon { width: 26px; height: 26px; fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; margin-right: 4px; }
+.sf-icon { width: 26px; height: 26px; fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; margin-right: 6px; align-self: center; }
 
 @media (max-height: 700px) {
   .kcal-line { padding: 11px 15px; }
@@ -660,7 +657,7 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .home-compact .shortcut-card h3 { font-size: 1.05rem; }
 .home-compact .shortcut-card p { margin-bottom: 9px; font-size: 0.74rem; }
 .home-compact .shortcut-card .btn { min-height: 40px; padding: 9px 20px; font-size: 0.88rem; }
-.home-compact .bw-icon svg, .home-compact .sf-icon { width: 22px; height: 22px; }
+.home-compact .sf-icon { width: 22px; height: 22px; }
 
 .home-screen.home-tight { gap: 5px; padding-top: calc(env(safe-area-inset-top) + 6px); padding-bottom: calc(env(safe-area-inset-bottom) + 88px); }
 .home-tight .home-head h2 { font-size: 1.1rem; }
@@ -674,6 +671,15 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .home-tight .shortcut-card h3 { font-size: 0.98rem; }
 .home-tight .shortcut-card p { margin-bottom: 7px; }
 .home-tight .shortcut-card .btn { min-height: 36px; padding: 7px 18px; font-size: 0.84rem; }
-.home-tight .bw-icon svg, .home-tight .sf-icon { width: 19px; height: 19px; }
+.home-tight .sf-icon { width: 19px; height: 19px; }
 .home-tight .week-strip { margin-top: 2px; }
 .home-tight .home-head { margin: 2px 4px 0; }
+
+/* ---------- swipe page transition ---------- */
+@keyframes slideFromRight { from { transform: translateX(26px); opacity: 0.25; } to { transform: none; opacity: 1; } }
+@keyframes slideFromLeft { from { transform: translateX(-26px); opacity: 0.25; } to { transform: none; opacity: 1; } }
+.view.slide-left { animation: slideFromRight 0.18s ease-out; }
+.view.slide-right { animation: slideFromLeft 0.18s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .view.slide-left, .view.slide-right { animation: none; }
+}
