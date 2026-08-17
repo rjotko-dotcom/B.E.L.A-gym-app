@@ -511,3 +511,37 @@ body {
 .ex-line.has, .ex-line b { color: var(--ink-2); font-weight: 600; }
 .ex-note-line.has { font-style: italic; }
 .menu-item.on { border-color: var(--ink-1); }
+
+/* ---------- v3.0: routines, supersets, water, measurements ---------- */
+.ss-chip {
+  display: inline-block; vertical-align: 2px;
+  background: var(--ink-1); color: var(--page);
+  font-size: 0.6rem; font-weight: 800; letter-spacing: 0.05em;
+  border-radius: 6px; padding: 2px 6px;
+}
+.rb-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.rb-row {
+  display: grid; grid-template-columns: 1fr 54px 14px 64px 34px; gap: 6px; align-items: center;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px;
+  padding: 10px 12px;
+}
+.rb-name { font-weight: 700; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-sets, .rb-reps {
+  min-height: 40px; border-radius: 10px; text-align: center;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--ink-1);
+  font: inherit; font-weight: 600; width: 100%;
+}
+.rb-x { text-align: center; color: var(--ink-muted); }
+.rb-del { border: none; background: none; color: var(--ink-muted); cursor: pointer; font-size: 1rem; padding: 6px; }
+
+.water-card { display: flex; align-items: center; justify-content: space-between; }
+.water-count { font-size: 1.05rem; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.water-btns { display: flex; gap: 8px; }
+.water-btns .chip-btn { width: 46px; font-size: 1.1rem; }
+
+.ms-bars { display: flex; flex-direction: column; gap: 10px; }
+.ms-row { display: grid; grid-template-columns: 74px 1fr 30px; gap: 10px; align-items: center; }
+.ms-label { font-size: 0.78rem; font-weight: 600; color: var(--ink-2); }
+.ms-track { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.ms-fill { height: 100%; border-radius: 999px; background: var(--ink-1); }
+.ms-count { text-align: right; font-size: 0.82rem; font-variant-numeric: tabular-nums; }

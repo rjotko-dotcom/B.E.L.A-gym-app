@@ -6,16 +6,18 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '2.1';
+  const APP_VERSION = '3.0';
 
   /* ---------------- state ---------------- */
 
   const defaultState = () => ({
-    settings: { unit: 'kg', restSeconds: 90, appearance: 'system' },
+    settings: { unit: 'kg', restSeconds: 90, appearance: 'system', waterTarget: 8 },
     nutrition: {
       targets: { kcal: 2800, protein: 180, carbs: 300, fat: 70 },
-      meals: [],   // { id, date:'YYYY-MM-DD', time, name, kcal, protein, carbs, fat }
-      weights: [], // { date:'YYYY-MM-DD', value }
+      meals: [],        // { id, date:'YYYY-MM-DD', time, name, kcal, protein, carbs, fat }
+      weights: [],      // { date:'YYYY-MM-DD', value }
+      water: [],        // { date:'YYYY-MM-DD', glasses }
+      measurements: [], // { date:'YYYY-MM-DD', key, value }  key: waist|chest|arm|thigh|hips
     },
     customExercises: [],
     templates: [],
@@ -220,6 +222,41 @@
     return Math.round((last.value - ref.value) * 10) / 10;
   }
 
+  const MEASURE_LABELS = { waist: 'Waist', chest: 'Chest', arm: 'Arm', thigh: 'Thigh', hips: 'Hips' };
+
+  function waterFor(key) {
+    return state.nutrition.water.find((x) => x.date === key)?.glasses ?? 0;
+  }
+  function setWater(key, glasses) {
+    state.nutrition.water = state.nutrition.water.filter((x) => x.date !== key);
+    if (glasses > 0) state.nutrition.water.push({ date: key, glasses });
+  }
+  // working sets per muscle group over the last 7 days
+  function muscleSets7d() {
+    const cutoff = Date.now() - 7 * 86400000;
+    const counts = {};
+    for (const w of state.workouts) {
+      if (w.startedAt < cutoff) continue;
+      for (const ex of w.exercises) {
+        const info = exerciseById(ex.exerciseId);
+        if (!info || info.muscle === 'Cardio') continue;
+        counts[info.muscle] = (counts[info.muscle] || 0) + ex.sets.filter(isWorkingSet).length;
+      }
+    }
+    return counts;
+  }
+  function beep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = 880;
+      g.gain.setValueAtTime(0.25, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      o.start(); o.stop(ctx.currentTime + 0.4);
+    } catch { /* audio unavailable without user gesture — vibration still fires */ }
+  }
+
   function toast(msg) {
     const root = $('#toastRoot');
     const el = document.createElement('div');
@@ -271,6 +308,7 @@
       if (rest.remaining <= 0) {
         stopRest();
         toast('Rest over — next set!');
+        beep();
         if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
         return;
       }
@@ -524,6 +562,17 @@
         <div class="ms-right">${macroRowsHTML(totals, targets)}</div>
       </div>
 
+      <div class="card water-card">
+        <div>
+          <span class="micro">Water</span>
+          <div class="water-count">💧 ${waterFor(key)} / ${state.settings.waterTarget} glasses</div>
+        </div>
+        <div class="water-btns">
+          <button class="chip-btn" id="waterMinus" aria-label="Remove a glass">−</button>
+          <button class="chip-btn chip-strong" id="waterPlus" aria-label="Add a glass">+</button>
+        </div>
+      </div>
+
       <button class="btn btn-primary" id="addMeal" style="margin-bottom:16px">+ Log a meal</button>
 
       ${meals.length ? meals.map((m) => `
@@ -541,6 +590,8 @@
 
     $('#dayPrev').addEventListener('click', () => { mealDayOffset -= 1; render(); });
     $('#dayNext').addEventListener('click', () => { if (mealDayOffset < 0) { mealDayOffset += 1; render(); } });
+    $('#waterPlus').addEventListener('click', () => { setWater(key, waterFor(key) + 1); save(); render(); });
+    $('#waterMinus').addEventListener('click', () => { setWater(key, Math.max(0, waterFor(key) - 1)); save(); render(); });
     $('#addMeal').addEventListener('click', () => openMealSheet(key));
     $$('.meal-del', v).forEach((b) => b.addEventListener('click', () => {
       state.nutrition.meals = state.nutrition.meals.filter((m) => m.id !== b.dataset.del);
@@ -637,24 +688,36 @@
         <h2>Workouts</h2>
         <p class="subtitle">Track and improve</p>
         <button class="btn btn-primary" id="startEmpty">Start empty workout</button>
-        <div class="section-title">Routines</div>
+        <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">Routines
+          <button class="chip-btn" id="newRoutine">+ New routine</button>
+        </div>
         <div class="tpl-list">
           ${templates.map((t) => `
             <div class="tpl-item" data-tpl="${esc(t.id)}" role="button" tabindex="0">
               <div>
                 <div class="li-name">${esc(t.name)}</div>
-                <div class="li-sub">${t.exercises.map((e) => exerciseById(e.exerciseId)?.name).filter(Boolean).slice(0, 3).join(' · ')}${t.exercises.length > 3 ? ' · …' : ''}</div>
+                <div class="li-sub">${t.exercises.length} exercises · ${t.exercises.map((e) => exerciseById(e.exerciseId)?.name).filter(Boolean).slice(0, 3).join(' · ')}${t.exercises.length > 3 ? ' · …' : ''}</div>
               </div>
-              ${t.builtin ? '' : `<button class="icon-btn" data-del-tpl="${esc(t.id)}" aria-label="Delete routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg></button>`}
+              ${t.builtin ? '' : `
+              <button class="icon-btn" data-edit-tpl="${esc(t.id)}" aria-label="Edit routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/></svg></button>
+              <button class="icon-btn" data-del-tpl="${esc(t.id)}" aria-label="Delete routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg></button>`}
             </div>`).join('')}
         </div>`;
       $('#startEmpty').addEventListener('click', () => startWorkout());
+      $('#newRoutine').addEventListener('click', () => openRoutineBuilder());
       $$('.tpl-item', v).forEach((el) => {
         el.addEventListener('click', (e) => {
           const delBtn = e.target.closest('[data-del-tpl]');
           if (delBtn) {
-            state.templates = state.templates.filter((t) => t.id !== delBtn.dataset.delTpl);
-            save(); render();
+            if (confirm('Delete this routine?')) {
+              state.templates = state.templates.filter((t) => t.id !== delBtn.dataset.delTpl);
+              save(); render();
+            }
+            return;
+          }
+          const editBtn = e.target.closest('[data-edit-tpl]');
+          if (editBtn) {
+            openRoutineBuilder(editBtn.dataset.editTpl);
             return;
           }
           startWorkout(el.dataset.tpl);
@@ -795,6 +858,8 @@
         <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>↑ &nbsp;Move up</button>
         <button class="menu-item" data-act="down" ${exIdx === w.exercises.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
         <button class="menu-item" data-act="note">📝 &nbsp;${ex.note ? 'Edit note' : 'Add note'}</button>
+        ${ex.ss ? `<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>`
+          : exIdx < w.exercises.length - 1 ? `<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>` : ''}
         <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
         <button class="menu-item" data-act="plates">🏋️ &nbsp;Plate calculator</button>
         <button class="menu-item" data-act="detail">📈 &nbsp;Records &amp; history</button>
@@ -811,6 +876,14 @@
           save(); closeSheet(); render();
         } else if (act === 'remove') {
           w.exercises.splice(exIdx, 1);
+          save(); closeSheet(); render();
+        } else if (act === 'ss') {
+          const next = w.exercises[exIdx + 1];
+          const group = next.ss ?? (Math.max(0, ...w.exercises.map((x) => x.ss || 0)) + 1);
+          ex.ss = group; next.ss = group;
+          save(); closeSheet(); render();
+        } else if (act === 'ssbreak') {
+          delete ex.ss;
           save(); closeSheet(); render();
         } else if (act === 'replace') {
           closeSheet();
@@ -987,7 +1060,7 @@
     return `
       <div class="card ex-block" data-ex="${exIdx}">
         <div class="ex-head">
-          <h3 class="ex-name" role="button" tabindex="0">${esc(info?.name ?? 'Unknown exercise')}
+          <h3 class="ex-name" role="button" tabindex="0">${ex.ss ? `<span class="ss-chip">SS${ex.ss}</span> ` : ''}${esc(info?.name ?? 'Unknown exercise')}
             <span class="muscle">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''}</span>
           </h3>
           <button class="ex-remove ex-menu" aria-label="Exercise options">
@@ -1009,7 +1082,7 @@
               <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
                      value="${s.weight ?? ''}" placeholder="${p?.weight ?? ''}" aria-label="${cardio ? 'Distance km' : 'Weight'}, set ${i + 1}">
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
-                     value="${s.reps ?? ''}" placeholder="${p?.reps ?? ''}" aria-label="${cardio ? 'Minutes' : 'Reps'}, set ${i + 1}">
+                     value="${s.reps ?? ''}" placeholder="${p?.reps ?? ex.targetReps ?? ''}" aria-label="${cardio ? 'Minutes' : 'Reps'}, set ${i + 1}">
               <button class="set-done ${s.done ? 'logged' : ''}" aria-label="${s.done ? 'Undo set' : 'Log set'}" aria-pressed="${s.done}">
                 <svg viewBox="0 0 24 24"><path d="M4.5 12.5 9.5 17.5 19.5 6.5"/></svg>
               </button>
@@ -1020,11 +1093,13 @@
       </div>`;
   }
 
-  function newExerciseEntry(exerciseId, setCount) {
-    return {
+  function newExerciseEntry(exerciseId, setCount, targetReps) {
+    const entry = {
       exerciseId,
       sets: Array.from({ length: setCount }, () => ({ weight: null, reps: null, done: false })),
     };
+    if (targetReps) entry.targetReps = targetReps;
+    return entry;
   }
 
   function startWorkout(templateId) {
@@ -1033,7 +1108,7 @@
       id: uid(),
       name: tpl ? tpl.name : 'Workout',
       startedAt: Date.now(),
-      exercises: tpl ? tpl.exercises.map((e) => newExerciseEntry(e.exerciseId, e.sets)) : [],
+      exercises: tpl ? tpl.exercises.map((e) => newExerciseEntry(e.exerciseId, e.sets, e.targetReps)) : [],
     };
     workoutOpen = true;
     save(); render();
@@ -1090,6 +1165,75 @@
         stopRest();
         save(); closeSheet(); render();
         toast(prs.length ? `Workout saved — ${prs.length} PR${prs.length === 1 ? '' : 's'} 🏆` : 'Workout saved 💪');
+      });
+    });
+  }
+
+  /* -------- routine builder -------- */
+
+  let routineDraft = null;
+
+  function openRoutineBuilder(templateId) {
+    const existing = templateId ? state.templates.find((t) => t.id === templateId) : null;
+    routineDraft = existing
+      ? JSON.parse(JSON.stringify(existing))
+      : { id: uid(), name: '', exercises: [] };
+    showRoutineBuilder();
+  }
+
+  function showRoutineBuilder() {
+    const d = routineDraft;
+    const isEdit = state.templates.some((t) => t.id === d.id);
+    openSheet(isEdit ? 'Edit routine' : 'New routine', `
+      <div class="field"><label for="rbName">Routine name</label>
+        <input id="rbName" type="text" placeholder="e.g. Upper Body A" value="${esc(d.name)}"></div>
+      ${d.exercises.length ? `
+      <div class="rb-list">
+        ${d.exercises.map((e, i) => `
+          <div class="rb-row" data-i="${i}">
+            <div class="rb-name">${esc(exerciseById(e.exerciseId)?.name ?? '?')}</div>
+            <input class="rb-sets" type="number" inputmode="numeric" min="1" max="10" value="${e.sets}" aria-label="Sets">
+            <span class="rb-x">×</span>
+            <input class="rb-reps" type="number" inputmode="numeric" min="1" max="100" value="${e.targetReps ?? ''}" placeholder="reps" aria-label="Target reps">
+            <button class="rb-del" aria-label="Remove">✕</button>
+          </div>`).join('')}
+      </div>` : '<p class="empty-note" style="padding:16px">No exercises yet — add some below.</p>'}
+      <button class="btn btn-quiet" id="rbAdd">+ Add exercise</button>
+      <button class="btn btn-primary" id="rbSave" style="margin-top:10px">Save routine</button>
+    `, (body) => {
+      $('#rbName', body).addEventListener('input', (e) => { d.name = e.target.value; });
+      body.addEventListener('input', (e) => {
+        const row = e.target.closest('.rb-row');
+        if (!row) return;
+        const entry = d.exercises[Number(row.dataset.i)];
+        if (e.target.classList.contains('rb-sets')) entry.sets = Math.max(1, Number(e.target.value) || 1);
+        if (e.target.classList.contains('rb-reps')) {
+          const val = Number(e.target.value);
+          if (val > 0) entry.targetReps = val; else delete entry.targetReps;
+        }
+      });
+      body.addEventListener('click', (e) => {
+        const del = e.target.closest('.rb-del');
+        if (del) {
+          d.exercises.splice(Number(del.closest('.rb-row').dataset.i), 1);
+          showRoutineBuilder();
+        }
+      });
+      $('#rbAdd', body).addEventListener('click', () => {
+        openExercisePicker((exId) => {
+          d.exercises.push({ exerciseId: exId, sets: 3, targetReps: 10 });
+          showRoutineBuilder();
+        });
+      });
+      $('#rbSave', body).addEventListener('click', () => {
+        if (!d.name.trim()) { toast('Give the routine a name'); return; }
+        if (!d.exercises.length) { toast('Add at least one exercise'); return; }
+        d.name = d.name.trim();
+        const idx = state.templates.findIndex((t) => t.id === d.id);
+        if (idx >= 0) state.templates[idx] = d; else state.templates.push(d);
+        routineDraft = null;
+        save(); closeSheet(); render();
+        toast('Routine saved');
       });
     });
   }
@@ -1226,10 +1370,48 @@
     return weeks;
   }
 
-  function bodyweightSeries() {
-    return [...state.nutrition.weights]
+  let bodyMetric = 'weight';
+
+  function bodySeries(metric) {
+    const src = metric === 'weight'
+      ? state.nutrition.weights
+      : state.nutrition.measurements.filter((m) => m.key === metric);
+    return [...src]
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((w) => ({ t: new Date(w.date + 'T12:00:00').getTime(), v: w.value }));
+  }
+
+  function openMeasureSheet() {
+    const todayKey = dateKey();
+    const latest = (key) => {
+      const rows = state.nutrition.measurements.filter((m) => m.key === key).sort((a, b) => a.date.localeCompare(b.date));
+      return rows[rows.length - 1]?.value;
+    };
+    openSheet('Log measurement', `
+      <div class="field-row">
+        <div class="field"><label for="msKey">Measurement</label>
+          <select id="msKey">${Object.entries(MEASURE_LABELS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
+        <div class="field"><label for="msVal">Value (cm)</label>
+          <input id="msVal" type="number" inputmode="decimal" min="0" step="0.1" placeholder="${latest('waist') ?? ''}"></div>
+      </div>
+      <button class="btn btn-primary" id="msSave">Save</button>
+      <p class="muted" style="margin-top:14px">${Object.entries(MEASURE_LABELS).map(([k, l]) => {
+        const v = latest(k);
+        return v ? `${l}: <b>${fmtNum(v)} cm</b>` : null;
+      }).filter(Boolean).join(' · ') || 'No measurements yet.'}</p>
+    `, (body) => {
+      const keySel = $('#msKey', body), valIn = $('#msVal', body);
+      keySel.addEventListener('change', () => { valIn.placeholder = latest(keySel.value) ?? ''; });
+      $('#msSave', body).addEventListener('click', () => {
+        const val = Number(valIn.value);
+        if (!val || val <= 0) { toast('Enter a value'); return; }
+        const key = keySel.value;
+        state.nutrition.measurements = state.nutrition.measurements.filter((m) => !(m.date === todayKey && m.key === key));
+        state.nutrition.measurements.push({ date: todayKey, key, value: Math.round(val * 10) / 10 });
+        save(); closeSheet(); render();
+        toast(`${MEASURE_LABELS[key]} logged`);
+      });
+    });
   }
 
   function renderTrends(v) {
@@ -1249,11 +1431,14 @@
     const totalVolume = state.workouts.reduce((s, w) => s + workoutVolume(w), 0);
     const weeks = weeklyVolume();
     const thisWeek = state.workouts.filter((w) => w.startedAt >= weeks[weeks.length - 1].start).length;
-    const bw = bodyweightSeries();
+    const bw = bodySeries(bodyMetric);
 
     const streak = streakWeeks();
     const totalTimeMs = state.workouts.reduce((t, w) => t + ((w.finishedAt ?? w.startedAt) - w.startedAt), 0);
     const totalPRs = state.workouts.reduce((t, w) => t + workoutPRs(w).length, 0);
+    const muscles = muscleSets7d();
+    const muscleMax = Math.max(12, ...Object.values(muscles));
+    const bodyUnit = bodyMetric === 'weight' ? u : 'cm';
 
     v.innerHTML = `
       <div class="tile-row">
@@ -1288,11 +1473,31 @@
         </div>
       </div>` : ''}
 
+      ${Object.keys(muscles).length ? `
+      <div class="card">
+        <h3>Weekly sets per muscle</h3>
+        <p class="muted" style="margin-bottom:12px">Working sets, last 7 days</p>
+        <div class="ms-bars">
+          ${MUSCLE_GROUPS.filter((g) => g !== 'Cardio' && muscles[g]).map((g) => `
+            <div class="ms-row">
+              <span class="ms-label">${esc(g)}</span>
+              <div class="ms-track"><div class="ms-fill" style="width:${Math.min(100, (muscles[g] / muscleMax) * 100)}%"></div></div>
+              <b class="ms-count">${muscles[g]}</b>
+            </div>`).join('')}
+        </div>
+      </div>` : ''}
+
       <div class="card chart-card">
-        <h3>Bodyweight</h3>
-        <p class="muted">Logged from the Home screen</p>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:0 8px">
+          <h3 style="margin:0">Body</h3>
+          <button class="chip-btn" id="addMeasure">+ Log</button>
+        </div>
+        <select class="select-field" id="bodyMetricSel" style="margin:10px 8px 4px;width:calc(100% - 16px)" aria-label="Choose body metric">
+          <option value="weight" ${bodyMetric === 'weight' ? 'selected' : ''}>Bodyweight</option>
+          ${Object.entries(MEASURE_LABELS).map(([k, l]) => `<option value="${k}" ${bodyMetric === k ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
         <div class="chart-wrap" id="bwChart">
-          ${bw.length >= 2 ? lineChartSVG(bw, u, 'Bodyweight over time', 'var(--series-2)') : `<p class="empty-note">Log your bodyweight on at least two days to see a trend.</p>`}
+          ${bw.length >= 2 ? lineChartSVG(bw, bodyUnit, 'Body metric over time', 'var(--series-2)') : `<p class="empty-note">Log this at least twice to see a trend.<br>Bodyweight is logged on Home, measurements via “+ Log”.</p>`}
         </div>
       </div>`;
 
@@ -1300,10 +1505,15 @@
       progressExerciseId = e.target.value;
       render();
     });
+    $('#bodyMetricSel')?.addEventListener('change', (e) => {
+      bodyMetric = e.target.value;
+      render();
+    });
+    $('#addMeasure')?.addEventListener('click', openMeasureSheet);
 
     attachLineHover($('#strengthChart'), series, u);
     attachBarHover($('#volumeChart'), weeks, u);
-    attachLineHover($('#bwChart'), bw, u);
+    attachLineHover($('#bwChart'), bw, bodyUnit);
   }
 
   /* ---- charts: hand-built SVG, 2px line, hairline grid, hover tooltip ---- */
@@ -1640,6 +1850,10 @@
         <div class="field"><label for="tCarbs">Carbs g</label><input id="tCarbs" type="number" inputmode="numeric" min="0" value="${t.carbs}"></div>
         <div class="field"><label for="tFat">Fat g</label><input id="tFat" type="number" inputmode="numeric" min="0" value="${t.fat}"></div>
       </div>
+      <div class="field">
+        <label for="tWater">Water target (glasses / day)</label>
+        <input id="tWater" type="number" inputmode="numeric" min="1" value="${s.waterTarget}">
+      </div>
       <div class="btn-row" style="margin-top:8px">
         <button class="btn btn-quiet" id="exportBtn">Export data</button>
         <button class="btn btn-quiet" id="importBtn">Import data</button>
@@ -1676,6 +1890,10 @@
       bindTarget('#tProtein', 'protein');
       bindTarget('#tCarbs', 'carbs');
       bindTarget('#tFat', 'fat');
+      $('#tWater', body).addEventListener('change', (e) => {
+        state.settings.waterTarget = Math.max(1, Number(e.target.value) || 8);
+        save(); render();
+      });
       $('#exportBtn', body).addEventListener('click', () => {
         const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
