@@ -6,6 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
+  const APP_VERSION = '1.6';
 
   /* ---------------- state ---------------- */
 
@@ -1293,7 +1294,7 @@
       </div>
       <input id="importFile" type="file" accept="application/json" hidden>
       <button class="btn btn-danger" id="wipeBtn" style="margin-top:12px">Erase all data</button>
-      <p class="muted" style="margin-top:16px;text-align:center">B.E.L.A Gym · data stays on this device</p>
+      <p class="muted" style="margin-top:16px;text-align:center">B.E.L.A Gym v${APP_VERSION} · data stays on this device</p>
     `, (body) => {
       $('#themeSeg', body).addEventListener('click', (e) => {
         const b = e.target.closest('button[data-t]');
