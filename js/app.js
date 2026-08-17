@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '3.1';
+  const APP_VERSION = '3.2';
 
   /* ---------------- state ---------------- */
 
@@ -373,13 +373,15 @@
 
   let elapsedTimer = null;
   function tickElapsed() {
+    if (!state.activeWorkout) return;
+    const txt = fmtElapsed(Date.now() - state.activeWorkout.startedAt);
     const el = $('#wkDur');
-    if (el && state.activeWorkout) {
-      el.textContent = fmtElapsed(Date.now() - state.activeWorkout.startedAt);
-    }
+    if (el) el.textContent = txt;
+    const mini = $('#miniDur');
+    if (mini) mini.textContent = txt;
   }
   function ensureElapsedTimer() {
-    const want = state.activeWorkout && workoutOpen;
+    const want = !!state.activeWorkout;
     if (want && !elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
     if (!want && elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
   }
@@ -477,12 +479,7 @@
     const active = state.activeWorkout;
 
     v.innerHTML = `
-      <div class="home-top">
-        <h2>Home</h2>
-        <span class="home-date">${today.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-      </div>
-
-      <div class="week-strip">${strip}</div>
+      <div class="week-strip" style="margin-top:10px">${strip}</div>
 
       <div class="card bw-card" id="bwCard" role="button" tabindex="0" aria-label="Log bodyweight">
         <div>
@@ -777,7 +774,40 @@
   function renderWorkoutOverlay() {
     const root = $('#workoutRoot');
     const w = state.activeWorkout;
-    if (!w || !workoutOpen) { root.innerHTML = ''; return; }
+    document.body.classList.toggle('has-mini', !!w && !workoutOpen);
+    if (!w) { root.innerHTML = ''; return; }
+    if (!workoutOpen) {
+      // Hevy-style persistent mini bar while the logger is minimized
+      const current = w.exercises.find((ex) => ex.sets.some((s) => !s.done));
+      const currentName = current ? (exerciseById(current.exerciseId)?.name ?? '') : 'All sets done 💪';
+      root.innerHTML = `
+        <div class="mini-bar" role="button" tabindex="0" aria-label="Resume workout">
+          <button class="mini-btn" id="miniExpand" aria-label="Expand workout">
+            <svg viewBox="0 0 24 24"><path d="m5 15 7-7 7 7"/></svg>
+          </button>
+          <div class="mini-info">
+            <div class="mini-title"><span class="mini-dot"></span><b>Workout</b> <span id="miniDur">${fmtElapsed(Date.now() - w.startedAt)}</span></div>
+            <div class="mini-sub">${esc(currentName)}</div>
+          </div>
+          <button class="mini-btn mini-danger" id="miniDiscard" aria-label="Discard workout">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg>
+          </button>
+        </div>`;
+      const expand = () => { workoutOpen = true; openWkEntry(); render(); };
+      $('.mini-bar', root).addEventListener('click', (e) => {
+        if (e.target.closest('#miniDiscard')) {
+          if (confirm('Discard this workout? Logged sets will be lost.')) {
+            state.activeWorkout = null;
+            workoutOpen = false;
+            stopRest(); save(); render();
+          }
+          return;
+        }
+        expand();
+      });
+      ensureElapsedTimer();
+      return;
+    }
     const done = loggedSets(w);
     const vol = workoutVolume(w);
     root.innerHTML = `

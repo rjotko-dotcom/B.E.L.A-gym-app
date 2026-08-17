@@ -23,6 +23,7 @@
   /* chart series (monochrome) */
   --series-1: #141414;
   --series-2: #8a8a85;
+  --page-fade: rgba(247, 247, 246, 0);
 }
 /* system dark (Auto mode): same tokens, applied when the device is dark
    and no explicit light choice is stamped */
@@ -45,10 +46,12 @@
     --critical: #ef4444;
     --series-1: #f5f5f4;
     --series-2: #8a8a85;
+    --page-fade: rgba(13, 13, 13, 0);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --page-fade: rgba(13, 13, 13, 0);
   --page: #0d0d0d;
   --surface-1: #171717;
   --surface-2: #242423;
@@ -351,7 +354,7 @@ body {
 .tab-bar {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
   display: flex; justify-content: space-evenly; align-items: center;
-  background: linear-gradient(to top, var(--page) 62%, transparent);
+  background: linear-gradient(to top, var(--page) 62%, var(--page-fade));
   padding: 22px 12px calc(env(safe-area-inset-bottom) + 12px);
   pointer-events: none;
 }
@@ -547,3 +550,32 @@ body {
 .ms-count { text-align: right; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
 
 .home-date { color: var(--ink-2); font-size: 0.85rem; font-weight: 600; }
+
+/* ---------- minimized workout mini bar (Hevy-style) ---------- */
+.mini-bar {
+  position: fixed; left: 12px; right: 12px;
+  bottom: calc(env(safe-area-inset-bottom) + 76px);
+  z-index: 22;
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 999px; padding: 8px 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  max-width: 616px; margin: 0 auto;
+  cursor: pointer;
+}
+.mini-btn {
+  width: 46px; height: 46px; flex-shrink: 0;
+  border: none; border-radius: 50%;
+  background: var(--surface-2); color: var(--ink-1);
+  display: grid; place-items: center; cursor: pointer;
+}
+.mini-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mini-danger { color: var(--critical); }
+.mini-info { flex: 1; min-width: 0; }
+.mini-title { font-size: 0.95rem; display: flex; align-items: center; gap: 7px; font-variant-numeric: tabular-nums; }
+.mini-title b { font-weight: 800; }
+.mini-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--good); flex-shrink: 0; }
+.mini-sub { color: var(--ink-muted); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+/* keep the rest timer clear of the mini bar */
+body.has-mini .rest-bar { bottom: calc(env(safe-area-inset-bottom) + 146px); }
+body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px); }
