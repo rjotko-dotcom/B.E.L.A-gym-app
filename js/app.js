@@ -322,7 +322,7 @@
       const d = new Date(monday); d.setDate(d.getDate() + i);
       const key = dateKey(d);
       const isToday = key === todayKey;
-      const active = workoutDays.has(key) || mealDays.has(key);
+      const active = key < todayKey || workoutDays.has(key) || mealDays.has(key);
       return `
         <div class="wd">
           <span class="wd-letter">${L}</span>
@@ -366,7 +366,7 @@
           <div class="bw-value">${lw ? fmtNum(lw.value) : '—'}<span class="t-unit"> ${esc(unit())}</span></div>
           <div class="bw-delta">${
             delta == null ? 'Tap to log today' :
-            `This week <b>${delta > 0 ? '+' : ''}${fmtNum(delta)} ${esc(unit())} ${delta > 0 ? '↑' : delta < 0 ? '↓' : '→'}</b>`
+            `This week <b>${delta > 0 ? '+' : ''}${delta.toFixed(1)} ${esc(unit())} ${delta > 0 ? '↑' : delta < 0 ? '↓' : '→'}</b>`
           }</div>
         </div>
         <div class="bw-mini">${miniBars}</div>
@@ -379,7 +379,8 @@
             ${gaugeSVG(frac, over)}
             <div class="gauge-center">${Math.round(frac * 100)}%</div>
           </div>
-          <div class="kcal-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()}<span class="t-unit"> kcal</span></div>
+          <div class="kcal-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()}</div>
+          <div class="kcal-unit">kcal</div>
         </div>
         <div class="card">
           <div class="macro-list">${macroRowsHTML(totals, targets)}</div>
@@ -464,7 +465,8 @@
             ${gaugeSVG(frac, over)}
             <div class="gauge-center">${Math.round(frac * 100)}%</div>
           </div>
-          <div class="kcal-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()}<span class="t-unit"> kcal</span></div>
+          <div class="kcal-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()}</div>
+          <div class="kcal-unit">kcal</div>
         </div>
         <div class="card">
           <div class="macro-list">${macroRowsHTML(totals, targets)}</div>
