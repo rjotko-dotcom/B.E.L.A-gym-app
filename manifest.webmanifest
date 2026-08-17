@@ -4,8 +4,8 @@
   "description": "Workouts, nutrition and progress in one place.",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#f2f1ed",
-  "theme_color": "#161615",
+  "background_color": "#f7f7f6",
+  "theme_color": "#141414",
   "icons": [
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },

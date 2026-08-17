@@ -10,7 +10,7 @@
   /* ---------------- state ---------------- */
 
   const defaultState = () => ({
-    settings: { unit: 'kg', restSeconds: 90 },
+    settings: { unit: 'kg', restSeconds: 90, theme: 'light' },
     nutrition: {
       targets: { kcal: 2800, protein: 180, carbs: 300, fat: 70 },
       meals: [],   // { id, date:'YYYY-MM-DD', time, name, kcal, protein, carbs, fat }
@@ -51,6 +51,15 @@
   function save() {
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
   }
+
+  function applyTheme() {
+    const dark = state.settings.theme === 'dark';
+    if (dark) document.documentElement.dataset.theme = 'dark';
+    else delete document.documentElement.dataset.theme;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = dark ? '#0d0d0d' : '#f7f7f6';
+  }
+  applyTheme();
 
   /* ---------------- helpers ---------------- */
 
@@ -182,7 +191,7 @@
           <div class="sheet-head">
             <h3>${esc(title)}</h3>
             <button class="icon-btn" data-close aria-label="Close">
-              <svg viewBox="0 0 24 24"><path d="m6.4 19 -1.4-1.4 5.6-5.6-5.6-5.6L6.4 5l5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19Z"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>
             </button>
           </div>
           <div class="sheet-body"></div>
@@ -269,7 +278,7 @@
     return `
     <svg viewBox="0 0 ${size} ${size}" role="img" aria-label="Calories: ${Math.round(fraction * 100)} percent of target">
       <path d="${arc(start, start + sweep)}" fill="none" stroke="var(--surface-2)" stroke-width="${sw}" stroke-linecap="round"/>
-      ${clamped > 0 ? `<path d="${arc(start, end)}" fill="none" stroke="${over ? 'var(--critical)' : 'var(--accent)'}" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
+      ${clamped > 0 ? `<path d="${arc(start, end)}" fill="none" stroke="${over ? 'var(--critical)' : 'var(--ink-1)'}" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
     </svg>`;
   }
 
@@ -342,8 +351,12 @@
     const active = state.activeWorkout;
 
     v.innerHTML = `
-      <h2>Home</h2>
-      <p class="subtitle">${today.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+      <div class="home-top">
+        <h2>Home</h2>
+        <button class="icon-btn" id="homeSettings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
 
       <div class="week-strip">${strip}</div>
 
@@ -386,6 +399,7 @@
         </div>
       </div>`;
 
+    $('#homeSettings').addEventListener('click', openSettings);
     $('#bwCard').addEventListener('click', openWeightSheet);
     $('#homeStart').addEventListener('click', () => { currentTab = 'workout'; render(); });
     $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
@@ -467,7 +481,7 @@
           </div>
           <span class="mi-kcal">${Math.round(m.kcal)}<span class="t-unit"> kcal</span></span>
           <button class="meal-del" data-del="${esc(m.id)}" aria-label="Delete meal">
-            <svg viewBox="0 0 24 24"><path d="M7 21q-.8 0-1.4-.6T5 19V6H4V4h5V3h6v1h5v2h-1v13q0 .8-.6 1.4T17 21H7Zm2-4h2V8H9v9Zm4 0h2V8h-2v9Z"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2"/><path d="M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
           </button>
         </div>`).join('')
       : `<p class="empty-note">Nothing logged ${mealDayOffset === 0 ? 'today' : 'this day'} yet.</p>`}`;
@@ -578,7 +592,7 @@
                 <div class="li-name">${esc(t.name)}</div>
                 <div class="li-sub">${t.exercises.map((e) => exerciseById(e.exerciseId)?.name).filter(Boolean).slice(0, 3).join(' · ')}${t.exercises.length > 3 ? ' · …' : ''}</div>
               </div>
-              ${t.builtin ? '' : `<button class="icon-btn" data-del-tpl="${esc(t.id)}" aria-label="Delete routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:currentColor"><path d="M7 21q-.8 0-1.4-.6T5 19V6H4V4h5V3h6v1h5v2h-1v13q0 .8-.6 1.4T17 21H7Zm2-4h2V8H9v9Zm4 0h2V8h-2v9Z"/></svg></button>`}
+              ${t.builtin ? '' : `<button class="icon-btn" data-del-tpl="${esc(t.id)}" aria-label="Delete routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 7h16"/><path d="M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2"/><path d="M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>`}
             </div>`).join('')}
         </div>`;
       $('#startEmpty').addEventListener('click', () => startWorkout());
@@ -681,7 +695,7 @@
             <span class="muscle">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''}</span>
           </h3>
           <button class="ex-remove" aria-label="Remove exercise">
-            <svg viewBox="0 0 24 24"><path d="M7 21q-.8 0-1.4-.6T5 19V6H4V4h5V3h6v1h5v2h-1v13q0 .8-.6 1.4T17 21H7Zm2-4h2V8H9v9Zm4 0h2V8h-2v9Z"/></svg>
+            <svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2"/><path d="M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
           </button>
         </div>
         <div class="set-grid">
@@ -698,7 +712,7 @@
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
                      value="${s.reps ?? ''}" placeholder="${p?.reps ?? ''}" aria-label="Reps, set ${i + 1}">
               <button class="set-done ${s.done ? 'logged' : ''}" aria-label="${s.done ? 'Undo set' : 'Log set'}" aria-pressed="${s.done}">
-                <svg viewBox="0 0 24 24"><path d="M9.55 18 3.85 12.3l1.4-1.4 4.3 4.3 9.2-9.2 1.4 1.4L9.55 18Z"/></svg>
+                <svg viewBox="0 0 24 24"><path d="M4.5 12.5 9.5 17.5 19.5 6.5"/></svg>
               </button>
             </div>`;
           }).join('')}
@@ -1242,6 +1256,13 @@
     const t = state.nutrition.targets;
     openSheet('Settings', `
       <div class="field">
+        <label>Appearance</label>
+        <div class="seg" id="themeSeg" style="margin-bottom:0">
+          <button data-t="light" class="${s.theme !== 'dark' ? 'on' : ''}">Light</button>
+          <button data-t="dark" class="${s.theme === 'dark' ? 'on' : ''}">Dark</button>
+        </div>
+      </div>
+      <div class="field">
         <label>Weight unit</label>
         <div class="seg" id="unitSeg" style="margin-bottom:0">
           <button data-u="kg" class="${s.unit === 'kg' ? 'on' : ''}">kg</button>
@@ -1270,6 +1291,13 @@
       <button class="btn btn-danger" id="wipeBtn" style="margin-top:12px">Erase all data</button>
       <p class="muted" style="margin-top:16px;text-align:center">B.E.L.A Gym · data stays on this device</p>
     `, (body) => {
+      $('#themeSeg', body).addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-t]');
+        if (!b) return;
+        state.settings.theme = b.dataset.t;
+        $$('#themeSeg button', body).forEach((x) => x.classList.toggle('on', x === b));
+        save(); applyTheme(); render();
+      });
       $('#unitSeg', body).addEventListener('click', (e) => {
         const b = e.target.closest('button[data-u]');
         if (!b) return;
@@ -1331,12 +1359,12 @@
       });
     });
   }
-  $('#settingsBtn').addEventListener('click', openSettings);
 
   /* ================= router ================= */
 
   function render() {
     ensureElapsedTimer();
+    $('#view').classList.toggle('home-screen', currentTab === 'home');
     switch (currentTab) {
       case 'home': renderHome(); break;
       case 'workout': renderWorkout(); break;
