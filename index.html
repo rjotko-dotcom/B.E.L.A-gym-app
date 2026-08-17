@@ -68,7 +68,30 @@
   <script src="js/app.js"></script>
   <script>
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-      addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+      addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').then((reg) => {
+          reg.update(); // check for a new version on every launch
+          reg.addEventListener('updatefound', () => {
+            const nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener('statechange', () => {
+              if (nw.state === 'activated' && navigator.serviceWorker.controller) {
+                // new version downloaded and cached — offer a one-tap restart
+                const root = document.getElementById('toastRoot');
+                if (root.querySelector('.update-toast')) return;
+                const b = document.createElement('button');
+                b.className = 'toast update-toast';
+                b.style.pointerEvents = 'auto';
+                b.style.cursor = 'pointer';
+                b.style.border = 'none';
+                b.textContent = '⬆ Update ready — tap to restart';
+                b.onclick = () => location.reload();
+                root.appendChild(b);
+              }
+            });
+          });
+        });
+      });
     }
   </script>
 </body>
