@@ -545,3 +545,5 @@ body {
 .ms-track { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
 .ms-fill { height: 100%; border-radius: 999px; background: var(--ink-1); }
 .ms-count { text-align: right; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+
+.home-date { color: var(--ink-2); font-size: 0.85rem; font-weight: 600; }

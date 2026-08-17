@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '3.0';
+  const APP_VERSION = '3.1';
 
   /* ---------------- state ---------------- */
 
@@ -28,6 +28,39 @@
   let state = load();
   let currentTab = 'home';
   let workoutOpen = !!state.activeWorkout;   // full-screen logger visible?
+
+  /* ---------------- hardware back-button navigation ----------------
+     We push one history entry per UI layer (tab, workout overlay, sheet)
+     so the Android back button peels layers instead of exiting the app.
+     skipPop swallows the popstate events our own history.back() calls fire. */
+  let skipPop = 0;
+  let tabHasEntry = false;
+  let wkHasEntry = false;
+  let sheetHasEntry = false;
+
+  function goTab(tab) {
+    currentTab = tab;
+    if (tab === 'home') {
+      if (tabHasEntry) { tabHasEntry = false; skipPop++; history.back(); }
+    } else if (!tabHasEntry) {
+      history.pushState({ t: 'tab' }, '');
+      tabHasEntry = true;
+    }
+    render();
+  }
+  function openWkEntry() {
+    if (!wkHasEntry) { history.pushState({ t: 'wk' }, ''); wkHasEntry = true; }
+  }
+  function closeWkEntry() {
+    if (wkHasEntry) { wkHasEntry = false; skipPop++; history.back(); }
+  }
+  addEventListener('popstate', () => {
+    if (skipPop > 0) { skipPop--; return; }
+    if ($('#sheetRoot').children.length) { sheetHasEntry = false; closeSheetNow(); return; }
+    if (workoutOpen) { wkHasEntry = false; workoutOpen = false; render(); return; }
+    if (currentTab !== 'home') { tabHasEntry = false; currentTab = 'home'; render(); return; }
+    // nothing left to close — the next back press exits normally
+  });
   let progressSeg = 'trends';      // trends | history | library
   let expandedHistoryId = null;
   let progressExerciseId = null;
@@ -289,9 +322,14 @@
     backdrop.addEventListener('click', (e) => {
       if (e.target === backdrop || e.target.closest('[data-close]')) closeSheet();
     });
+    if (!sheetHasEntry) { history.pushState({ t: 'sheet' }, ''); sheetHasEntry = true; }
     if (onMount) onMount(body);
   }
-  function closeSheet() { $('#sheetRoot').innerHTML = ''; }
+  function closeSheetNow() { $('#sheetRoot').innerHTML = ''; }
+  function closeSheet() {
+    closeSheetNow();
+    if (sheetHasEntry) { sheetHasEntry = false; skipPop++; history.back(); }
+  }
 
   /* ---------------- rest timer ---------------- */
 
@@ -441,9 +479,7 @@
     v.innerHTML = `
       <div class="home-top">
         <h2>Home</h2>
-        <button class="icon-btn" id="homeSettings" aria-label="Settings">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
-        </button>
+        <span class="home-date">${today.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
       </div>
 
       <div class="week-strip">${strip}</div>
@@ -488,12 +524,10 @@
         </div>
       </div>`;
 
-    $('#homeSettings').addEventListener('click', openSettings);
     $('#bwCard').addEventListener('click', openWeightSheet);
     $('#homeStart').addEventListener('click', () => {
-      currentTab = 'workout';
-      if (state.activeWorkout) workoutOpen = true;
-      render();
+      if (state.activeWorkout) { workoutOpen = true; openWkEntry(); }
+      goTab('workout');
     });
     $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
   }
@@ -651,8 +685,7 @@
           name: f.name, kcal: f.kcal || 0, protein: f.protein || 0, carbs: f.carbs || 0, fat: f.fat || 0,
         });
         save(); closeSheet();
-        currentTab = 'meals';
-        render();
+        goTab('meals');
         toast(`${f.name} logged`);
       };
 
@@ -736,7 +769,7 @@
         <p class="muted" style="margin-bottom:12px">${loggedSets(w).length} sets logged · started ${fmtDuration(Date.now() - w.startedAt)} ago</p>
         <button class="btn btn-primary" id="resumeWorkout">Resume workout</button>
       </div>`;
-    $('#resumeWorkout').addEventListener('click', () => { workoutOpen = true; render(); });
+    $('#resumeWorkout').addEventListener('click', () => { workoutOpen = true; openWkEntry(); render(); });
   }
 
   /* -------- full-screen workout logger (Hevy-style) -------- */
@@ -770,7 +803,7 @@
 
     ensureElapsedTimer();
 
-    $('#wkMin', root).addEventListener('click', () => { workoutOpen = false; render(); });
+    $('#wkMin', root).addEventListener('click', () => { workoutOpen = false; closeWkEntry(); render(); });
     $('#wkFinishTop', root).addEventListener('click', finishWorkout);
     $('#addExercise', root).addEventListener('click', () => openExercisePicker((exId) => {
       w.exercises.push(newExerciseEntry(exId, 3));
@@ -780,6 +813,7 @@
       if (confirm('Discard this workout? Logged sets will be lost.')) {
         state.activeWorkout = null;
         workoutOpen = false;
+        closeWkEntry();
         stopRest(); save(); render();
       }
     });
@@ -886,20 +920,20 @@
           delete ex.ss;
           save(); closeSheet(); render();
         } else if (act === 'replace') {
-          closeSheet();
+          closeSheetNow();
           openExercisePicker((newId) => {
             ex.exerciseId = newId;
             save(); render();
           });
         } else if (act === 'note') {
-          closeSheet();
+          closeSheetNow();
           openNoteSheet(ex);
         } else if (act === 'plates') {
-          closeSheet();
+          closeSheetNow();
           const lastWeight = [...ex.sets].reverse().find((s) => s.weight)?.weight;
           openPlateCalc(lastWeight);
         } else if (act === 'detail') {
-          closeSheet();
+          closeSheetNow();
           openExerciseDetail(ex.exerciseId);
         }
       });
@@ -1042,8 +1076,7 @@
       $('#detTrend', body)?.addEventListener('click', () => {
         progressExerciseId = exerciseId;
         progressSeg = 'trends';
-        currentTab = 'progress';
-        closeSheet(); render();
+        closeSheet(); goTab('profile');
       });
     });
   }
@@ -1111,6 +1144,7 @@
       exercises: tpl ? tpl.exercises.map((e) => newExerciseEntry(e.exerciseId, e.sets, e.targetReps)) : [],
     };
     workoutOpen = true;
+    openWkEntry();
     save(); render();
     if (!tpl) {
       openExercisePicker((exId) => {
@@ -1163,7 +1197,7 @@
         state.activeWorkout = null;
         workoutOpen = false;
         stopRest();
-        save(); closeSheet(); render();
+        save(); closeSheet(); closeWkEntry(); render();
         toast(prs.length ? `Workout saved — ${prs.length} PR${prs.length === 1 ? '' : 's'} 🏆` : 'Workout saved 💪');
       });
     });
@@ -1268,7 +1302,12 @@
       search.addEventListener('input', () => { list.innerHTML = listHtml(search.value); });
       body.addEventListener('click', (e) => {
         const item = e.target.closest('[data-pick]');
-        if (item) { closeSheet(); onPick(item.dataset.pick); }
+        if (item) {
+          closeSheetNow();
+          onPick(item.dataset.pick);
+          // if the pick handler didn't open a follow-up sheet, release the history entry
+          if (!document.querySelector('#sheetRoot').children.length) closeSheet();
+        }
       });
       $('#newCustom', body).addEventListener('click', () => openCustomExerciseForm(onPick));
     });
@@ -1303,12 +1342,17 @@
     });
   }
 
-  /* ================= PROGRESS TAB (trends / history / library) ================= */
+  /* ================= PROFILE TAB (trends / history / library / settings) ================= */
 
-  function renderProgress() {
+  function renderProfile() {
     const v = $('#view');
     v.innerHTML = `
-      <h2>Progress</h2>
+      <div class="home-top" style="margin-bottom:2px">
+        <h2>Profile</h2>
+        <button class="icon-btn" id="profileSettings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
+        </button>
+      </div>
       <p class="subtitle">Your training at a glance</p>
       <div class="seg" id="progSeg">
         <button data-seg="trends" class="${progressSeg === 'trends' ? 'on' : ''}">Trends</button>
@@ -1317,6 +1361,7 @@
       </div>
       <div id="segBody"></div>`;
 
+    $('#profileSettings').addEventListener('click', openSettings);
     $('#progSeg').addEventListener('click', (e) => {
       const b = e.target.closest('button[data-seg]');
       if (!b) return;
@@ -1764,8 +1809,9 @@
               id: uid(), name: w.name, startedAt: Date.now(),
               exercises: w.exercises.map((ex) => newExerciseEntry(ex.exerciseId, ex.sets.length)),
             };
-            currentTab = 'workout';
-            save(); render();
+            workoutOpen = true;
+            openWkEntry();
+            save(); goTab('workout');
           }
           return;
         }
@@ -1944,16 +1990,15 @@
       case 'home': renderHome(); break;
       case 'workout': renderWorkout(); break;
       case 'meals': renderMeals(); break;
-      case 'progress': renderProgress(); break;
+      case 'profile': renderProfile(); break;
     }
     renderWorkoutOverlay();
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === currentTab));
   }
 
   $$('.tab').forEach((t) => t.addEventListener('click', () => {
-    currentTab = t.dataset.tab;
     window.scrollTo(0, 0);
-    render();
+    goTab(t.dataset.tab);
   }));
 
   render();
