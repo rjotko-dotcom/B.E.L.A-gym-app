@@ -22,9 +22,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      # configure-pages intentionally omitted: Pages is already enabled, and
+      # fetching that action has been a flaky point of failure
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
