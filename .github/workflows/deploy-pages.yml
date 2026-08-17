@@ -17,9 +17,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    environment: github-pages
     steps:
       - uses: actions/checkout@v4
       # configure-pages intentionally omitted: Pages is already enabled, and
@@ -27,5 +25,24 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
-      - id: deployment
+
+      # GitHub Pages returns 503 during their outages, so retry with backoff
+      # instead of failing an otherwise-valid build
+      - id: try1
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - if: steps.try1.outcome == 'failure'
+        run: sleep 120
+
+      - id: try2
+        if: steps.try1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - if: steps.try1.outcome == 'failure' && steps.try2.outcome == 'failure'
+        run: sleep 300
+
+      - id: try3
+        if: steps.try1.outcome == 'failure' && steps.try2.outcome == 'failure'
         uses: actions/deploy-pages@v4
