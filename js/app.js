@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '4.1';
+  const APP_VERSION = '4.2';
 
   /* ---------------- state ---------------- */
 
@@ -2088,8 +2088,12 @@
   // rendered result and step down through the compact tiers until it fits.
   function fitHome() {
     const v = $('#view');
-    if (!v.classList.contains('home-screen')) return;
+    if (!v.classList.contains('home-screen')) { v.style.height = ''; return; }
     v.classList.remove('home-compact', 'home-tight');
+    // pin the home container to the height actually visible right now, so the
+    // space-between layout can never distribute past the bottom of the screen
+    const vpH = window.visualViewport?.height || document.documentElement.clientHeight;
+    v.style.height = vpH + 'px';
     // measure against the *visible* viewport: during a pull-to-refresh the URL
     // bar is showing, so the usable height is smaller than the layout viewport
     const visible = () => (window.visualViewport?.height || document.documentElement.clientHeight);
