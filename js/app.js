@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '3.5.1';
+  const APP_VERSION = '3.6';
 
   /* ---------------- state ---------------- */
 
@@ -522,8 +522,8 @@
 
       <div class="macro-cards">
         ${[
-          ['Protein', totals.protein, targets.protein, '<path d="M12.5 4.5c3.9.9 6.75 4.1 6.75 8a7.75 7.75 0 0 1-7.75 7.75H9.25A4.75 4.75 0 0 1 4.5 15.5V7a2.5 2.5 0 0 1 2.5-2.5h3l1.5 3.25c-1.4.7-2.4 1.75-3 3.25"/>'],
-          ['Carbs', totals.carbs, targets.carbs, '<path d="M4 12.5h16a8 8 0 0 1-16 0Z"/><path d="M8 9.25c0-1.1.9-2 2-2s2-.9 2-2"/><path d="M13.5 9.25c0-1.1.9-2 2-2"/>'],
+          ['Protein', totals.protein, targets.protein, '<path d="M12.409 13.017A5 5 0 0 1 22 15c0 3.866-4 7-9 7-4.077 0-8.153-.82-10.371-2.462-.426-.316-.631-.832-.62-1.362C2.118 12.723 2.627 2 6 2h4a2 2 0 0 1 0 4h-1a2 2 0 0 0 0 4h1a3 3 0 0 0 2.235-1"/>'],
+          ['Carbs', totals.carbs, targets.carbs, '<path d="M4 12.5h16a8 8 0 0 1-16 0Z"/><path d="M8.75 10.2h.01M12 9.4h.01M15.25 10.2h.01"/>'],
           ['Fat', totals.fat, targets.fat, '<path d="M12 3.75c3.4 4.1 5.35 6.85 5.35 9.35a5.35 5.35 0 1 1-10.7 0c0-2.5 1.95-5.25 5.35-9.35Z"/>'],
         ].map(([label, val, target, icon]) => `
         <div class="mc-card ${target && val > target ? 'over' : ''}">
