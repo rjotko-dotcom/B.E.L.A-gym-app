@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '4.2';
+  const APP_VERSION = '5.0';
 
   /* ---------------- state ---------------- */
 
@@ -446,15 +446,18 @@
     const workoutDays = new Set(state.workouts.map((w) => dateKey(new Date(w.startedAt))));
     const mealDays = new Set(state.nutrition.meals.map((m) => m.date));
 
-    const strip = letters.map((L, i) => {
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const strip = dayNames.map((L, i) => {
       const d = new Date(monday); d.setDate(d.getDate() + i);
       const key = dateKey(d);
       const isToday = key === todayKey;
-      const active = key < todayKey || workoutDays.has(key) || mealDays.has(key);
+      const past = key < todayKey;
+      const logged = workoutDays.has(key) || mealDays.has(key);
       return `
-        <div class="wd">
+        <div class="wd ${isToday ? 'is-today' : past ? 'is-past' : ''}">
           <span class="wd-letter">${L}</span>
-          <span class="wd-dot ${isToday ? 'today' : active ? 'active' : ''}">${d.getDate()}</span>
+          <span class="wd-num">${d.getDate()}</span>
+          <span class="wd-mark ${logged ? 'on' : ''}"></span>
         </div>`;
     }).join('');
 
@@ -491,16 +494,41 @@
     ];
     if (streak >= 2) subParts.push(`${streak}-week streak 🔥`);
 
+    const macros = [
+      ['Protein', totals.protein, targets.protein, '<path d="M12.409 13.017A5 5 0 0 1 22 15c0 3.866-4 7-9 7-4.077 0-8.153-.82-10.371-2.462-.426-.316-.631-.832-.62-1.362C2.118 12.723 2.627 2 6 2h4a2 2 0 0 1 0 4h-1a2 2 0 0 0 0 4h1a3 3 0 0 0 2.235-1"/>'],
+      ['Carbs', totals.carbs, targets.carbs, '<path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/>'],
+      ['Fat', totals.fat, targets.fat, '<path d="M12 4.4c3.2 3.9 5 6.5 5 8.85a5 5 0 0 1-10 0c0-2.35 1.8-4.95 5-8.85Z"/>'],
+    ];
+    const initial = ((state.settings.name || '').trim().charAt(0) || 'B').toUpperCase();
+    const kcalPct = Math.round(frac * 100);
+    const RING = 2 * Math.PI * 22;
+    const ringOffset = RING * (1 - Math.min(1, frac));
+
     v.innerHTML = `
+      <svg class="home-wave" viewBox="0 0 400 120" preserveAspectRatio="none" aria-hidden="true">
+        <defs><linearGradient id="waveGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop class="wave-a" offset="0%"/><stop class="wave-b" offset="100%"/>
+        </linearGradient></defs>
+        <path d="M0,0 H400 V74 C336,84 306,104 252,104 C192,104 150,72 92,79 C52,84 24,95 0,103 Z" fill="url(#waveGrad)"/>
+      </svg>
+
       <div class="home-head">
-        <h2>${greeting}${state.settings.name ? ', ' + esc(state.settings.name) : ''}</h2>
-        <p class="home-sub">${subParts.join(' · ')}</p>
+        <div class="hh-text">
+          <span class="hh-greet">${greeting},</span>
+          <h2 class="hh-name">${esc(state.settings.name || 'Athlete')}<span class="hh-dot">.</span></h2>
+          <p class="hh-sub">${subParts.join(' • ')}</p>
+        </div>
+        <button class="hh-avatar" id="homeAvatar" aria-label="Open profile">
+          <span class="hh-initial">${esc(initial)}</span>
+          <svg class="hh-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 9 7 7 7-7"/></svg>
+        </button>
       </div>
+
       <div class="week-strip">${strip}</div>
 
       <div class="card bw-card" id="bwCard" role="button" tabindex="0" aria-label="Log bodyweight">
-        <div>
-          <span class="micro">Bodyweight</span>
+        <div class="bw-left">
+          <span class="micro bw-label">Bodyweight<svg class="bw-trend" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 14.5c3 0 3.2-5 6.2-5s3.2 5 6.2 5 3.2-5 6.2-5"/></svg></span>
           <div class="bw-value">${lw ? fmtNum(lw.value) : '—'}<span class="t-unit"> ${esc(unit())}</span></div>
           <div class="bw-delta">${
             delta == null ? 'Tap to log today' :
@@ -511,46 +539,62 @@
       </div>
 
       <div class="card kcal-line">
-        <h3>Calories</h3>
-        <div class="kl-bar-row">
-          <div class="macro-track kl-track"><div class="macro-fill ${over ? 'over' : ''}" style="width:${Math.min(100, frac * 100)}%"></div></div>
-          <b class="kl-pct">${Math.round(frac * 100)}%</b>
+        <div class="kl-head">
+          <span class="micro">Calories</span>
+          <svg class="kl-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c.7 3.1 3.4 4.4 3.4 7.4 0 1-.4 2-1.2 2.8.5-1.7-.6-3.1-1.7-3.9.2 2.3-1.4 3.5-2.3 4.8-1.7 2.2.2 5.5 3.4 5.5 3.1 0 5.4-2.4 5.4-5.4 0-4.9-4.3-7.9-7-11.2Z"/></svg>
         </div>
-        <div class="kl-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()} <span>kcal</span></div>
+        <div class="kl-row">
+          <div class="kl-ring">
+            <svg viewBox="0 0 52 52" aria-hidden="true">
+              <circle cx="26" cy="26" r="22" fill="none" stroke="var(--surface-2)" stroke-width="3"/>
+              <circle cx="26" cy="26" r="22" fill="none" stroke="${over ? 'var(--critical)' : 'var(--ink-1)'}" stroke-width="3" stroke-linecap="round"
+                stroke-dasharray="${RING.toFixed(1)}" stroke-dashoffset="${ringOffset.toFixed(1)}" transform="rotate(-90 26 26)"/>
+            </svg>
+            <span class="kl-pct">${kcalPct}%</span>
+          </div>
+          <div class="kl-right">
+            <div class="macro-track kl-track"><div class="macro-fill ${over ? 'over' : ''}" style="width:${Math.min(100, frac * 100)}%"></div></div>
+            <div class="kl-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()} <span>kcal</span></div>
+          </div>
+        </div>
       </div>
 
       <div class="macro-cards">
-        ${[
-          ['Protein', totals.protein, targets.protein, '<path d="M12.409 13.017A5 5 0 0 1 22 15c0 3.866-4 7-9 7-4.077 0-8.153-.82-10.371-2.462-.426-.316-.631-.832-.62-1.362C2.118 12.723 2.627 2 6 2h4a2 2 0 0 1 0 4h-1a2 2 0 0 0 0 4h1a3 3 0 0 0 2.235-1"/>'],
-          ['Carbs', totals.carbs, targets.carbs, '<path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/>'],
-          ['Fat', totals.fat, targets.fat, '<path d="M12 4.4c3.2 3.9 5 6.5 5 8.85a5 5 0 0 1-10 0c0-2.35 1.8-4.95 5-8.85Z"/>'],
-        ].map(([label, val, target, icon]) => `
-        <div class="mc-card ${target && val > target ? 'over' : ''}">
-          <div class="mc-top"><span class="mc-name">${label}</span><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></div>
-          <div class="mc-val">${Math.round(val)}g</div>
-          <div class="mc-target">/ ${target}g</div>
-        </div>`).join('')}
+        ${macros.map(([label, val, target, icon]) => {
+          const pct = target ? Math.min(100, (val / target) * 100) : 0;
+          const isOver = target && val > target;
+          return `
+          <div class="mc-card ${isOver ? 'over' : ''}">
+            <div class="mc-top"><span class="mc-name">${label}</span><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></div>
+            <div class="mc-val">${Math.round(val)}g</div>
+            <div class="mc-target">/ ${target}g</div>
+            <div class="mc-bar"><div class="mc-fill ${isOver ? 'over' : ''}" style="width:${pct}%"></div></div>
+          </div>`;
+        }).join('')}
       </div>
 
       <div class="home-grid2">
-        <div class="card shortcut-card">
+        <div class="card shortcut-card sc-workout">
+          <span class="sc-ghost" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg></span>
           <h3>Workouts</h3>
           <p>${active ? 'Session in progress' : 'Track and improve'}</p>
           <div class="shortcut-foot">
-            <button class="btn btn-primary" id="homeStart">${active ? 'Resume' : 'Start'}</button>
-            <svg class="sf-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg>
+            <button class="btn btn-white" id="homeStart">${active ? 'Resume' : 'Start'}</button>
+            <span class="sc-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg></span>
           </div>
         </div>
-        <div class="card shortcut-card">
+        <div class="card shortcut-card sc-meals">
+          <span class="sc-ghost" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg></span>
           <h3>Meals</h3>
           <p>Log and track nutrition</p>
           <div class="shortcut-foot">
-            <button class="btn btn-primary" id="homeLog">Log</button>
-            <svg class="sf-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg>
+            <button class="btn btn-white" id="homeLog">Log</button>
+            <span class="sc-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg></span>
           </div>
         </div>
       </div>`;
 
+    $('#homeAvatar').addEventListener('click', () => goTab('profile'));
     $('#bwCard').addEventListener('click', openWeightSheet);
     $('#homeStart').addEventListener('click', () => {
       if (state.activeWorkout) { workoutOpen = true; openWkEntry(); }
