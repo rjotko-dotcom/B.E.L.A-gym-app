@@ -891,3 +891,16 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .home-tight .bw-value { font-size: 1.6rem; }
 .home-tight .bw-add { width: 26px; height: 26px; }
 .home-tight .bw-add svg { width: 13px; height: 13px; }
+
+/* ---------- bodyweight card v3: stats under the graph, + in its own slot ---------- */
+.bw-main { align-items: center; }
+.bw-right { min-width: 0; display: flex; flex-direction: column; }
+.bw-value-row { display: contents; }
+.bw-value { margin: 4px 0 7px; }
+.bw-add { margin-top: 12px; }
+/* the divider and stats sit under the graph only, not across the whole card */
+.bw-card .bw-stats { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--grid); }
+.bw-card .bw-stats b { font-size: 0.95rem; }
+.bw-card .bw-stats .micro { font-size: 0.58rem; letter-spacing: 0.07em; }
+.home-compact .bw-add { margin-top: 9px; }
+.home-tight .bw-add { margin-top: 6px; }

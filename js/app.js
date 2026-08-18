@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '5.3';
+  const APP_VERSION = '5.4';
 
   /* ---------------- state ---------------- */
 
@@ -598,12 +598,7 @@
         <div class="bw-main">
           <div class="bw-left">
             <span class="micro">Bodyweight</span>
-            <div class="bw-value-row">
-              <div class="bw-value">${lw ? fmtNum(lw.value) : '—'}<span class="t-unit">${esc(unit())}</span></div>
-              <button class="bw-add" id="bwCard" aria-label="Log weight" title="Log weight">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
-              </button>
-            </div>
+            <div class="bw-value">${lw ? fmtNum(lw.value) : '—'}<span class="t-unit">${esc(unit())}</span></div>
             <div class="bw-delta">${
               stats && stats.week != null
                 ? `<span class="bw-arrow">${stats.week > 0 ? '↑' : stats.week < 0 ? '↓' : '→'}</span> <b>${Math.abs(stats.week).toFixed(1)} ${esc(unit())}</b> this week`
@@ -613,13 +608,18 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>
               ${goal ? `Goal ${fmtNum(goal)} ${esc(unit())}` : 'Set a goal'}
             </button>
+            <button class="bw-add" id="bwCard" aria-label="Log weight" title="Log weight">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
+            </button>
           </div>
-          <div class="bw-chart">${weightWeekChart(weekWeights, unit())}</div>
-        </div>
-        <div class="bw-stats">
-          <div><span class="micro">7d avg</span><b>${stats && stats.avg7 != null ? fmtNum(Math.round(stats.avg7 * 10) / 10) : '—'}<i>${esc(unit())}</i></b></div>
-          <div><span class="micro">Week</span><b>${stats && stats.week != null ? (stats.week > 0 ? '+' : '') + stats.week.toFixed(1) : '—'}<i>${esc(unit())}</i></b></div>
-          <div><span class="micro">30d</span><b>${stats && stats.month != null ? (stats.month > 0 ? '+' : '') + stats.month.toFixed(1) : '—'}<i>${esc(unit())}</i></b></div>
+          <div class="bw-right">
+            <div class="bw-chart">${weightWeekChart(weekWeights, unit())}</div>
+            <div class="bw-stats">
+              <div><span class="micro">7d avg</span><b>${stats && stats.avg7 != null ? fmtNum(Math.round(stats.avg7 * 10) / 10) : '—'}<i>${esc(unit())}</i></b></div>
+              <div><span class="micro">Week</span><b>${stats && stats.week != null ? (stats.week > 0 ? '+' : '') + stats.week.toFixed(1) : '—'}<i>${esc(unit())}</i></b></div>
+              <div><span class="micro">30d</span><b>${stats && stats.month != null ? (stats.month > 0 ? '+' : '') + stats.month.toFixed(1) : '—'}<i>${esc(unit())}</i></b></div>
+            </div>
+          </div>
         </div>
       </div>
 
