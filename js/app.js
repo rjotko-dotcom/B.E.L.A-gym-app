@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '5.0';
+  const APP_VERSION = '5.2';
 
   /* ---------------- state ---------------- */
 
@@ -290,6 +290,87 @@
     } catch { /* audio unavailable without user gesture — vibration still fires */ }
   }
 
+  /* ---- bodyweight stats & weekly chart ---- */
+  function weightStats() {
+    const ws = [...state.nutrition.weights].sort((a, b) => a.date.localeCompare(b.date));
+    if (!ws.length) return null;
+    const latest = ws[ws.length - 1];
+    const since = (days) => {
+      const d = new Date(); d.setDate(d.getDate() - days);
+      return dateKey(d);
+    };
+    const last7 = ws.filter((w) => w.date >= since(6));
+    const avg7 = last7.length ? last7.reduce((t, w) => t + w.value, 0) / last7.length : null;
+    const range = (days) => {
+      const rows = ws.filter((w) => w.date >= since(days));
+      return rows.length >= 2 ? latest.value - rows[0].value : null;
+    };
+    return { latest, avg7, week: range(6), month: range(29) };
+  }
+
+  // 7-day line chart for the bodyweight card
+  function weightWeekChart(week, u) {
+    const pts = week.map((x, i) => (x.entry ? { i, v: x.entry.value } : null)).filter(Boolean);
+    if (pts.length < 2) {
+      return '<p class="bw-chart-empty">Log two or more days to see your trend.</p>';
+    }
+    const W = 300, H = 124, padL = 38, padR = 10, padT = 12, padB = 26;
+    const vals = pts.map((p) => p.v);
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    const span = Math.max(0.8, hi - lo);
+    lo = lo - span * 0.25; hi = hi + span * 0.25;
+    const x = (i) => padL + (i / 6) * (W - padL - padR);
+    const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+    const ticks = [hi, (hi + lo) / 2, lo];
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+    const area = `${line} L${x(pts[pts.length - 1].i).toFixed(1)},${(H - padB).toFixed(1)} L${x(pts[0].i).toFixed(1)},${(H - padB).toFixed(1)} Z`;
+    const last = pts[pts.length - 1];
+    return `
+      <svg class="bw-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Bodyweight this week">
+        <defs><linearGradient id="bwFill" x1="0" y1="0" x2="0" y2="1">
+          <stop class="bwf-a" offset="0%"/><stop class="bwf-b" offset="100%"/>
+        </linearGradient></defs>
+        ${ticks.map((t) => `
+          <line class="bw-grid" x1="${padL}" x2="${W - padR}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}" stroke-dasharray="3 4"/>
+          <text class="bw-ytick" x="${padL - 6}" y="${(y(t) + 3.5).toFixed(1)}" text-anchor="end">${t.toFixed(1)}</text>`).join('')}
+        <path d="${area}" fill="url(#bwFill)"/>
+        <path d="${line}" class="bw-line" fill="none"/>
+        ${pts.slice(0, -1).map((p) => `<circle class="bw-pt" cx="${x(p.i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="3"/>`).join('')}
+        <circle class="bw-pt-last-halo" cx="${x(last.i).toFixed(1)}" cy="${y(last.v).toFixed(1)}" r="7"/>
+        <circle class="bw-pt-last" cx="${x(last.i).toFixed(1)}" cy="${y(last.v).toFixed(1)}" r="4"/>
+        ${week.map((d, i) => `<text class="bw-xtick" x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="middle">${d.letter}</text>`).join('')}
+      </svg>`;
+  }
+
+  // Profile picture: stored as a small square JPEG data URI in settings.avatar
+  function avatarHTML(cls) {
+    const name = (state.settings.name || '').trim();
+    const initial = (name.charAt(0) || 'B').toUpperCase();
+    return state.settings.avatar
+      ? `<span class="${cls} has-photo"><img src="${esc(state.settings.avatar)}" alt="Profile picture"></span>`
+      : `<span class="${cls}">${esc(initial)}</span>`;
+  }
+  function readAvatarFile(file, done) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const size = 240;                       // square, plenty for a 46px circle
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const scale = Math.max(size / img.width, size / img.height);
+        const w = img.width * scale, h = img.height * scale;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        done(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = () => done(null);
+      img.src = reader.result;
+    };
+    reader.onerror = () => done(null);
+    reader.readAsDataURL(file);
+  }
+
   function toast(msg) {
     const root = $('#toastRoot');
     const el = document.createElement('div');
@@ -466,19 +547,7 @@
       const d = new Date(monday); d.setDate(d.getDate() + i);
       return { key: dateKey(d), letter: letters[i], entry: weightOn(dateKey(d)) };
     });
-    const vals = weekWeights.filter((x) => x.entry).map((x) => x.entry.value);
-    const lo = vals.length ? Math.min(...vals) - 1 : 0;
-    const hi = vals.length ? Math.max(...vals) + 1 : 1;
-    const barH = (val) => 22 + ((val - lo) / Math.max(0.1, hi - lo)) * 32; // 22–54 px
-    const miniBars = weekWeights.map((x) => `
-      <div class="col">
-        <div class="bar ${x.entry ? (x.key === todayKey ? 'today' : 'has') : ''}"
-             style="height:${x.entry ? barH(x.entry.value).toFixed(0) : 40}px"></div>
-        <span class="lbl">${x.letter}</span>
-      </div>`).join('');
-
     const lw = latestWeight();
-    const delta = weekDelta();
     const active = state.activeWorkout;
 
     const hour = today.getHours();
@@ -499,6 +568,8 @@
       ['Carbs', totals.carbs, targets.carbs, '<path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/>'],
       ['Fat', totals.fat, targets.fat, '<path d="M12 4.4c3.2 3.9 5 6.5 5 8.85a5 5 0 0 1-10 0c0-2.35 1.8-4.95 5-8.85Z"/>'],
     ];
+    const stats = weightStats();
+    const goal = state.settings.goalWeight;
     const initial = ((state.settings.name || '').trim().charAt(0) || 'B').toUpperCase();
     const kcalPct = Math.round(frac * 100);
     const RING = 2 * Math.PI * 22;
@@ -518,24 +589,34 @@
           <h2 class="hh-name">${esc(state.settings.name || 'Athlete')}<span class="hh-dot">.</span></h2>
           <p class="hh-sub">${subParts.join(' • ')}</p>
         </div>
-        <button class="hh-avatar" id="homeAvatar" aria-label="Open profile">
-          <span class="hh-initial">${esc(initial)}</span>
-          <svg class="hh-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 9 7 7 7-7"/></svg>
-        </button>
+        <button class="hh-avatar" id="homeAvatar" aria-label="Open profile">${avatarHTML('hh-initial')}</button>
       </div>
 
       <div class="week-strip">${strip}</div>
 
-      <div class="card bw-card" id="bwCard" role="button" tabindex="0" aria-label="Log bodyweight">
-        <div class="bw-left">
-          <span class="micro bw-label">Bodyweight<svg class="bw-trend" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 14.5c3 0 3.2-5 6.2-5s3.2 5 6.2 5 3.2-5 6.2-5"/></svg></span>
-          <div class="bw-value">${lw ? fmtNum(lw.value) : '—'}<span class="t-unit"> ${esc(unit())}</span></div>
-          <div class="bw-delta">${
-            delta == null ? 'Tap to log today' :
-            `This week <b>${delta > 0 ? '+' : ''}${delta.toFixed(1)} ${esc(unit())} ${delta > 0 ? '↑' : delta < 0 ? '↓' : '→'}</b>`
-          }</div>
+      <div class="card bw-card">
+        <div class="bw-main">
+          <div class="bw-left">
+            <span class="micro">Bodyweight</span>
+            <div class="bw-value">${lw ? fmtNum(lw.value) : '—'}<span class="t-unit">${esc(unit())}</span></div>
+            <div class="bw-delta">${
+              stats && stats.week != null
+                ? `<span class="bw-arrow">${stats.week > 0 ? '↑' : stats.week < 0 ? '↓' : '→'}</span> <b>${Math.abs(stats.week).toFixed(1)} ${esc(unit())}</b> this week`
+                : 'Tap to log today'
+            }</div>
+            <button class="bw-goal" id="bwGoal">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>
+              ${goal ? `Goal ${fmtNum(goal)} ${esc(unit())}` : 'Set a goal'}
+            </button>
+            <button class="chip-btn bw-log" id="bwCard">+ Log weight</button>
+          </div>
+          <div class="bw-chart">${weightWeekChart(weekWeights, unit())}</div>
         </div>
-        <div class="bw-mini">${miniBars}</div>
+        <div class="bw-stats">
+          <div><span class="micro">7d avg</span><b>${stats && stats.avg7 != null ? fmtNum(Math.round(stats.avg7 * 10) / 10) : '—'}<i>${esc(unit())}</i></b></div>
+          <div><span class="micro">Week</span><b>${stats && stats.week != null ? (stats.week > 0 ? '+' : '') + stats.week.toFixed(1) : '—'}<i>${esc(unit())}</i></b></div>
+          <div><span class="micro">30d</span><b>${stats && stats.month != null ? (stats.month > 0 ? '+' : '') + stats.month.toFixed(1) : '—'}<i>${esc(unit())}</i></b></div>
+        </div>
       </div>
 
       <div class="card kcal-line">
@@ -595,6 +676,7 @@
       </div>`;
 
     $('#homeAvatar').addEventListener('click', () => goTab('profile'));
+    $('#bwGoal').addEventListener('click', (e) => { e.stopPropagation(); openWeightSheet(); });
     $('#bwCard').addEventListener('click', openWeightSheet);
     $('#homeStart').addEventListener('click', () => {
       if (state.activeWorkout) { workoutOpen = true; openWkEntry(); }
@@ -612,14 +694,26 @@
         <input id="bwInput" type="number" inputmode="decimal" step="0.1" min="0"
                value="${existing ? existing.value : latestWeight()?.value ?? ''}" placeholder="e.g. 77.9">
       </div>
+      <div class="field">
+        <label for="bwGoalInput">Goal weight (optional)</label>
+        <input id="bwGoalInput" type="number" inputmode="decimal" step="0.1" min="0"
+               value="${state.settings.goalWeight ?? ''}" placeholder="e.g. 75">
+      </div>
       <button class="btn btn-primary" id="bwSave">Save</button>
       ${existing ? '<button class="btn btn-danger" id="bwDelete" style="margin-top:10px">Remove today’s entry</button>' : ''}
     `, (body) => {
       const input = $('#bwInput', body);
       input.focus();
       $('#bwSave', body).addEventListener('click', () => {
+        const goalVal = Number($('#bwGoalInput', body).value);
+        if (goalVal > 0) state.settings.goalWeight = Math.round(goalVal * 10) / 10;
+        else delete state.settings.goalWeight;
         const val = Number(input.value);
-        if (!val || val <= 0) { toast('Enter a weight'); return; }
+        if (!val || val <= 0) {
+          // saving just a goal is fine
+          if (goalVal > 0) { save(); closeSheet(); render(); toast('Goal saved'); return; }
+          toast('Enter a weight'); return;
+        }
         state.nutrition.weights = state.nutrition.weights.filter((w) => w.date !== todayKey);
         state.nutrition.weights.push({ date: todayKey, value: Math.round(val * 10) / 10 });
         save(); closeSheet(); render();
@@ -1452,7 +1546,7 @@
     const v = $('#view');
     v.innerHTML = `
       <div class="home-top" style="margin-bottom:2px">
-        <h2>Profile</h2>
+        <h2 class="profile-title">${avatarHTML('pt-avatar')}${esc(state.settings.name || 'Profile')}</h2>
         <button class="icon-btn" id="profileSettings" aria-label="Settings">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
         </button>
@@ -1972,6 +2066,17 @@
     const t = state.nutrition.targets;
     openSheet('Settings', `
       <div class="field">
+        <label>Profile</label>
+        <div class="avatar-row">
+          <span class="av-preview">${avatarHTML('av-circle')}</span>
+          <div class="avatar-actions">
+            <button class="chip-btn" id="avPick">${s.avatar ? 'Change photo' : 'Add photo'}</button>
+            ${s.avatar ? '<button class="chip-btn" id="avClear">Remove</button>' : ''}
+          </div>
+        </div>
+        <input id="avFile" type="file" accept="image/*" hidden>
+      </div>
+      <div class="field">
         <label for="setName">Your name (for the greeting)</label>
         <input id="setName" type="text" placeholder="e.g. Alex" value="${esc(s.name ?? '')}">
       </div>
@@ -2016,6 +2121,29 @@
       <button class="btn btn-danger" id="wipeBtn" style="margin-top:12px">Erase all data</button>
       <p class="muted" style="margin-top:16px;text-align:center">B.E.L.A Gym v${APP_VERSION} · data stays on this device</p>
     `, (body) => {
+      $('#avPick', body).addEventListener('click', () => $('#avFile', body).click());
+      $('#avFile', body).addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        readAvatarFile(file, (dataUri) => {
+          if (!dataUri) { toast('Could not read that image'); return; }
+          try {
+            state.settings.avatar = dataUri;
+            save();
+          } catch {
+            delete state.settings.avatar;
+            toast('That image is too large');
+            return;
+          }
+          closeSheetNow(); render(); openSettings();
+          toast('Profile picture updated');
+        });
+      });
+      $('#avClear', body)?.addEventListener('click', () => {
+        delete state.settings.avatar;
+        save(); closeSheetNow(); render(); openSettings();
+        toast('Profile picture removed');
+      });
       $('#setName', body).addEventListener('change', (e) => {
         state.settings.name = e.target.value.trim();
         save(); render();

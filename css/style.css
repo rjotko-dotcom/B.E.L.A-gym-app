@@ -721,7 +721,6 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
   border: 1.5px solid var(--baseline); color: var(--ink-1);
   display: grid; place-items: center; font-size: 1.05rem; font-weight: 600;
 }
-.hh-chev { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* week strip */
 .week-strip { gap: 2px; margin: 2px 0 0; }
@@ -788,8 +787,88 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .home-tight .hh-name { font-size: 1.3rem; }
 .home-tight .hh-greet, .home-tight .hh-sub { font-size: 0.72rem; }
 .home-tight .hh-initial { width: 34px; height: 34px; font-size: 0.85rem; }
-.home-tight .hh-chev { width: 14px; height: 14px; }
 .home-tight .week-strip .wd-num { width: 30px; height: 30px; font-size: 0.86rem; }
 .home-tight .kl-ring { width: 42px; }
 .home-tight .sc-badge { width: 34px; height: 34px; }
 .home-tight .sc-ghost svg { width: 96px; height: 96px; }
+
+/* ---------- profile picture ---------- */
+.hh-avatar { gap: 0; }
+.hh-initial.has-photo, .av-circle.has-photo, .pt-avatar.has-photo { padding: 0; border-color: transparent; overflow: hidden; }
+.hh-initial img, .av-circle img, .pt-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.avatar-row { display: flex; align-items: center; gap: 14px; }
+.av-circle {
+  width: 62px; height: 62px; border-radius: 50%; flex-shrink: 0;
+  border: 1.5px solid var(--baseline); color: var(--ink-1);
+  display: grid; place-items: center; font-size: 1.3rem; font-weight: 600;
+  overflow: hidden;
+}
+.avatar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.profile-title { display: flex; align-items: center; gap: 10px; }
+.pt-avatar {
+  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  border: 1.5px solid var(--baseline); color: var(--ink-1);
+  display: grid; place-items: center; font-size: 0.85rem; font-weight: 600;
+  overflow: hidden;
+}
+
+/* ---------- bodyweight card v2: value + goal + weekly chart + stats ---------- */
+.bw-card { display: block; padding: 16px 18px 12px; cursor: default; }
+.bw-main { display: grid; grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr); gap: 10px; align-items: center; }
+.bw-left { min-width: 0; }
+.bw-value {
+  font-size: clamp(1.9rem, 4.2svh, 2.4rem); font-weight: 700; letter-spacing: -0.03em;
+  line-height: 1.05; margin: 6px 0 5px; display: flex; align-items: baseline; gap: 4px;
+}
+.bw-value .t-unit { font-size: 0.95rem; color: var(--ink-2); font-weight: 600; }
+.bw-delta { font-size: 0.82rem; color: var(--ink-2); display: flex; align-items: center; gap: 5px; }
+.bw-delta b { color: var(--ink-1); font-weight: 700; }
+.bw-arrow { color: var(--ink-1); font-weight: 700; }
+.bw-goal {
+  display: flex; align-items: center; gap: 6px; margin-top: 7px;
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--ink-2); font: inherit; font-size: 0.82rem;
+}
+.bw-goal svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.bw-log { margin-top: 11px; width: 100%; max-width: 168px; }
+
+.bw-chart { min-width: 0; }
+.bw-chart-svg { display: block; width: 100%; height: auto; }
+.bw-chart-empty { color: var(--ink-muted); font-size: 0.76rem; text-align: center; padding: 18px 4px; }
+.bw-grid { stroke: var(--grid); stroke-width: 1; }
+.bw-ytick, .bw-xtick { fill: var(--ink-muted); font-size: 10.5px; font-weight: 600; font-family: inherit; }
+.bw-xtick { font-size: 11.5px; }
+.bw-line { stroke: var(--ink-2); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.bw-pt { fill: var(--ink-2); }
+.bw-pt-last { fill: var(--ink-1); }
+.bw-pt-last-halo { fill: var(--ink-1); opacity: 0.18; }
+.bw-chart-svg .bwf-a { stop-color: rgba(0, 0, 0, 0.10); }
+.bw-chart-svg .bwf-b { stop-color: rgba(0, 0, 0, 0); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .bw-chart-svg .bwf-a { stop-color: rgba(255, 255, 255, 0.13); }
+}
+:root[data-theme="dark"] .bw-chart-svg .bwf-a { stop-color: rgba(255, 255, 255, 0.13); }
+
+.bw-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--grid); margin-top: 11px; padding-top: 10px;
+}
+.bw-stats > div { text-align: center; }
+.bw-stats > div + div { border-left: 1px solid var(--grid); }
+.bw-stats b { display: block; font-size: 1.02rem; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.bw-stats i { font-style: normal; font-size: 0.72rem; color: var(--ink-2); font-weight: 500; margin-left: 2px; }
+
+.home-compact .bw-card { padding: 13px 15px 10px; }
+.home-compact .bw-value { font-size: 1.7rem; }
+.home-compact .bw-log { min-height: 32px; padding: 6px 12px; font-size: 0.8rem; }
+.home-compact .bw-stats { margin-top: 8px; padding-top: 8px; }
+.home-tight .bw-value { font-size: 1.45rem; }
+.home-tight .bw-goal { margin-top: 4px; font-size: 0.74rem; }
+.home-tight .bw-log { margin-top: 7px; min-height: 30px; font-size: 0.76rem; }
+.home-tight .bw-stats b { font-size: 0.9rem; }
+/* on the shortest screens the stats row yields so the card still fits */
+.home-tight .bw-stats { display: none; }
+.home-tight .bw-card { padding: 11px 14px; }
+.home-compact .bw-stats b { font-size: 0.92rem; }
