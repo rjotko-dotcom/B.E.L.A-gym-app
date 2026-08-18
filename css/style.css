@@ -816,7 +816,7 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 
 /* ---------- bodyweight card v2: value + goal + weekly chart + stats ---------- */
 .bw-card { display: block; padding: 16px 18px 12px; cursor: default; }
-.bw-main { display: grid; grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr); gap: 10px; align-items: center; }
+.bw-main { display: grid; grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr); gap: 12px; align-items: center; }
 .bw-left { min-width: 0; }
 .bw-value {
   font-size: clamp(1.9rem, 4.2svh, 2.4rem); font-weight: 700; letter-spacing: -0.03em;
@@ -872,3 +872,22 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .home-tight .bw-stats { display: none; }
 .home-tight .bw-card { padding: 11px 14px; }
 .home-compact .bw-stats b { font-size: 0.92rem; }
+
+/* ---------- bodyweight: bigger value, compact log button ---------- */
+.bw-left { display: flex; flex-direction: column; justify-content: center; }
+.bw-value-row { display: flex; align-items: center; gap: 8px; margin: 5px 0 6px; min-width: 0; }
+.bw-value { font-size: clamp(2rem, 4.8svh, 2.55rem); margin: 0; min-width: 0; }
+.bw-value .t-unit { font-size: 1.05rem; }
+.bw-add {
+  width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%;
+  border: 1.5px solid var(--baseline); background: none; color: var(--ink-1);
+  display: grid; place-items: center; cursor: pointer;
+}
+.bw-add svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.bw-add:active { background: var(--surface-2); }
+
+.home-compact .bw-value { font-size: 1.95rem; }
+.home-compact .bw-add { width: 28px; height: 28px; }
+.home-tight .bw-value { font-size: 1.6rem; }
+.home-tight .bw-add { width: 26px; height: 26px; }
+.home-tight .bw-add svg { width: 13px; height: 13px; }
