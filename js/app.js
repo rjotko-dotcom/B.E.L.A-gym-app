@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '5.4';
+  const APP_VERSION = '6.0';
 
   /* ---------------- state ---------------- */
 
@@ -314,7 +314,7 @@
     if (pts.length < 2) {
       return '<p class="bw-chart-empty">Log two or more days to see your trend.</p>';
     }
-    const W = 300, H = 124, padL = 38, padR = 10, padT = 12, padB = 26;
+    const W = 300, H = 150, padL = 38, padR = 8, padT = 14, padB = 30;
     const vals = pts.map((p) => p.v);
     let lo = Math.min(...vals), hi = Math.max(...vals);
     const span = Math.max(0.8, hi - lo);
@@ -537,7 +537,7 @@
       return `
         <div class="wd ${isToday ? 'is-today' : past ? 'is-past' : ''}">
           <span class="wd-letter">${L}</span>
-          <span class="wd-num">${d.getDate()}</span>
+          <span class="wd-num">${d.getDate()}<span class="wd-inner ${logged ? 'on' : ''}"></span></span>
           <span class="wd-mark ${logged ? 'on' : ''}"></span>
         </div>`;
     }).join('');
@@ -608,17 +608,13 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>
               ${goal ? `Goal ${fmtNum(goal)} ${esc(unit())}` : 'Set a goal'}
             </button>
-            <button class="bw-add" id="bwCard" aria-label="Log weight" title="Log weight">
+            <button class="bw-log" id="bwCard">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
+              Log weight
             </button>
           </div>
           <div class="bw-right">
             <div class="bw-chart">${weightWeekChart(weekWeights, unit())}</div>
-            <div class="bw-stats">
-              <div><span class="micro">7d avg</span><b>${stats && stats.avg7 != null ? fmtNum(Math.round(stats.avg7 * 10) / 10) : '—'}<i>${esc(unit())}</i></b></div>
-              <div><span class="micro">Week</span><b>${stats && stats.week != null ? (stats.week > 0 ? '+' : '') + stats.week.toFixed(1) : '—'}<i>${esc(unit())}</i></b></div>
-              <div><span class="micro">30d</span><b>${stats && stats.month != null ? (stats.month > 0 ? '+' : '') + stats.month.toFixed(1) : '—'}<i>${esc(unit())}</i></b></div>
-            </div>
           </div>
         </div>
       </div>
@@ -626,13 +622,13 @@
       <div class="card kcal-line">
         <div class="kl-head">
           <span class="micro">Calories</span>
-          <svg class="kl-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c.7 3.1 3.4 4.4 3.4 7.4 0 1-.4 2-1.2 2.8.5-1.7-.6-3.1-1.7-3.9.2 2.3-1.4 3.5-2.3 4.8-1.7 2.2.2 5.5 3.4 5.5 3.1 0 5.4-2.4 5.4-5.4 0-4.9-4.3-7.9-7-11.2Z"/></svg>
+          <span class="kl-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c.7 3.1 3.4 4.4 3.4 7.4 0 1-.4 2-1.2 2.8.5-1.7-.6-3.1-1.7-3.9.2 2.3-1.4 3.5-2.3 4.8-1.7 2.2.2 5.5 3.4 5.5 3.1 0 5.4-2.4 5.4-5.4 0-4.9-4.3-7.9-7-11.2Z"/></svg></span>
         </div>
         <div class="kl-row">
           <div class="kl-ring">
             <svg viewBox="0 0 52 52" aria-hidden="true">
-              <circle cx="26" cy="26" r="22" fill="none" stroke="var(--surface-2)" stroke-width="3"/>
-              <circle cx="26" cy="26" r="22" fill="none" stroke="${over ? 'var(--critical)' : 'var(--ink-1)'}" stroke-width="3" stroke-linecap="round"
+              <circle cx="26" cy="26" r="22" fill="none" stroke="var(--surface-2)" stroke-width="4"/>
+              <circle cx="26" cy="26" r="22" fill="none" stroke="${over ? 'var(--critical)' : 'var(--ink-1)'}" stroke-width="4" stroke-linecap="round"
                 stroke-dasharray="${RING.toFixed(1)}" stroke-dashoffset="${ringOffset.toFixed(1)}" transform="rotate(-90 26 26)"/>
             </svg>
             <span class="kl-pct">${kcalPct}%</span>
@@ -640,6 +636,7 @@
           <div class="kl-right">
             <div class="macro-track kl-track"><div class="macro-fill ${over ? 'over' : ''}" style="width:${Math.min(100, frac * 100)}%"></div></div>
             <div class="kl-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()} <span>kcal</span></div>
+            <div class="kl-left">${over ? `${Math.round(totals.kcal - targets.kcal)} kcal over` : `${Math.round(targets.kcal - totals.kcal)} kcal left`}</div>
           </div>
         </div>
       </div>
@@ -665,7 +662,7 @@
           <p>${active ? 'Session in progress' : 'Track and improve'}</p>
           <div class="shortcut-foot">
             <button class="btn btn-white" id="homeStart">${active ? 'Resume' : 'Start'}</button>
-            <span class="sc-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg></span>
+            <span class="sc-badge sc-square"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg></span>
           </div>
         </div>
         <div class="card shortcut-card sc-meals">
@@ -674,7 +671,7 @@
           <p>Log and track nutrition</p>
           <div class="shortcut-foot">
             <button class="btn btn-white" id="homeLog">Log</button>
-            <span class="sc-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg></span>
+            <span class="sc-badge sc-square"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg></span>
           </div>
         </div>
       </div>`;
@@ -693,6 +690,16 @@
     const todayKey = dateKey();
     const existing = weightOn(todayKey);
     openSheet('Log bodyweight', `
+      ${(() => {
+        const st = weightStats();
+        if (!st) return '';
+        const cell = (label, val, suffix) => `<div><span class="micro">${label}</span><b>${val}<i>${suffix}</i></b></div>`;
+        return `<div class="bw-stats sheet-stats">
+          ${cell('7d avg', st.avg7 != null ? fmtNum(Math.round(st.avg7 * 10) / 10) : '—', esc(unit()))}
+          ${cell('Week', st.week != null ? (st.week > 0 ? '+' : '') + st.week.toFixed(1) : '—', esc(unit()))}
+          ${cell('30d', st.month != null ? (st.month > 0 ? '+' : '') + st.month.toFixed(1) : '—', esc(unit()))}
+        </div>`;
+      })()}
       <div class="field">
         <label for="bwInput">Today's weight (${esc(unit())})</label>
         <input id="bwInput" type="number" inputmode="decimal" step="0.1" min="0"
@@ -744,8 +751,8 @@
     const label = mealDayOffset === 0 ? 'Today' : mealDayOffset === -1 ? 'Yesterday' : fmtDate(day.getTime());
 
     v.innerHTML = `
-      <h2>Meals</h2>
-      <p class="subtitle">Log and track nutrition</p>
+      <h2>Nutrition</h2>
+      <p class="subtitle">Log meals, macros and water</p>
 
       <div class="day-nav">
         <button id="dayPrev" aria-label="Previous day">‹</button>

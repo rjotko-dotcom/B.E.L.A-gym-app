@@ -31,15 +31,15 @@
   :root:not([data-theme="light"]) {
     color-scheme: dark;
     --page: #000000;
-    --surface-1: #262626;
-    --surface-2: #3a3a3a;
+    --surface-1: #191919;
+    --surface-2: #262626;
     --ink-1: #f5f5f4;
     --ink-2: #b3b3ae;
     --ink-muted: #7c7c77;
-    --grid: #2f2f2f;
-    --baseline: #4a4a4a;
-    --border: rgba(255, 255, 255, 0.06);
-    --pill: #3d3d3d;
+    --grid: #272727;
+    --baseline: #454545;
+    --border: rgba(255, 255, 255, 0.05);
+    --pill: #2b2b2b;
     --pill-ink: #ffffff;
     --good: #22c55e;
     --good-text: #22c55e;
@@ -53,15 +53,15 @@
   color-scheme: dark;
   --page-fade: rgba(0, 0, 0, 0);
   --page: #000000;
-  --surface-1: #262626;
-  --surface-2: #3a3a3a;
+  --surface-1: #191919;
+  --surface-2: #262626;
   --ink-1: #f5f5f4;
   --ink-2: #b3b3ae;
   --ink-muted: #7c7c77;
-  --grid: #2f2f2f;
-  --baseline: #4a4a4a;
-  --border: rgba(255, 255, 255, 0.06);
-  --pill: #3d3d3d;
+  --grid: #272727;
+  --baseline: #454545;
+  --border: rgba(255, 255, 255, 0.05);
+  --pill: #2b2b2b;
   --pill-ink: #ffffff;
   --good: #22c55e;
   --good-text: #22c55e;
@@ -114,7 +114,7 @@ body {
 
 /* home is a single non-scrolling screen; spare height spreads between blocks.
    gap is the single source of spacing so all gaps stay identical */
-.view.home-screen { display: flex; flex-direction: column; justify-content: space-between; gap: 10px; max-height: 100svh; overflow: hidden; }
+.view.home-screen { display: flex; flex-direction: column; justify-content: space-between; gap: 14px; max-height: 100svh; overflow: hidden; }
 .view.home-screen > * { margin-bottom: 0 !important; margin-top: 0 !important; }
 .home-top { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 4px; }
 .home-top h2 { margin: 0 2px; font-size: 1.7rem; }
@@ -123,7 +123,7 @@ body {
 .card {
   background: var(--surface-1);
   border: 1px solid var(--border);
-  border-radius: 24px;
+  border-radius: 20px;
   padding: 16px 18px;
   margin-bottom: 10px;
 }
@@ -174,7 +174,7 @@ body {
 .week-strip .wd-dot.active { background: color-mix(in srgb, var(--ink-1) 74%, var(--page)); color: var(--page); }
 .week-strip .wd-dot.today { background: transparent; border: 2px solid var(--ink-1); color: var(--ink-1); }
 
-.home-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.home-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
 .home-grid2 .card { margin-bottom: 0; }
 .home-row { margin-bottom: 0; }
 
@@ -619,7 +619,7 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .kl-total .over { color: var(--critical); }
 .kl-total span { color: var(--ink-2); font-weight: 500; font-size: 0.82rem; }
 
-.macro-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.macro-cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 13px; }
 .mc-card {
   background: var(--surface-1); border: 1px solid var(--border); border-radius: 20px;
   padding: 13px 14px;
@@ -816,7 +816,7 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 
 /* ---------- bodyweight card v2: value + goal + weekly chart + stats ---------- */
 .bw-card { display: block; padding: 16px 18px 12px; cursor: default; }
-.bw-main { display: grid; grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr); gap: 12px; align-items: center; }
+.bw-main { display: grid; grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr); gap: 14px; align-items: center; }
 .bw-left { min-width: 0; }
 .bw-value {
   font-size: clamp(1.9rem, 4.2svh, 2.4rem); font-weight: 700; letter-spacing: -0.03em;
@@ -904,3 +904,84 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .bw-card .bw-stats .micro { font-size: 0.58rem; letter-spacing: 0.07em; }
 .home-compact .bw-add { margin-top: 9px; }
 .home-tight .bw-add { margin-top: 6px; }
+
+/* ============ v6: reference polish ============ */
+/* nav with labels */
+.tab-bar { padding: 10px 6px calc(env(safe-area-inset-bottom) + 10px); }
+.tab { gap: 5px; padding: 6px 10px 2px; }
+.tab svg { width: 24px; height: 24px; }
+.tab-label { font-size: 0.72rem; font-weight: 500; letter-spacing: 0.01em; }
+.tab.active .tab-label { font-weight: 600; }
+.tab.active svg { fill: var(--ink-1); stroke-width: 0; }
+.tab[data-tab="workout"].active svg, .tab[data-tab="meals"].active svg { fill: none; stroke-width: 2.3; }
+.tab::after { width: 4px; height: 4px; margin-top: 1px; }
+
+/* week strip: today's label reads bright, marker sits inside the ring */
+.week-strip .wd.is-today .wd-letter { color: var(--ink-1); font-weight: 700; }
+.week-strip .wd-num { position: relative; }
+.wd-inner {
+  position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%);
+  width: 3px; height: 3px; border-radius: 50%; background: transparent;
+}
+.week-strip .wd.is-today .wd-inner.on { background: var(--ink-1); }
+.week-strip .wd-mark { width: 3px; height: 3px; }
+
+/* bodyweight: outlined log button like the reference */
+.bw-log {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap;
+  margin-top: 13px; padding: 10px 16px; min-height: 42px; width: fit-content;
+  border: 1px solid var(--baseline); border-radius: 14px;
+  background: none; color: var(--ink-1); font: inherit; font-weight: 600; font-size: 0.88rem;
+  cursor: pointer;
+}
+.bw-log svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.bw-log:active { background: var(--surface-2); }
+.home-compact .bw-log { margin-top: 9px; min-height: 36px; padding: 7px 13px; font-size: 0.8rem; }
+.home-tight .bw-log { margin-top: 7px; min-height: 32px; padding: 6px 11px; font-size: 0.75rem; }
+
+/* calories: squared badge, roomier ring, kcal-left line */
+.kl-badge {
+  width: 38px; height: 38px; border-radius: 12px; flex-shrink: 0;
+  border: 1px solid var(--border); background: var(--surface-2);
+  display: grid; place-items: center;
+}
+.kl-badge svg { width: 19px; height: 19px; fill: none; stroke: var(--ink-1); stroke-width: 1.6; stroke-linejoin: round; }
+.kl-ring { width: clamp(64px, 9svh, 78px); }
+.kl-pct { font-size: 0.95rem; }
+.kl-left { color: var(--ink-muted); font-size: 0.78rem; margin-top: 3px; }
+.home-tight .kl-left { display: none; }
+
+/* macro cards: bar pinned to the bottom edge */
+.mc-card { display: flex; flex-direction: column; padding: 14px 15px; }
+.mc-bar { margin-top: auto; }
+.mc-top svg { width: 22px; height: 22px; stroke: var(--ink-1); }
+.mc-val { margin-top: 8px; }
+
+/* shortcut cards: squared icon badges */
+.sc-badge.sc-square {
+  width: 46px; height: 46px; border-radius: 14px;
+  border: 1px solid var(--baseline); background: transparent;
+}
+.sc-badge.sc-square svg { width: 21px; height: 21px; stroke: var(--ink-1); }
+.shortcut-card { padding: 16px 16px 17px; }
+.shortcut-foot { gap: 9px; }
+.home-compact .sc-badge.sc-square { width: 40px; height: 40px; border-radius: 12px; }
+.home-tight .sc-badge.sc-square { width: 34px; height: 34px; border-radius: 10px; }
+/* denser rhythm as the screen shrinks */
+.home-screen.home-compact { gap: 10px; }
+.home-screen.home-tight { gap: 7px; }
+.home-compact .card { padding: 13px 15px; }
+.home-tight .card { padding: 11px 13px; }
+/* stats block reused inside the log sheet */
+.sheet-stats { border-top: none; margin: 2px 0 16px; padding: 12px 0; background: var(--surface-1); border-radius: 16px; }
+/* very small screens: shed the optional lines so everything still fits */
+.home-tight .bw-goal { display: none; }
+.home-tight .bw-value { font-size: 1.5rem; }
+.home-tight .bw-delta { font-size: 0.74rem; }
+.home-tight .mc-card { padding: 10px 11px; }
+.home-tight .mc-val { font-size: 1.02rem; margin-top: 5px; }
+.home-tight .shortcut-card { padding: 11px 12px 12px; }
+.home-tight .shortcut-card p { margin-bottom: 6px; }
+.home-tight .week-strip .wd-num { width: 28px; height: 28px; font-size: 0.8rem; }
+.home-tight .week-strip .wd { gap: 3px; }
+.home-tight .hh-sub { display: none; }
