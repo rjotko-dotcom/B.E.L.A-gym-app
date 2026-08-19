@@ -74,6 +74,12 @@
       addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js').then((reg) => {
           reg.update(); // check for a new version on every launch
+          // keep checking: a deploy can land while the app is already open,
+          // and the CDN may serve the old files for a few minutes after it
+          setInterval(() => reg.update(), 60000);
+          addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') reg.update();
+          });
           reg.addEventListener('updatefound', () => {
             const nw = reg.installing;
             if (!nw) return;
