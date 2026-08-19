@@ -1,18 +1,29 @@
-/* B.E.L.A Gym — service worker: cache-first for the app shell */
-const CACHE = 'bela-gym-v32';
+/* B.E.L.A Gym — service worker */
+const VERSION = '6.3';
+const CACHE = 'bela-gym-' + VERSION;
 const ASSETS = [
   '.',
   'index.html',
-  'css/style.css',
-  'js/app.js',
-  'js/exercises.js',
-  'js/foods.js',
+  'css/style.css?v=' + VERSION,
+  'js/app.js?v=' + VERSION,
+  'js/exercises.js?v=' + VERSION,
+  'js/foods.js?v=' + VERSION,
   'manifest.webmanifest',
   'icons/icon.svg',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      // cache: 'reload' bypasses the HTTP cache — without it the browser can
+      // hand back the previous deploy's files and the "update" changes nothing
+      .then((c) => Promise.all(ASSETS.map((url) =>
+        fetch(new Request(url, { cache: 'reload' }))
+          .then((res) => (res.ok ? c.put(url, res) : null))
+          .catch(() => null)
+      )))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {
@@ -33,15 +44,19 @@ self.addEventListener('fetch', (e) => {
     }
     return res;
   };
-  // navigations go network-first so new versions appear on next launch
+  // the page itself is always fetched fresh, so a new deploy is picked up
   if (e.request.mode === 'navigate') {
-    e.respondWith(fetch(e.request).then(put).catch(() => caches.match(e.request).then((c) => c || caches.match('index.html'))));
+    e.respondWith(
+      fetch(e.request).then(put)
+        .catch(() => caches.match(e.request).then((c) => c || caches.match('index.html')))
+    );
     return;
   }
+  // versioned assets are safe to serve from cache, and refresh in the background
   e.respondWith(
-    caches.match(e.request).then((cached) =>
-      cached ||
-      fetch(e.request).then(put).catch(() => cached)
-    )
+    caches.match(e.request).then((cached) => {
+      const network = fetch(e.request).then(put).catch(() => cached);
+      return cached || network;
+    })
   );
 });

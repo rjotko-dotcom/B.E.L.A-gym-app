@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '6.2';
+  const APP_VERSION = '6.3';
 
   /* ---------------- state ---------------- */
 
@@ -2128,6 +2128,7 @@
       </div>
       <input id="importFile" type="file" accept="application/json" hidden>
       <button class="btn btn-danger" id="wipeBtn" style="margin-top:12px">Erase all data</button>
+      <button class="btn btn-quiet" id="forceUpdate" style="margin-top:12px">Force update now</button>
       <p class="muted" style="margin-top:16px;text-align:center">B.E.L.A Gym v${APP_VERSION} · data stays on this device</p>
     `, (body) => {
       $('#avPick', body).addEventListener('click', () => $('#avFile', body).click());
@@ -2220,6 +2221,21 @@
             toast('That file is not a valid backup');
           }
         });
+      });
+      $('#forceUpdate', body).addEventListener('click', async () => {
+        // clears every cached copy and re-registers, so the next load is fresh
+        toast('Fetching the latest version…');
+        try {
+          if ('caches' in window) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map((k) => caches.delete(k)));
+          }
+          if (navigator.serviceWorker) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.unregister()));
+          }
+        } catch { /* falls through to a plain reload */ }
+        location.replace(location.pathname + '?u=' + Date.now());
       });
       $('#wipeBtn', body).addEventListener('click', () => {
         if (confirm('Erase ALL workouts, meals, routines and settings? This cannot be undone.')) {
