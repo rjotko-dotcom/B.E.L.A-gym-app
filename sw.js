@@ -1,5 +1,5 @@
 /* B.E.L.A Gym — service worker: cache-first for the app shell */
-const CACHE = 'bela-gym-v30';
+const CACHE = 'bela-gym-v31';
 const ASSETS = [
   '.',
   'index.html',

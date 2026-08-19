@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '6.0';
+  const APP_VERSION = '6.1';
 
   /* ---------------- state ---------------- */
 
@@ -657,7 +657,6 @@
 
       <div class="home-grid2">
         <div class="card shortcut-card sc-workout">
-          <span class="sc-ghost" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg></span>
           <h3>Workouts</h3>
           <p>${active ? 'Session in progress' : 'Track and improve'}</p>
           <div class="shortcut-foot">
@@ -666,7 +665,6 @@
           </div>
         </div>
         <div class="card shortcut-card sc-meals">
-          <span class="sc-ghost" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg></span>
           <h3>Meals</h3>
           <p>Log and track nutrition</p>
           <div class="shortcut-foot">

@@ -106,7 +106,7 @@ body {
   width: 100%;
   max-width: 640px;
   margin: 0 auto;
-  padding: calc(env(safe-area-inset-top) + 10px) 14px calc(env(safe-area-inset-bottom) + 100px);
+  padding: calc(env(safe-area-inset-top) + 24px) 14px calc(env(safe-area-inset-bottom) + 100px);
   outline: none;
 }
 .view h2 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; margin: 2px 4px; }
@@ -764,10 +764,6 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 /* shortcut cards with ghosted artwork */
 .shortcut-card { position: relative; overflow: hidden; }
 .shortcut-card h3 { text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.95rem; }
-.sc-ghost { position: absolute; right: -18px; bottom: -14px; opacity: 0.07; pointer-events: none; }
-.sc-ghost svg { width: 132px; height: 132px; fill: none; stroke: var(--ink-1); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-.sc-workout { background-image: radial-gradient(120% 90% at 110% 110%, rgba(255,255,255,0.07), transparent 62%); }
-.sc-meals { background-image: radial-gradient(120% 90% at 110% 110%, rgba(255,255,255,0.05), transparent 62%); }
 .btn-white { background: var(--ink-1); color: var(--page); }
 .sc-badge {
   width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%;
@@ -790,7 +786,6 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .home-tight .week-strip .wd-num { width: 30px; height: 30px; font-size: 0.86rem; }
 .home-tight .kl-ring { width: 42px; }
 .home-tight .sc-badge { width: 34px; height: 34px; }
-.home-tight .sc-ghost svg { width: 96px; height: 96px; }
 
 /* ---------- profile picture ---------- */
 .hh-avatar { gap: 0; }
