@@ -71,6 +71,10 @@
 }
 
 html { -webkit-text-size-adjust: 100%; }
+/* the app never shows scrollbars — swiping between tabs was flashing them
+   on the right/bottom edge (the slide animation nudges content sideways) */
+html, body { overflow-x: hidden; scrollbar-width: none; }
+html::-webkit-scrollbar, body::-webkit-scrollbar { width: 0; height: 0; display: none; }
 body {
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   background: var(--page);
@@ -114,7 +118,8 @@ body {
 
 /* home is a single non-scrolling screen; spare height spreads between blocks.
    gap is the single source of spacing so all gaps stay identical */
-.view.home-screen { display: flex; flex-direction: column; justify-content: space-between; gap: 14px; max-height: 100svh; overflow: hidden; }
+.view.home-screen { display: flex; flex-direction: column; justify-content: flex-start; gap: 12px; max-height: 100svh; overflow: hidden; }
+.view.home-screen::after { content: ''; flex: 1 1 0; }
 .view.home-screen > * { margin-bottom: 0 !important; margin-top: 0 !important; }
 .home-top { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 4px; }
 .home-top h2 { margin: 0 2px; font-size: 1.7rem; }
@@ -378,7 +383,7 @@ body {
 .tab.active { color: var(--ink-1); }
 .tab.active svg { stroke-width: 2.2; }
 /* top/bottom breathing on home matches the inter-block gaps */
-.view.home-screen { padding-top: calc(env(safe-area-inset-top) + 16px); padding-bottom: calc(env(safe-area-inset-bottom) + 102px); }
+.view.home-screen { padding-top: calc(env(safe-area-inset-top) + 32px); padding-bottom: calc(env(safe-area-inset-bottom) + 96px); }
 .tab.active::after { background: var(--ink-1); }
 
 /* ---------- bottom sheet ---------- */
@@ -702,7 +707,7 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 :root[data-theme="dark"] .home-wave .wave-a { stop-color: rgba(255, 255, 255, 0.06); }
 
 /* header with greeting + avatar */
-.home-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin: 4px 4px 2px; }
+.home-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 4px 4px 2px; }
 .hh-text { min-width: 0; }
 .hh-greet { display: block; color: var(--ink-2); font-size: 0.92rem; }
 .hh-name {
@@ -751,8 +756,8 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .kl-ring { position: relative; width: clamp(52px, 7.6svh, 62px); flex-shrink: 0; }
 .kl-ring svg { display: block; width: 100%; height: auto; }
 .kl-pct { position: absolute; inset: 0; display: grid; place-items: center; font-size: 0.85rem; font-weight: 700; }
-.kl-right { flex: 1; min-width: 0; }
-.kl-right .kl-track { margin-bottom: 10px; }
+.kl-right { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.kl-right .kl-track { flex: none; width: 100%; margin-bottom: 8px; }
 .kl-total { text-align: left; }
 
 /* macro cards with progress */
@@ -942,7 +947,9 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 }
 .kl-badge svg { width: 19px; height: 19px; fill: none; stroke: var(--ink-1); stroke-width: 1.6; stroke-linejoin: round; }
 .kl-ring { width: clamp(64px, 9svh, 78px); }
-.kl-pct { font-size: 0.95rem; }
+.kl-ring svg { position: absolute; inset: 0; }
+.kl-ring { aspect-ratio: 1; }
+.kl-pct { font-size: 1.08rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
 .kl-left { color: var(--ink-muted); font-size: 0.78rem; margin-top: 3px; }
 .home-tight .kl-left { display: none; }
 
@@ -963,8 +970,8 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .home-compact .sc-badge.sc-square { width: 40px; height: 40px; border-radius: 12px; }
 .home-tight .sc-badge.sc-square { width: 34px; height: 34px; border-radius: 10px; }
 /* denser rhythm as the screen shrinks */
-.home-screen.home-compact { gap: 10px; }
-.home-screen.home-tight { gap: 7px; }
+.home-screen.home-compact { gap: 9px; }
+.home-screen.home-tight { gap: 6px; }
 .home-compact .card { padding: 13px 15px; }
 .home-tight .card { padding: 11px 13px; }
 /* stats block reused inside the log sheet */

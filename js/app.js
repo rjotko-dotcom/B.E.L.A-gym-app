@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '6.3';
+  const APP_VERSION = '6.4';
 
   /* ---------------- state ---------------- */
 
@@ -2250,7 +2250,7 @@
 
   /* ---------------- swipe between tabs ---------------- */
 
-  const TAB_ORDER = ['home', 'workout', 'meals', 'profile'];
+  const TAB_ORDER = ['home', 'workout', 'meals'];
   let swipeStart = null;
   let slideDir = null;
 
