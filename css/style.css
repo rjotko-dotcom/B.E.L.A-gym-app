@@ -1565,18 +1565,32 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .ph-compare figcaption b { display: block; color: var(--ink-1); font-size: 0.86rem; margin-top: 2px; }
 .ph-summary { text-align: center; color: var(--ink-2); font-size: 0.84rem; font-weight: 600; margin: 16px 0 14px; }
 
-/* ---------- rest timer sits with the session stats while logging ----------
-   floating above the nav it covered the set you were about to fill in */
-body.wk-open .rest-bar {
-  position: fixed; z-index: 45;
-  top: calc(env(safe-area-inset-top) + 111px); bottom: auto;
-  left: 10px; right: 10px;
-  border-radius: 16px; padding: 10px 12px 11px;
-  box-shadow: 0 10px 26px rgba(0,0,0,0.4);
+/* ---------- rest timer, docked into the logger header ----------
+   it used to float over the middle of the screen, covering the set you were
+   about to fill in */
+.rest-bar.rest-docked {
+  position: static; left: auto; right: auto; bottom: auto; max-width: none; margin: 0;
+  border: none; border-radius: 0; box-shadow: none;
+  background: var(--surface-2);
+  padding: 9px 14px 11px;
 }
-body.wk-open .rest-progress { height: 4px; margin-bottom: 7px; }
-body.wk-open .rest-info { margin-bottom: 8px; }
-body.wk-open .rest-time { font-size: 1.15rem; }
-body.wk-open .rest-actions .chip-btn { min-height: 34px; padding: 0 12px; font-size: 0.8rem; }
-/* the exercise list starts below it so nothing is hidden */
-body.wk-open.is-resting .wk-body { padding-top: 96px; }
+.rest-docked .rest-progress { height: 3px; margin-bottom: 8px; }
+.rest-docked .rest-info { display: none; }          /* the countdown sits in the stats row */
+.rest-docked .rest-actions { display: flex; gap: 8px; }
+.rest-docked .rest-actions .chip-btn { flex: 1; min-height: 34px; font-size: 0.8rem; }
+/* the stats row swaps volume for the countdown while resting */
+.wk-rest-cell { display: none; }
+body.is-resting .wk-rest-cell { display: block; }
+body.is-resting .wk-vol-cell { display: none; }
+body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
+
+/* ---------- record marker ---------- */
+.pr-mark { display: inline-grid; place-items: center; vertical-align: -2px; }
+.pr-mark svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.pr-inline svg { width: 13px; height: 13px; }
+.pr-tile svg { width: 17px; height: 17px; margin-left: 5px; }
+.finish-prs { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-weight: 700; }
+.finish-prs .pr-mark svg { width: 18px; height: 18px; }
+.pr-count { display: inline-flex; align-items: center; gap: 2px; color: var(--ink-2); font-size: 0.8rem; }
+.toast-rich { display: flex; align-items: center; gap: 9px; }
+.toast-pr svg { width: 17px; height: 17px; }

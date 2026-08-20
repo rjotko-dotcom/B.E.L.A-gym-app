@@ -99,6 +99,39 @@ module.exports = async (t) => {
   t.equal('the original date is kept', after[0].startedAt, historyBefore[0].startedAt);
   t.check('the edit marker is cleaned up', !('editingId' in after[0]));
 
+  // records: a drawn marker, not an emoji, and a distinct buzz
+  await page.evaluate(() => { const st = JSON.parse(localStorage.getItem('bela-gym-v1')); st.activeWorkout = null; localStorage.setItem('bela-gym-v1', JSON.stringify(st)); });
+  await page.reload();
+  await page.waitForTimeout(500);
+  const buzzes = [];
+  await page.exposeFunction('__buzz', (v) => buzzes.push(v));
+  await page.addInitScript(() => { navigator.vibrate = (v) => { window.__buzz(JSON.stringify(v)); return true; }; });
+  await page.reload();
+  await page.waitForTimeout(500);
+  await page.click('#homeStart');
+  await page.waitForTimeout(700);
+  await page.fill('.ex-block .in-weight', '150');
+  await page.fill('.ex-block .in-reps', '8');
+  await page.click('.ex-block .set-done');
+  await page.waitForTimeout(800);
+  t.check('a record buzzes the phone', buzzes.some((b) => JSON.parse(b).length > 1), JSON.stringify(buzzes));
+  t.check('the record marker is drawn, not an emoji', await page.evaluate(() => !!document.querySelector('.toast svg') && !/🏆/.test(document.body.innerHTML)));
+
+  // the rest timer belongs in the header, never over the sets
+  const rest2 = await page.evaluate(() => {
+    const rb = document.querySelector('#restBar');
+    const stats = document.querySelector('.wk-stats').getBoundingClientRect();
+    const card = document.querySelector('.ex-block').getBoundingClientRect();
+    const r = rb.getBoundingClientRect();
+    return { docked: rb.classList.contains('rest-docked'), inHeader: !!rb.closest('.wk-overlay'),
+      under: Math.round(r.top - stats.bottom), covers: r.bottom > card.top + 2,
+      countdown: document.querySelector('#wkRestMini')?.textContent };
+  });
+  t.check('the rest timer is docked into the header', rest2.docked && rest2.inHeader);
+  t.near('directly under the session stats', rest2.under, 0, 4);
+  t.check('and never covers the first exercise', !rest2.covers);
+  t.check('the countdown shows next to the duration', /^\d+:\d\d$/.test(rest2.countdown || ''), rest2.countdown);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

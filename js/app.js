@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '8.2';
+  const APP_VERSION = '8.3';
 
   /* ---------------- state ---------------- */
 
@@ -634,11 +634,20 @@
     reader.readAsDataURL(file);
   }
 
-  function toast(msg) {
+  /* a record marker in the app's own line style, not a colour emoji */
+  const prIcon = (cls = 'pr-mark') =>
+    '<span class="' + cls + '" aria-label="Personal record">' +
+      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<path d="M8.2 3.5h7.6l-1.3 5.2H9.5Z"/>' +
+        '<circle cx="12" cy="15.2" r="5.3"/>' +
+        '<path d="m12 12.4 1 2 2.2.3-1.6 1.5.4 2.2-2-1-2 1 .4-2.2-1.6-1.5 2.2-.3Z"/>' +
+      '</svg></span>';
+
+  function toast(msg, html = false) {
     const root = $('#toastRoot');
     const el = document.createElement('div');
-    el.className = 'toast';
-    el.textContent = msg;
+    el.className = 'toast' + (html ? ' toast-rich' : '');
+    if (html) el.innerHTML = msg; else el.textContent = msg;
     root.appendChild(el);
     setTimeout(() => el.remove(), 2600);
   }
@@ -724,6 +733,22 @@
     if (document.visibilityState === 'visible') syncWakeLock();
   });
 
+  /* The rest timer is one element that lives in two places: docked under the
+     session stats while the logger is open, and floating above the nav when it
+     is not, so it never covers the sets you are filling in. */
+  function placeRestBar() {
+    const bar = $('#restBar');
+    if (!bar) return;
+    const slot = $('#restSlot');
+    if (slot && document.body.classList.contains('wk-open')) {
+      if (bar.parentElement !== slot) slot.appendChild(bar);
+      bar.classList.add('rest-docked');
+    } else {
+      if (bar.parentElement !== document.body) document.body.appendChild(bar);
+      bar.classList.remove('rest-docked');
+    }
+  }
+
   /* ---------------- rest timer ---------------- */
 
   const rest = { remaining: 0, total: 0, timer: null };
@@ -734,6 +759,7 @@
     rest.remaining = seconds;
     $('#restBar').hidden = false;
     document.body.classList.add('is-resting');
+    placeRestBar();
     renderRest();
     rest.timer = setInterval(() => {
       rest.remaining -= 1;
@@ -755,6 +781,8 @@
   }
   function renderRest() {
     $('#restTime').textContent = fmtClock(Math.max(0, rest.remaining));
+    const mini = $('#wkRestMini');
+    if (mini) mini.textContent = fmtClock(Math.max(0, rest.remaining));
     $('#restFill').style.width = `${(rest.remaining / rest.total) * 100}%`;
   }
   $('#restSkip').addEventListener('click', stopRest);
@@ -1802,6 +1830,10 @@
     const w = state.activeWorkout;
     document.body.classList.toggle('has-mini', !!w && !workoutOpen);
     document.body.classList.toggle('wk-open', !!w && workoutOpen);
+    // the rest bar is a single shared element: park it on <body> before the
+    // overlay is rebuilt, or innerHTML takes it down with the old DOM
+    const restBar = $('#restBar');
+    if (restBar && restBar.parentElement !== document.body) document.body.appendChild(restBar);
     syncWakeLock();
     if (!w) { root.innerHTML = ''; return; }
     if (!workoutOpen) {
@@ -1845,9 +1877,11 @@
         </div>
         <div class="wk-stats">
           <div><span class="micro">Duration</span><b id="wkDur">${w.editingId ? fmtDuration((w.finishedAt || w.startedAt) - w.startedAt) : fmtElapsed(Date.now() - w.startedAt)}</b></div>
-          <div><span class="micro">Volume</span><b>${fmtNum(Math.round(vol))} ${esc(unit())}</b></div>
+          <div class="wk-rest-cell"><span class="micro">Rest</span><b id="wkRestMini">—</b></div>
+          <div class="wk-vol-cell"><span class="micro">Volume</span><b>${fmtNum(Math.round(vol))} ${esc(unit())}</b></div>
           <div><span class="micro">Sets</span><b>${done.length}</b></div>
         </div>
+        <div id="restSlot"></div>
         <div class="wk-body">
           ${w.exercises.map((ex, exIdx) => renderExerciseBlock(ex, exIdx)).join('')}
           <button class="btn btn-ghost" id="addExercise" style="margin-bottom:12px">+ Add exercise</button>
@@ -1923,7 +1957,10 @@
               const prevBest = bestSetFor(ex.exerciseId);
               if (!prevBest || est1RM(set.weight, set.reps) > est1RM(prevBest.weight, prevBest.reps)) {
                 set.pr = true;
-                toast(`🏆 New PR — ${fmtNum(set.weight)} ${unit()} × ${set.reps}`);
+                // a longer, rhythmic buzz so a record feels different from
+                // the plain tick of an ordinary set
+                if (navigator.vibrate) navigator.vibrate([25, 45, 25, 45, 120]);
+                toast(prIcon('pr-mark toast-pr') + ` New record — ${fmtNum(set.weight)} ${unit()} × ${set.reps}`, true);
               }
             }
             save(); render();
@@ -1937,6 +1974,7 @@
         });
       });
     });
+    placeRestBar();
   }
 
   /* -------- exercise options menu (Hevy-style) -------- */
@@ -2170,7 +2208,7 @@
           <div class="tile"><span class="micro">Best volume</span><div class="t-value">${bestVol >= 10000 ? (bestVol / 1000).toFixed(1) + 'k' : fmtNum(bestVol)}<span class="t-unit"> ${esc(u)}</span></div></div>
         </div>`;
     }
-    const fmtSet = (s) => cardio ? `${fmtNum(s.weight ?? 0)} km · ${s.reps} min` : `${fmtNum(s.weight ?? 0)}×${s.reps}${s.pr ? ' 🏆' : ''}`;
+    const fmtSet = (s) => cardio ? `${fmtNum(s.weight ?? 0)} km · ${s.reps} min` : `${fmtNum(s.weight ?? 0)}×${s.reps}${s.pr ? ' ' + prIcon('pr-mark pr-inline') : ''}`;
     openSheet(info?.name ?? 'Exercise', `
       <p class="muted" style="margin-bottom:12px">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''} · ${sessions.length} session${sessions.length === 1 ? '' : 's'}</p>
       ${recordsHtml}
@@ -2226,7 +2264,7 @@
             return `
             <div class="set-row ${s.done ? 'logged' : ''}" data-set="${i}">
               <button class="set-num t-${t.toLowerCase()}" aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>
-              <span class="set-prev">${s.pr ? '🏆 ' : ''}${prevTxt}</span>
+              <span class="set-prev">${s.pr ? prIcon('pr-mark pr-inline') + ' ' : ''}${prevTxt}</span>
               <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
                      value="${s.weight ?? ''}" placeholder="${p?.weight ?? ''}" aria-label="${cardio ? 'Distance km' : 'Weight'}, set ${i + 1}">
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
@@ -2284,7 +2322,7 @@
         <input id="wkName" type="text" value="${esc(w.name)}">
       </div>
       <p class="muted" style="margin-bottom:10px">${done.length} sets · ${fmtNum(workoutVolume(w))} ${esc(unit())} total volume${w.editingId ? ' · ' + esc(fmtDate(w.startedAt)) : ' · ' + fmtDuration(Date.now() - w.startedAt)}</p>
-      ${prs.length ? `<p style="margin-bottom:10px;font-weight:700">🏆 ${prs.length} new PR${prs.length === 1 ? '' : 's'}: <span class="muted">${prs.map((p) => `${esc(exerciseById(p.exerciseId)?.name ?? '?')} ${fmtNum(p.weight)}×${p.reps}`).join(', ')}</span></p>` : ''}
+      ${prs.length ? `<p class="finish-prs">${prIcon()} ${prs.length} new record${prs.length === 1 ? '' : 's'}: <span class="muted">${prs.map((p) => `${esc(exerciseById(p.exerciseId)?.name ?? '?')} ${fmtNum(p.weight)}×${p.reps}`).join(', ')}</span></p>` : ''}
       <div class="field">
         <label for="wkNote">Workout notes (optional)</label>
         <textarea id="wkNote" rows="2">${esc(w.note ?? '')}</textarea>
@@ -2321,7 +2359,9 @@
         workoutOpen = false;
         stopRest();
         save(); closeSheet(); closeWkEntry(); render();
-        toast(w.editingId ? 'Changes saved' : prs.length ? `Workout saved — ${prs.length} PR${prs.length === 1 ? '' : 's'} 🏆` : 'Workout saved 💪');
+        toast(w.editingId ? 'Changes saved'
+          : prs.length ? prIcon('pr-mark toast-pr') + ` Workout saved — ${prs.length} record${prs.length === 1 ? '' : 's'}`
+          : 'Workout saved', prs.length > 0);
       });
     });
   }
@@ -3612,7 +3652,7 @@
       <div class="tile-row">
         <div class="tile"><span class="micro">Streak</span><div class="t-value">${streak}<span class="t-unit"> wk${streak === 1 ? '' : 's'}</span></div></div>
         <div class="tile"><span class="micro">Time trained</span><div class="t-value">${Math.floor(totalTimeMs / 3600000)}<span class="t-unit"> h ${Math.round((totalTimeMs % 3600000) / 60000)} m</span></div></div>
-        <div class="tile"><span class="micro">PRs</span><div class="t-value">${totalPRs} 🏆</div></div>
+        <div class="tile"><span class="micro">Records</span><div class="t-value">${totalPRs}${prIcon('pr-mark pr-tile')}</div></div>
       </div>
 
       ${options.length ? `
@@ -3860,7 +3900,7 @@
     const fmtHistSet = (s, cardio) => {
       const t = s.type || 'N';
       const tag = t === 'N' ? '' : t + ' ';
-      return cardio ? `${fmtNum(s.weight ?? 0)}km·${s.reps}m` : `${tag}${fmtNum(s.weight ?? 0)}×${s.reps}${s.pr ? ' 🏆' : ''}`;
+      return cardio ? `${fmtNum(s.weight ?? 0)}km·${s.reps}m` : `${tag}${fmtNum(s.weight ?? 0)}×${s.reps}${s.pr ? ' ' + prIcon('pr-mark pr-inline') : ''}`;
     };
     v.innerHTML = calendarHTML() + state.workouts.map((w) => {
       const sets = loggedSets(w);
@@ -3869,7 +3909,7 @@
       return `
       <div class="card hist-item" data-id="${esc(w.id)}">
         <div class="hist-top">
-          <h3>${esc(w.name)}${prCount ? ` <span title="${prCount} PRs">🏆${prCount > 1 ? prCount : ''}</span>` : ''}</h3>
+          <h3>${esc(w.name)}${prCount ? ` <span class="pr-count">${prIcon('pr-mark pr-inline')}${prCount > 1 ? prCount : ''}</span>` : ''}</h3>
           <span class="muted">${fmtDate(w.startedAt)}</span>
         </div>
         <div class="hist-stats">
