@@ -1,5 +1,5 @@
 /* B.E.L.A Gym — service worker */
-const VERSION = '9.3';
+const VERSION = '9.4';
 const CACHE = 'bela-gym-' + VERSION;
 const ASSETS = [
   '.',
@@ -78,6 +78,19 @@ self.addEventListener('fetch', (e) => {
     caches.match(e.request).then((cached) => {
       const network = fetch(e.request).then(put).catch(() => cached);
       return cached || network;
+    })
+  );
+});
+
+/* Tapping the rest-over notification should bring the workout back up, not
+   open a second copy of the app. */
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const open = list.find((c) => c.url.includes(self.registration.scope));
+      if (open) return open.focus();
+      return self.clients.openWindow(self.registration.scope);
     })
   );
 });

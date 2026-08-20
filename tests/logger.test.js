@@ -172,6 +172,43 @@ module.exports = async (t) => {
   t.equal('the exercise is added', added.count, 6);
   t.check('and scrolled into view', added.visible);
 
+  // the rest timer follows the clock, so a frozen phone cannot stall it
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll('.set-row');
+    const open = [...rows].find((r) => !r.querySelector('.set-done').classList.contains('is-on')) || rows[0];
+    open.querySelector('.set-done').click();
+  });
+  await page.waitForTimeout(500);
+  const started = await page.textContent('#restTime');
+  t.check('logging a set starts the rest timer', /^\d+:\d\d$/.test(started.trim()), started);
+  await page.evaluate(() => { const real = Date.now; window.__real = real; Date.now = () => real() + 60000; });
+  await page.waitForTimeout(400);
+  const jumped = await page.textContent('#restTime');
+  t.check('a minute of frozen ticks still takes a minute off', jumped !== started, started + ' -> ' + jumped);
+  await page.evaluate(() => { const real = window.__real; Date.now = () => real() + 600000; });
+  await page.waitForTimeout(500);
+  t.check('and the timer settles when its time is up', await page.evaluate(() => document.querySelector('#restBar').hidden));
+  await page.evaluate(() => { Date.now = window.__real; });
+
+  // a full storage box says so instead of swallowing the tap
+  await page.evaluate(() => {
+    window.__set = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = () => { const e = new Error('quota'); e.name = 'QuotaExceededError'; throw e; };
+  });
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll('.set-row');
+    const open = [...rows].find((r) => !r.querySelector('.set-done').classList.contains('is-on')) || rows[0];
+    open.querySelector('.set-done').click();
+  });
+  await page.waitForTimeout(450);
+  const warn = await page.evaluate(() => [...document.querySelectorAll('.toast')].map((t) => t.textContent).join(' | '));
+  t.check('running out of storage is reported', /out of storage/.test(warn), warn);
+  t.check('and the app keeps working', await page.evaluate(() => {
+    document.querySelector('#wkMin').click();
+    return !document.body.classList.contains('wk-open');
+  }));
+  await page.evaluate(() => { localStorage.setItem = window.__set; });
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

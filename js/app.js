@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '9.3';
+  const APP_VERSION = '9.4';
 
   /* ---------------- state ---------------- */
 
@@ -102,8 +102,22 @@
       return defaultState();
     }
   }
+  /* A full storage box used to throw here and take the tap with it — the
+     button simply did nothing. Say so instead, once, and keep the app usable
+     with what is already saved. */
+  let saveFailed = false;
   function save() {
-    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+      saveFailed = false;
+      return true;
+    } catch (e) {
+      if (!saveFailed) {
+        saveFailed = true;
+        toast('Could not save — this phone is out of storage. Export a backup from Settings.');
+      }
+      return false;
+    }
   }
 
   /* Brings a saved (or imported) document up to the current shape: fills in
@@ -786,48 +800,105 @@
     }
   }
 
-  /* ---------------- rest timer ---------------- */
+  /* ---------------- rest timer ----------------
+     The countdown runs off a finish time, not a tally of ticks: Android
+     freezes timers the moment the screen locks or the app goes to the
+     background, and a tick-counting timer comes back late or stopped. */
 
-  const rest = { remaining: 0, total: 0, timer: null };
+  const rest = { endsAt: 0, total: 0, timer: null, alarm: null, noted: false };
+  const restLeft = () => Math.max(0, Math.ceil((rest.endsAt - Date.now()) / 1000));
 
   function startRest(seconds = state.settings.restSeconds) {
     stopRest();
     rest.total = seconds;
-    rest.remaining = seconds;
+    rest.endsAt = Date.now() + seconds * 1000;
+    rest.noted = false;
     $('#restBar').hidden = false;
     document.body.classList.add('is-resting');
     placeRestBar();
     renderRest();
-    rest.timer = setInterval(() => {
-      rest.remaining -= 1;
-      if (rest.remaining <= 0) {
-        stopRest();
-        toast('Rest over — next set!');
-        beep();
-        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-        return;
-      }
-      renderRest();
-    }, 1000);
+    // a quarter-second beat keeps the display honest without costing anything;
+    // the value it shows comes from the clock either way
+    rest.timer = setInterval(tickRest, 250);
+    armRestAlarm();
+  }
+  /* One long timeout for the finish itself. A background phone clamps
+     repeating timers to about a wake a minute, but a single timeout set
+     before that still lands near its time — so the buzz is not a minute late. */
+  function armRestAlarm() {
+    clearTimeout(rest.alarm);
+    rest.alarm = setTimeout(() => { if (restLeft() <= 0) finishRest(); }, Math.max(0, rest.endsAt - Date.now()) + 40);
+  }
+  function tickRest() {
+    if (restLeft() > 0) { renderRest(); return; }
+    finishRest();
+  }
+  function finishRest() {
+    const away = document.visibilityState !== 'visible';
+    stopRest();
+    if (away) notifyRestOver();
+    toast('Rest over — next set!');
+    beep();
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
   }
   function stopRest() {
     clearInterval(rest.timer);
+    clearTimeout(rest.alarm);
     rest.timer = null;
+    rest.alarm = null;
+    rest.endsAt = 0;
     $('#restBar').hidden = true;
     document.body.classList.remove('is-resting');
   }
   function renderRest() {
-    $('#restTime').textContent = fmtClock(Math.max(0, rest.remaining));
+    const left = restLeft();
+    $('#restTime').textContent = fmtClock(left);
     const mini = $('#wkRestMini');
-    if (mini) mini.textContent = fmtClock(Math.max(0, rest.remaining));
-    $('#restFill').style.width = `${(rest.remaining / rest.total) * 100}%`;
+    if (mini) mini.textContent = fmtClock(left);
+    $('#restFill').style.width = (rest.total ? (left / rest.total) * 100 : 0) + '%';
   }
+  const shiftRest = (secs) => {
+    if (!rest.timer) return;
+    rest.endsAt += secs * 1000;
+    if (restLeft() <= 0) { stopRest(); return; }
+    rest.total = Math.max(rest.total, restLeft());
+    rest.noted = false;
+    armRestAlarm();
+    renderRest();
+  };
   $('#restSkip').addEventListener('click', stopRest);
-  $('#restPlus').addEventListener('click', () => { rest.remaining += 15; rest.total = Math.max(rest.total, rest.remaining); renderRest(); });
-  $('#restMinus').addEventListener('click', () => {
-    rest.remaining -= 15;
-    if (rest.remaining <= 0) stopRest(); else renderRest();
+  $('#restPlus').addEventListener('click', () => shiftRest(15));
+  $('#restMinus').addEventListener('click', () => shiftRest(-15));
+
+  /* Coming back to a rest that ran out while the app was away: settle it
+     immediately rather than showing a stale number for a beat. */
+  addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || !rest.timer) return;
+    if (restLeft() > 0) renderRest(); else finishRest();
   });
+
+  /* Rest ending while the app is in the background is exactly when a phone in
+     a pocket is no use, so it can raise a notification instead. Android only
+     grants that off a gesture, so it is a switch in settings. */
+  function restNotifyReady() {
+    return state.settings.restNotify && 'Notification' in window && Notification.permission === 'granted';
+  }
+  function notifyRestOver() {
+    if (rest.noted || !restNotifyReady()) return;
+    rest.noted = true;
+    const body = 'Next set.';
+    navigator.serviceWorker?.ready
+      .then((reg) => reg.showNotification('Rest over', { body, tag: 'bela-rest', icon: 'icons/icon-192.png', vibrate: [200, 100, 200] }))
+      .catch(() => { try { new Notification('Rest over', { body }); } catch (e) { /* nothing else to try */ } });
+  }
+  async function askRestNotify() {
+    if (!('Notification' in window)) { toast('This phone cannot show notifications'); return false; }
+    if (Notification.permission === 'granted') return true;
+    if (Notification.permission === 'denied') { toast('Notifications are blocked for this app in Android settings'); return false; }
+    const res = await Notification.requestPermission();
+    if (res !== 'granted') { toast('Not allowed — nothing will be sent'); return false; }
+    return true;
+  }
 
   /* ---------------- workout elapsed clock ---------------- */
 
@@ -4475,6 +4546,10 @@
         <input type="checkbox" id="keepAwake" ${s.keepAwake === false ? '' : 'checked'}>
       </label>
       <label class="switch-row">
+        <span><b>Tell me when rest is over</b><i>A notification when the timer finishes with the app in the background</i></span>
+        <input type="checkbox" id="restNotify" ${s.restNotify ? 'checked' : ''}>
+      </label>
+      <label class="switch-row">
         <span><b>Full screen</b><i>Hides the Android status bar — and the grey hairline the browser draws under it</i></span>
         <input type="checkbox" id="fullBleed" ${s.fullscreen ? 'checked' : ''}>
       </label>
@@ -4615,6 +4690,11 @@
       $('#keepAwake', body).addEventListener('change', (e) => {
         state.settings.keepAwake = e.target.checked;
         save(); syncWakeLock();
+      });
+      $('#restNotify', body).addEventListener('change', async (e) => {
+        if (e.target.checked && !(await askRestNotify())) { e.target.checked = false; return; }
+        state.settings.restNotify = e.target.checked;
+        save();
       });
       $('#fullBleed', body).addEventListener('change', (e) => {
         state.settings.fullscreen = e.target.checked;
