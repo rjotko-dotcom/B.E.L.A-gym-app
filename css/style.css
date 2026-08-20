@@ -987,3 +987,231 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .home-tight .week-strip .wd-num { width: 28px; height: 28px; font-size: 0.8rem; }
 .home-tight .week-strip .wd { gap: 3px; }
 .home-tight .hh-sub { display: none; }
+
+
+/* ============ v7 — habits, nutrition and workout dashboards ============ */
+
+/* page header shared by the non-home tabs */
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 0 4px 14px; }
+.page-head h2 { margin: 0 0 2px; font-size: 1.6rem; }
+.page-head .subtitle { margin: 0; }
+.page-head .icon-btn { flex-shrink: 0; width: 42px; height: 42px; }
+
+/* ---------- home: macros inside the calories card ---------- */
+.kl-macros { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--border); }
+.klm-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; margin-bottom: 6px; }
+.klm-name { color: var(--ink-2); font-size: 0.72rem; font-weight: 600; }
+.klm-val { font-size: 0.78rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.klm-val i { color: var(--ink-muted); font-style: normal; font-weight: 500; font-size: 0.68rem; }
+.klm-val.over { color: var(--critical); }
+
+/* ---------- home: habits strip ---------- */
+.hb-home { padding: 14px 16px 15px; }
+.hbh-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
+.hbh-count { color: var(--ink-2); font-size: 0.78rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hbh-row { display: flex; gap: 14px; overflow-x: auto; }
+.hbh-chip { display: flex; flex-direction: column; align-items: center; gap: 6px; border: none; background: none; padding: 0; cursor: pointer; flex-shrink: 0; width: 56px; }
+.hbh-ico { position: relative; display: grid; place-items: center; width: 46px; height: 46px; }
+.hbh-ico .hb-ring-svg { position: absolute; inset: 0; }
+.hbh-ico i { display: grid; place-items: center; }
+.hbh-ico svg:not(.hb-ring-svg) { width: 21px; height: 21px; fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.hbh-chip.is-done .hbh-ico svg:not(.hb-ring-svg) { stroke: var(--ink-1); }
+.hbh-name { color: var(--ink-2); font-size: 0.66rem; font-weight: 600; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbh-chip.is-done .hbh-name { color: var(--ink-1); }
+.hbh-empty { color: var(--ink-muted); font-size: 0.8rem; }
+
+/* ---------- habits page ---------- */
+.hb-today-card { padding: 14px 8px 8px 16px; }
+.hb-th { display: flex; align-items: baseline; justify-content: space-between; padding-right: 8px; margin-bottom: 6px; }
+.hb-th-date { color: var(--ink-2); font-size: 0.78rem; font-weight: 600; }
+.hb-row { display: flex; align-items: center; gap: 13px; padding: 11px 8px 11px 0; border-bottom: 1px solid var(--border); cursor: pointer; min-height: 58px; }
+.hb-row:last-child { border-bottom: none; }
+.hb-ico { width: 40px; height: 40px; border-radius: 13px; border: 1px solid var(--border); background: var(--surface-2); display: grid; place-items: center; flex-shrink: 0; }
+.hb-ico svg { width: 20px; height: 20px; fill: none; stroke: var(--ink-1); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.hb-body { flex: 1; min-width: 0; }
+.hb-name { font-size: 0.96rem; font-weight: 600; }
+.hb-sub { color: var(--ink-muted); font-size: 0.76rem; margin-top: 2px; }
+.hb-check { width: 30px; height: 30px; border-radius: 10px; border: 1.6px solid var(--baseline); display: grid; place-items: center; flex-shrink: 0; }
+.hb-check svg { width: 17px; height: 17px; fill: none; stroke: transparent; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.hb-row.is-done .hb-check { background: var(--ink-1); border-color: var(--ink-1); }
+.hb-row.is-done .hb-check svg { stroke: var(--page); }
+.hb-row.is-done .hb-name { color: var(--ink-2); }
+.hb-mini { position: relative; display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; }
+.hb-mini .hb-ring-svg { position: absolute; inset: 0; }
+.hb-mini i { font-style: normal; font-size: 0.62rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hb-plus { width: 34px; height: 34px; border-radius: 11px; border: 1px solid var(--baseline); background: transparent; color: var(--ink-1); font-size: 1.15rem; line-height: 1; flex-shrink: 0; cursor: pointer; }
+.hb-plus:active { background: var(--surface-2); }
+
+/* month grid — dates down the side, one column per habit */
+.hb-grid-card { padding: 14px 6px 10px; }
+.hb-month { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; margin-bottom: 10px; font-size: 0.95rem; font-weight: 600; }
+.hb-nav { width: 34px; height: 34px; border: none; background: none; color: var(--ink-2); font-size: 1.3rem; line-height: 1; cursor: pointer; }
+.hb-nav[disabled] { opacity: 0.3; }
+.hb-grid-scroll { max-height: 46svh; overflow-y: auto; }
+.hb-grid { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.hb-grid thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-1); padding: 0 2px 8px; color: var(--ink-muted); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+.hb-grid thead th span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-grid tbody th { width: 46px; padding: 0 6px 0 8px; text-align: left; font-weight: 500; white-space: nowrap; }
+.hb-grid .hg-d { color: var(--ink-2); font-size: 0.76rem; }
+.hb-grid .hg-w { color: var(--ink-muted); font-size: 0.62rem; margin-left: 4px; }
+.hb-grid td { height: 30px; text-align: center; color: var(--ink-muted); font-size: 0.76rem; border-radius: 8px; cursor: pointer; }
+.hb-grid td.is-on { color: var(--ink-1); font-weight: 700; }
+.hb-grid td.is-part { color: var(--ink-2); }
+.hb-grid tr.is-today { background: var(--surface-2); }
+.hb-grid tr.is-today .hg-d { color: var(--ink-1); font-weight: 700; }
+.hb-grid tr.is-today th { border-radius: 9px 0 0 9px; }
+.hb-grid tr.is-today td:last-child { border-radius: 0 9px 9px 0; }
+.hb-grid tr.is-future { opacity: 0.4; }
+.hb-note { color: var(--ink-muted); font-size: 0.72rem; padding: 8px 10px 2px; }
+
+/* numeric pad sheet */
+.pad-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.pad-target { color: var(--ink-2); font-size: 0.78rem; font-weight: 600; }
+.pad-display { background: var(--surface-2); border-radius: 16px; padding: 14px 16px 16px; text-align: center; margin-bottom: 14px; }
+.pad-value { font-size: 2.4rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.pad-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pad-key { height: 54px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-2); color: var(--ink-1); font-size: 1.25rem; font-weight: 600; cursor: pointer; }
+.pad-key:active { background: var(--baseline); }
+.pad-key svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; margin: 0 auto; }
+.pad-actions { display: grid; grid-template-columns: 1fr 1.6fr; gap: 10px; margin-top: 14px; }
+.pad-actions .btn { margin: 0; }
+
+/* icon picker + segmented control used by the habit editor */
+.icon-pick { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.ip-btn { aspect-ratio: 1; border: 1px solid var(--border); border-radius: 13px; background: var(--surface-2); display: grid; place-items: center; cursor: pointer; }
+.ip-btn svg { width: 21px; height: 21px; fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.ip-btn.is-on { background: var(--pill); border-color: var(--pill); }
+.ip-btn.is-on svg { stroke: var(--pill-ink); }
+.seg { display: flex; gap: 6px; background: var(--surface-2); border-radius: 14px; padding: 4px; }
+.seg button { flex: 1; min-height: 40px; border: none; border-radius: 11px; background: transparent; color: var(--ink-2); font-size: 0.84rem; font-weight: 600; cursor: pointer; }
+.seg button.is-on { background: var(--surface-1); color: var(--ink-1); box-shadow: 0 1px 3px rgba(0,0,0,0.14); }
+.seg-slot { margin-bottom: 14px; }
+.seg-slot button { font-size: 0.78rem; }
+
+/* ---------- nutrition page ---------- */
+.nut-hero { text-align: center; padding: 10px 0 16px; }
+.nh-num { font-size: 2.9rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.nh-num span { font-size: 1.1rem; font-weight: 600; color: var(--ink-2); margin-left: 6px; letter-spacing: 0; }
+.nh-num.over { color: var(--critical); }
+.nh-sub { color: var(--ink-2); font-size: 0.86rem; margin-top: 6px; }
+.nut-consumed { padding: 14px 16px 13px; }
+.nc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.nc-l { display: flex; align-items: center; gap: 7px; font-size: 0.86rem; font-weight: 600; }
+.nc-l svg { width: 17px; height: 17px; fill: none; stroke: var(--ink-1); stroke-width: 1.6; stroke-linejoin: round; }
+.nc-l i { color: var(--ink-muted); font-style: normal; font-weight: 500; }
+.nc-r { font-size: 0.86rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.nc-r.over { color: var(--critical); }
+.nc-foot { display: flex; justify-content: space-between; margin-top: 7px; color: var(--ink-muted); font-size: 0.7rem; }
+.nut-macros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
+.nm-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 18px; padding: 13px 10px 14px; display: flex; flex-direction: column; align-items: center; gap: 9px; }
+.nm-ring { display: grid; place-items: center; }
+.nm-text { text-align: center; }
+.nm-name { display: block; color: var(--ink-2); font-size: 0.72rem; font-weight: 600; }
+.nm-left { font-size: 0.82rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.nm-left.over { color: var(--critical); }
+
+/* meal slot cards */
+.slot-card { padding: 13px 14px; }
+.slot-head { display: flex; align-items: center; gap: 12px; }
+.slot-ico { width: 38px; height: 38px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); display: grid; place-items: center; flex-shrink: 0; }
+.slot-ico svg { width: 19px; height: 19px; fill: none; stroke: var(--ink-1); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.slot-title { flex: 1; min-width: 0; }
+.slot-title b { display: block; font-size: 0.95rem; font-weight: 600; }
+.slot-title span { color: var(--ink-muted); font-size: 0.76rem; }
+.slot-add { width: 36px; height: 36px; border-radius: 12px; border: 1px solid var(--baseline); background: transparent; color: var(--ink-1); display: grid; place-items: center; flex-shrink: 0; cursor: pointer; }
+.slot-add svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.slot-add:active { background: var(--surface-2); }
+.slot-items { margin-top: 10px; border-top: 1px solid var(--border); }
+.slot-item { display: flex; align-items: center; gap: 10px; padding: 10px 0 9px; border-bottom: 1px solid var(--border); }
+.slot-item:last-child { border-bottom: none; padding-bottom: 2px; }
+.si-main { flex: 1; min-width: 0; }
+.si-name { font-size: 0.88rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.si-sub { color: var(--ink-muted); font-size: 0.72rem; margin-top: 2px; }
+.si-kcal { font-size: 0.86rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.si-del { width: 30px; height: 30px; border: none; background: none; color: var(--ink-muted); display: grid; place-items: center; cursor: pointer; flex-shrink: 0; }
+.si-del svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.water-card { display: flex; align-items: center; gap: 12px; padding: 13px 14px; }
+.water-dots { display: flex; flex-wrap: wrap; gap: 7px; padding: 0 4px 6px; }
+.water-dots .wdot { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--baseline); }
+.water-dots .wdot.on { background: var(--ink-1); border-color: var(--ink-1); }
+
+/* ---------- workouts dashboard ---------- */
+.wk-active { padding: 15px 16px 16px; }
+.wa-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.wa-live { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-1); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
+.wk-active h3 { font-size: 1.1rem; margin-bottom: 3px; }
+.wk-active .btn { margin-top: 13px; }
+.wk-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.wk-stat { text-align: left; padding: 14px 15px 15px; cursor: pointer; display: flex; flex-direction: column; }
+.ws-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.ws-ring { width: 40px; height: 40px; border-radius: 50%; border: 1.8px solid var(--baseline); display: grid; place-items: center; font-size: 0.92rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ws-mini { width: 19px; height: 19px; fill: none; stroke: var(--ink-muted); stroke-width: 1.8; stroke-linecap: round; }
+.ws-big { font-size: 1.65rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.ws-big i { font-style: normal; font-size: 0.85rem; font-weight: 600; color: var(--ink-2); margin-left: 3px; }
+.ws-name { font-size: 0.92rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-sub { color: var(--ink-muted); font-size: 0.74rem; margin-top: 3px; }
+.wk-cons { padding: 14px 16px 16px; }
+.wc-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+.wc-note { color: var(--ink-2); font-size: 0.76rem; font-weight: 600; }
+.dot-months { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.dm-label { display: block; color: var(--ink-muted); font-size: 0.68rem; font-weight: 600; text-align: center; margin-bottom: 8px; }
+.dm-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; justify-items: center; }
+.dm-grid .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--surface-2); }
+:root:not([data-theme="light"]) .dm-grid .dot { background: #303030; }
+.dm-grid .dot.on { background: var(--ink-1); }
+.dm-grid .dot.today { outline: 1.5px solid var(--baseline); outline-offset: 1.5px; }
+.wk-vol { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 16px; }
+.wv-sub { display: block; color: var(--ink-2); font-size: 0.8rem; margin-top: 3px; }
+.wv-num { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.wv-num i { font-style: normal; font-size: 0.82rem; font-weight: 600; color: var(--ink-2); margin-left: 3px; }
+.tpl-add { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 52px; border: 1.5px dashed var(--baseline); border-radius: 16px; background: transparent; color: var(--ink-2); font-size: 0.88rem; font-weight: 600; cursor: pointer; }
+.tpl-add svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.tpl-add:active { background: var(--surface-1); }
+.btn-danger { background: transparent; border: 1px solid var(--critical); color: var(--critical); }
+.btn-ghost { background: transparent; border: 1px solid var(--baseline); color: var(--ink-1); }
+
+/* home tiers: shed the habit strip labels first, then the strip */
+.home-compact .hb-home { padding: 11px 14px 12px; }
+.home-compact .hbh-ico { width: 42px; height: 42px; }
+.home-compact .kl-macros { margin-top: 11px; padding-top: 10px; }
+.home-tight .hbh-name { display: none; }
+.home-tight .hbh-row { gap: 12px; }
+.home-tight .hb-home { padding: 9px 12px 10px; }
+
+/* smallest screens: shrink the habit strip before anything gets clipped */
+.home-tight .hbh-ico { width: 36px; height: 36px; }
+.home-tight .hbh-chip { width: 40px; }
+.home-tight .kl-macros { margin-top: 9px; padding-top: 8px; }
+.home-tight .hb-home { padding: 8px 12px 9px; }
+
+/* ---------- home: compact action row (replaces the tall shortcut cards) ---------- */
+.home-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ha-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px; padding: 0 12px; border-radius: 16px; cursor: pointer;
+  border: 1px solid var(--baseline); background: transparent; color: var(--ink-1);
+  font-size: 0.88rem; font-weight: 600; letter-spacing: -0.01em;
+}
+.ha-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.ha-btn:active { background: var(--surface-1); }
+.ha-primary { background: var(--pill); border-color: var(--pill); color: var(--pill-ink); }
+.ha-primary:active { filter: brightness(0.9); background: var(--pill); }
+.home-compact .ha-btn { min-height: 46px; font-size: 0.83rem; }
+.home-tight .ha-btn { min-height: 42px; font-size: 0.8rem; border-radius: 14px; }
+
+/* base-tier trims so a full-size phone never needs the compact tiers */
+.view.home-screen .bw-card { padding: 14px 16px; }
+.view.home-screen .kcal-line { padding: 14px 16px 15px; }
+.view.home-screen .hb-home { padding: 12px 15px 13px; }
+.view.home-screen .hbh-ico { width: 42px; height: 42px; }
+.view.home-screen .hbh-row { gap: 12px; }
+.view.home-screen .week-strip .wd-num { width: clamp(34px, 4.6svh, 40px); height: clamp(34px, 4.6svh, 40px); font-size: 0.95rem; }
+.view.home-screen .bw-log { min-height: 36px; padding: 7px 13px; font-size: 0.82rem; margin-top: 10px; }
+.view.home-screen .kl-macros { margin-top: 12px; padding-top: 11px; }
+
+/* the greeting sub-line must never wrap — it pushes the whole home layout down */
+.hh-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the main home action reads as the primary button: white on dark, black on light */
+.ha-primary { background: var(--ink-1); border-color: var(--ink-1); color: var(--page); }
+.ha-primary:active { background: var(--ink-1); filter: brightness(0.88); }

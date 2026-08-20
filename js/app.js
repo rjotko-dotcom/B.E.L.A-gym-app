@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '6.4';
+  const APP_VERSION = '7.0';
 
   /* ---------------- state ---------------- */
 
@@ -19,6 +19,8 @@
       water: [],        // { date:'YYYY-MM-DD', glasses }
       measurements: [], // { date:'YYYY-MM-DD', key, value }  key: waist|chest|arm|thigh|hips
     },
+    habits: [],       // { id, name, icon, type:'check'|'count', target, unit, step }
+    habitLog: {},     // { 'YYYY-MM-DD': { habitId: value } }
     customExercises: [],
     templates: [],
     workouts: [],          // finished workouts, newest first
@@ -78,6 +80,9 @@
       if (parsed.settings && !parsed.settings.appearance) {
         parsed.settings.appearance = parsed.settings.theme === 'dark' ? 'dark' : 'system';
       }
+      if (!parsed.habits) parsed.habits = starterHabits();
+      if (!parsed.habitLog) parsed.habitLog = {};
+      (parsed.nutrition?.meals || []).forEach((m) => { if (!m.slot) m.slot = slotFromTime(m.time); });
       return {
         ...d, ...parsed,
         settings: { ...d.settings, ...(parsed.settings || {}) },
@@ -92,6 +97,24 @@
   }
   function save() {
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  }
+
+  function starterHabits() {
+    return [
+      { id: 'h_train', name: 'Train', icon: 'dumbbell', type: 'check', target: 1, unit: '', step: 1 },
+      { id: 'h_steps', name: 'Steps', icon: 'steps', type: 'count', target: 10000, unit: 'steps', step: 1000 },
+      { id: 'h_read', name: 'Read', icon: 'book', type: 'count', target: 20, unit: 'pages', step: 5 },
+      { id: 'h_sleep', name: 'Sleep 8h', icon: 'sleep', type: 'check', target: 1, unit: '', step: 1 },
+    ];
+  }
+  // legacy meals carry only a clock time — place them in a sensible slot
+  function slotFromTime(time) {
+    const h = Number(String(time || '').slice(0, 2));
+    if (!Number.isFinite(h)) return 'snack';
+    if (h < 11) return 'breakfast';
+    if (h < 15) return 'lunch';
+    if (h < 21) return 'dinner';
+    return 'snack';
   }
 
   function applyTheme() {
@@ -572,6 +595,7 @@
     const goal = state.settings.goalWeight;
     const initial = ((state.settings.name || '').trim().charAt(0) || 'B').toUpperCase();
     const kcalPct = Math.round(frac * 100);
+    const { done: hbDone, total: hbTotal } = habitsDone(todayKey);
     const RING = 2 * Math.PI * 22;
     const ringOffset = RING * (1 - Math.min(1, frac));
 
@@ -639,39 +663,43 @@
             <div class="kl-left">${over ? `${Math.round(totals.kcal - targets.kcal)} kcal over` : `${Math.round(targets.kcal - totals.kcal)} kcal left`}</div>
           </div>
         </div>
+        <div class="kl-macros">
+          ${macros.map(([label, val, target]) => {
+            const pct = target ? Math.min(100, (val / target) * 100) : 0;
+            const isOver = target && val > target;
+            return `
+            <div class="klm">
+              <div class="klm-head"><span class="klm-name">${label}</span><span class="klm-val ${isOver ? 'over' : ''}">${Math.round(val)}<i>/${target}g</i></span></div>
+              <div class="mc-bar"><div class="mc-fill ${isOver ? 'over' : ''}" style="width:${pct}%"></div></div>
+            </div>`;
+          }).join('')}
+        </div>
       </div>
 
-      <div class="macro-cards">
-        ${macros.map(([label, val, target, icon]) => {
-          const pct = target ? Math.min(100, (val / target) * 100) : 0;
-          const isOver = target && val > target;
+      <div class="card hb-home">
+        <div class="hbh-head">
+          <span class="micro">Habits</span>
+          <span class="hbh-count">${hbDone} / ${hbTotal} today</span>
+        </div>
+        ${hbTotal ? `<div class="hbh-row">${habitsList().slice(0, 6).map((h) => {
+          const done = habitDone(h, todayKey);
           return `
-          <div class="mc-card ${isOver ? 'over' : ''}">
-            <div class="mc-top"><span class="mc-name">${label}</span><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg></div>
-            <div class="mc-val">${Math.round(val)}g</div>
-            <div class="mc-target">/ ${target}g</div>
-            <div class="mc-bar"><div class="mc-fill ${isOver ? 'over' : ''}" style="width:${pct}%"></div></div>
-          </div>`;
-        }).join('')}
+          <button class="hbh-chip ${done ? 'is-done' : ''}" data-h="${esc(h.id)}">
+            <span class="hbh-ico">${habitRing(h, todayKey, 46)}<i>${habitIcon(h.icon)}</i></span>
+            <span class="hbh-name">${esc(h.name)}</span>
+          </button>`;
+        }).join('')}</div>` : '<p class="hbh-empty">Add your first habit in the Habits tab.</p>'}
       </div>
 
-      <div class="home-grid2">
-        <div class="card shortcut-card sc-workout">
-          <h3>Workouts</h3>
-          <p>${active ? 'Session in progress' : 'Track and improve'}</p>
-          <div class="shortcut-foot">
-            <button class="btn btn-white" id="homeStart">${active ? 'Resume' : 'Start'}</button>
-            <span class="sc-badge sc-square"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg></span>
-          </div>
-        </div>
-        <div class="card shortcut-card sc-meals">
-          <h3>Meals</h3>
-          <p>Log and track nutrition</p>
-          <div class="shortcut-foot">
-            <button class="btn btn-white" id="homeLog">Log</button>
-            <span class="sc-badge sc-square"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg></span>
-          </div>
-        </div>
+      <div class="home-actions">
+        <button class="ha-btn ha-primary" id="homeStart">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg>
+          ${active ? 'Resume workout' : 'Start workout'}
+        </button>
+        <button class="ha-btn" id="homeLog">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg>
+          Log meal
+        </button>
       </div>`;
 
     $('#homeAvatar').addEventListener('click', () => goTab('profile'));
@@ -682,6 +710,13 @@
       goTab('workout');
     });
     $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
+    $$('.hbh-chip', v).forEach((c) => c.addEventListener('click', () => {
+      const h = habitById(c.dataset.h);
+      if (!h) return;
+      if (h.type === 'check') toggleHabit(h); else openHabitPad(h, todayKey);
+    }));
+    const hbHome = $('.hb-home', v);
+    if (hbHome) hbHome.addEventListener('click', (e) => { if (!e.target.closest('.hbh-chip')) goTab('habits'); });
   }
 
   function openWeightSheet() {
@@ -737,6 +772,33 @@
 
   /* ================= MEALS TAB ================= */
 
+  const MEAL_SLOTS = [
+    ['breakfast', 'Breakfast', '<path d="M12 6.6a5.4 5.4 0 1 0 0 10.8 5.4 5.4 0 0 0 0-10.8ZM12 2.4v1.7M12 19.9v1.7M2.4 12h1.7M19.9 12h1.7M5.2 5.2l1.2 1.2M17.6 17.6l1.2 1.2M18.8 5.2l-1.2 1.2M6.4 17.6l-1.2 1.2"/>'],
+    ['lunch', 'Lunch', '<path d="M4 11.5h16a8 8 0 0 1-16 0Z"/><path d="M2.8 15.6h18.4M6.4 8.2c0-1 .9-1.5.9-2.6M11.6 8.2c0-1 .9-1.5.9-2.6M16.8 8.2c0-1 .9-1.5.9-2.6"/>'],
+    ['dinner', 'Dinner', '<path d="M6.5 3.2v7.2a2.2 2.2 0 0 0 4.4 0V3.2M8.7 10.4V20.8M17.5 3.2c-1.5 1.6-2 3.4-2 5.6 0 1.6.6 2.6 2 2.9V20.8"/>'],
+    ['snack', 'Snacks', '<path d="M12.5 7.2c-2.6-1.6-6.6-.6-7.8 2.4-1.3 3.2 1.3 8.9 4.2 9.9 1.3.5 2.2-.3 3.6-.3s2.3.8 3.6.3c2.9-1 5.5-6.7 4.2-9.9-1.2-3-5.2-4-7.8-2.4Z"/><path d="M12.5 7.2c.2-1.6 1.3-2.9 3-3.2"/>'],
+  ];
+  const mealSlot = (m) => m.slot || slotFromTime(m.time);
+
+  function macroRing(label, val, target, size) {
+    const frac = target ? Math.min(1, val / target) : 0;
+    const over = target && val > target;
+    const r = 15.5, C = 2 * Math.PI * r;
+    const left = Math.max(0, Math.round(target - val));
+    return '' +
+      '<div class="nm-card">' +
+        '<div class="nm-ring">' +
+          '<svg viewBox="0 0 36 36" style="width:' + size + 'px;height:' + size + 'px" aria-hidden="true">' +
+            '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="var(--surface-2)" stroke-width="3.4"/>' +
+            '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="' + (over ? 'var(--critical)' : 'var(--ink-1)') + '" stroke-width="3.4" stroke-linecap="round"' +
+            ' stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + (C * (1 - frac)).toFixed(1) + '" transform="rotate(-90 18 18)"/>' +
+          '</svg>' +
+        '</div>' +
+        '<div class="nm-text"><span class="nm-name">' + label + '</span>' +
+          '<b class="nm-left ' + (over ? 'over' : '') + '">' + (over ? Math.round(val - target) + 'g over' : left + 'g left') + '</b></div>' +
+      '</div>';
+  }
+
   function renderMeals() {
     const v = $('#view');
     const day = dayWithOffset(mealDayOffset);
@@ -746,68 +808,90 @@
     const targets = state.nutrition.targets;
     const frac = targets.kcal ? totals.kcal / targets.kcal : 0;
     const over = totals.kcal > targets.kcal;
+    const left = Math.round(targets.kcal - totals.kcal);
     const label = mealDayOffset === 0 ? 'Today' : mealDayOffset === -1 ? 'Yesterday' : fmtDate(day.getTime());
+    const glasses = waterFor(key);
+    const wTarget = state.settings.waterTarget || 8;
 
-    v.innerHTML = `
-      <h2>Nutrition</h2>
-      <p class="subtitle">Log meals, macros and water</p>
+    v.innerHTML =
+      '<div class="page-head">' +
+        '<div><h2>Nutrition</h2><p class="subtitle">Log meals, macros and water</p></div>' +
+        '<button class="icon-btn" id="addMeal" aria-label="Log a meal"><svg viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg></button>' +
+      '</div>' +
 
-      <div class="day-nav">
-        <button id="dayPrev" aria-label="Previous day">‹</button>
-        <span class="dn-label">${esc(label)}</span>
-        <button id="dayNext" aria-label="Next day" ${mealDayOffset >= 0 ? 'disabled style="opacity:0.35"' : ''}>›</button>
-      </div>
+      '<div class="day-nav">' +
+        '<button id="dayPrev" aria-label="Previous day">‹</button>' +
+        '<span class="dn-label">' + esc(label) + '</span>' +
+        '<button id="dayNext" aria-label="Next day" ' + (mealDayOffset >= 0 ? 'disabled style="opacity:0.35"' : '') + '>›</button>' +
+      '</div>' +
 
-      <div class="card meal-summary">
-        <div class="ms-left">
-          <div class="gauge-wrap">
-            ${gaugeSVG(frac, over)}
-            <div class="gauge-center">${Math.round(frac * 100)}%</div>
-          </div>
-          <div class="kcal-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()}</div>
-          <div class="kcal-unit">kcal</div>
-        </div>
-        <div class="ms-right">${macroRowsHTML(totals, targets)}</div>
-      </div>
+      '<div class="nut-hero">' +
+        '<div class="nh-num ' + (over ? 'over' : '') + '">' + Math.abs(left).toLocaleString() + '<span>kcal</span></div>' +
+        '<div class="nh-sub">' + (over ? 'over your goal' : 'left for today') + '</div>' +
+      '</div>' +
 
-      <div class="card water-card">
-        <div>
-          <span class="micro">Water</span>
-          <div class="water-count">💧 ${waterFor(key)} / ${state.settings.waterTarget} glasses</div>
-        </div>
-        <div class="water-btns">
-          <button class="chip-btn" id="waterMinus" aria-label="Remove a glass">−</button>
-          <button class="chip-btn chip-strong" id="waterPlus" aria-label="Add a glass">+</button>
-        </div>
-      </div>
+      '<div class="card nut-consumed">' +
+        '<div class="nc-head">' +
+          '<span class="nc-l"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c.7 3.1 3.4 4.4 3.4 7.4 0 1-.4 2-1.2 2.8.5-1.7-.6-3.1-1.7-3.9.2 2.3-1.4 3.5-2.3 4.8-1.7 2.2.2 5.5 3.4 5.5 3.1 0 5.4-2.4 5.4-5.4 0-4.9-4.3-7.9-7-11.2Z"/></svg>' +
+            'Consumed <i>(' + Math.round(frac * 100) + '%)</i></span>' +
+          '<span class="nc-r ' + (over ? 'over' : '') + '">' + Math.round(totals.kcal).toLocaleString() + ' kcal</span>' +
+        '</div>' +
+        '<div class="macro-track"><div class="macro-fill ' + (over ? 'over' : '') + '" style="width:' + Math.min(100, frac * 100) + '%"></div></div>' +
+        '<div class="nc-foot"><span>0</span><span>' + targets.kcal.toLocaleString() + ' kcal goal</span></div>' +
+      '</div>' +
 
-      <button class="btn btn-primary" id="addMeal" style="margin-bottom:16px">+ Log a meal</button>
+      '<div class="nut-macros">' +
+        macroRing('Protein', totals.protein, targets.protein, 44) +
+        macroRing('Carbs', totals.carbs, targets.carbs, 44) +
+        macroRing('Fat', totals.fat, targets.fat, 44) +
+      '</div>' +
 
-      ${meals.length ? meals.map((m) => `
-        <div class="card meal-item">
-          <div>
-            <div class="mi-name">${esc(m.name)}</div>
-            <div class="mi-sub">P ${Math.round(m.protein)}g · C ${Math.round(m.carbs)}g · F ${Math.round(m.fat)}g${m.time ? ' · ' + esc(m.time) : ''}</div>
-          </div>
-          <span class="mi-kcal">${Math.round(m.kcal)}<span class="t-unit"> kcal</span></span>
-          <button class="meal-del" data-del="${esc(m.id)}" aria-label="Delete meal">
-            <svg viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg>
-          </button>
-        </div>`).join('')
-      : `<p class="empty-note">Nothing logged ${mealDayOffset === 0 ? 'today' : 'this day'} yet.</p>`}`;
+      MEAL_SLOTS.map(([slot, title, icon]) => {
+        const items = meals.filter((m) => mealSlot(m) === slot);
+        const kcal = items.reduce((t, m) => t + (m.kcal || 0), 0);
+        return '<div class="card slot-card">' +
+          '<div class="slot-head">' +
+            '<span class="slot-ico"><svg viewBox="0 0 24 24" aria-hidden="true">' + icon + '</svg></span>' +
+            '<div class="slot-title"><b>' + title + '</b>' + (items.length ? '<span>' + Math.round(kcal) + ' kcal</span>' : '<span>Nothing logged</span>') + '</div>' +
+            '<button class="slot-add" data-slot="' + slot + '" aria-label="Add to ' + title + '">' +
+              '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button>' +
+          '</div>' +
+          (items.length ? '<div class="slot-items">' + items.map((m) =>
+            '<div class="slot-item">' +
+              '<div class="si-main"><div class="si-name">' + esc(m.name) + '</div>' +
+                '<div class="si-sub">P ' + Math.round(m.protein) + ' · C ' + Math.round(m.carbs) + ' · F ' + Math.round(m.fat) + (m.time ? ' · ' + esc(m.time) : '') + '</div></div>' +
+              '<span class="si-kcal">' + Math.round(m.kcal) + '</span>' +
+              '<button class="si-del" data-del="' + esc(m.id) + '" aria-label="Delete ' + esc(m.name) + '">' +
+                '<svg viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg></button>' +
+            '</div>').join('') + '</div>' : '') +
+        '</div>';
+      }).join('') +
+
+      '<div class="card water-card">' +
+        '<span class="slot-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6c3.1 3.6 5.3 6.1 5.3 8.8a5.3 5.3 0 1 1-10.6 0c0-2.7 2.2-5.2 5.3-8.8Z"/></svg></span>' +
+        '<div class="slot-title"><b>Water</b><span>' + glasses + ' / ' + wTarget + ' glasses</span></div>' +
+        '<div class="water-btns">' +
+          '<button class="chip-btn" id="waterMinus" aria-label="Remove a glass">−</button>' +
+          '<button class="chip-btn chip-strong" id="waterPlus" aria-label="Add a glass">+</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="water-dots">' + Array.from({ length: wTarget }, (_, i) =>
+        '<span class="wdot ' + (i < glasses ? 'on' : '') + '"></span>').join('') + '</div>';
 
     $('#dayPrev').addEventListener('click', () => { mealDayOffset -= 1; render(); });
     $('#dayNext').addEventListener('click', () => { if (mealDayOffset < 0) { mealDayOffset += 1; render(); } });
     $('#waterPlus').addEventListener('click', () => { setWater(key, waterFor(key) + 1); save(); render(); });
     $('#waterMinus').addEventListener('click', () => { setWater(key, Math.max(0, waterFor(key) - 1)); save(); render(); });
     $('#addMeal').addEventListener('click', () => openMealSheet(key));
-    $$('.meal-del', v).forEach((b) => b.addEventListener('click', () => {
+    $$('.slot-add', v).forEach((b) => b.addEventListener('click', () => openMealSheet(key, b.dataset.slot)));
+    $$('.si-del', v).forEach((b) => b.addEventListener('click', () => {
       state.nutrition.meals = state.nutrition.meals.filter((m) => m.id !== b.dataset.del);
       save(); render();
     }));
   }
 
-  function openMealSheet(key = dateKey()) {
+  function openMealSheet(key = dateKey(), slot = null) {
+    if (!slot) slot = slotFromTime(new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' }));
     // recent custom entries (not in the food library), newest first, unique by name
     const libNames = new Set(FOOD_LIBRARY.map((f) => f.name));
     const recents = [];
@@ -838,6 +922,9 @@
     };
 
     openSheet('Log a meal', `
+      <div class="seg seg-slot" id="slotPick">
+        ${MEAL_SLOTS.map(([k, title]) => `<button data-slot="${k}" class="${k === slot ? 'is-on' : ''}">${title}</button>`).join('')}
+      </div>
       <input class="search-field" id="foodSearch" type="search" placeholder="Search foods…" autocomplete="off">
       <div id="foodList">${listHtml('')}</div>
       <div class="section-title">Custom entry</div>
@@ -856,12 +943,18 @@
         state.nutrition.meals.push({
           id: uid(), date: key,
           time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+          slot,
           name: f.name, kcal: f.kcal || 0, protein: f.protein || 0, carbs: f.carbs || 0, fat: f.fat || 0,
         });
         save(); closeSheet();
         goTab('meals');
         toast(`${f.name} logged`);
       };
+
+      $$('#slotPick button', body).forEach((b) => b.addEventListener('click', () => {
+        slot = b.dataset.slot;
+        $$('#slotPick button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+      }));
 
       const search = $('#foodSearch', body);
       const list = $('#foodList', body);
@@ -887,63 +980,126 @@
 
   /* ================= WORKOUT TAB ================= */
 
+  // month of dots — one per day, filled when the day is in \`days\`
+  function monthDots(monthDate, days) {
+    const y = monthDate.getFullYear(), m = monthDate.getMonth();
+    const total = new Date(y, m + 1, 0).getDate();
+    const todayK = dateKey();
+    let out = '';
+    for (let i = 1; i <= total; i++) {
+      const k = dateKey(new Date(y, m, i));
+      out += '<span class="dot ' + (days.has(k) ? 'on' : '') + (k === todayK ? ' today' : '') + '"></span>';
+    }
+    return '<div class="dot-month"><span class="dm-label">' +
+      monthDate.toLocaleDateString(undefined, { month: 'short' }) + '</span><div class="dm-grid">' + out + '</div></div>';
+  }
+
   function renderWorkout() {
     const v = $('#view');
-    if (!state.activeWorkout) {
-      const templates = [...BUILTIN_TEMPLATES, ...state.templates];
-      v.innerHTML = `
-        <h2>Workouts</h2>
-        <p class="subtitle">Track and improve</p>
-        <button class="btn btn-primary" id="startEmpty">Start empty workout</button>
-        <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">Routines
-          <button class="chip-btn" id="newRoutine">+ New routine</button>
-        </div>
-        <div class="tpl-list">
-          ${templates.map((t) => `
-            <div class="tpl-item" data-tpl="${esc(t.id)}" role="button" tabindex="0">
-              <div>
-                <div class="li-name">${esc(t.name)}</div>
-                <div class="li-sub">${t.exercises.length} exercises · ${t.exercises.map((e) => exerciseById(e.exerciseId)?.name).filter(Boolean).slice(0, 3).join(' · ')}${t.exercises.length > 3 ? ' · …' : ''}</div>
-              </div>
-              ${t.builtin ? '' : `
-              <button class="icon-btn" data-edit-tpl="${esc(t.id)}" aria-label="Edit routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/></svg></button>
-              <button class="icon-btn" data-del-tpl="${esc(t.id)}" aria-label="Delete routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg></button>`}
-            </div>`).join('')}
-        </div>`;
-      $('#startEmpty').addEventListener('click', () => startWorkout());
-      $('#newRoutine').addEventListener('click', () => openRoutineBuilder());
-      $$('.tpl-item', v).forEach((el) => {
-        el.addEventListener('click', (e) => {
-          const delBtn = e.target.closest('[data-del-tpl]');
-          if (delBtn) {
-            if (confirm('Delete this routine?')) {
-              state.templates = state.templates.filter((t) => t.id !== delBtn.dataset.delTpl);
-              save(); render();
-            }
-            return;
-          }
-          const editBtn = e.target.closest('[data-edit-tpl]');
-          if (editBtn) {
-            openRoutineBuilder(editBtn.dataset.editTpl);
-            return;
-          }
-          startWorkout(el.dataset.tpl);
-        });
-      });
-      return;
-    }
+    const templates = [...BUILTIN_TEMPLATES, ...state.templates];
+    const active = state.activeWorkout;
+    const last = state.workouts[0];
+    const lw = latestWeight();
+    const workoutDays = new Set(state.workouts.map((w) => dateKey(new Date(w.startedAt))));
+    const now = new Date();
+    const weekAgo = Date.now() - 7 * 864e5;
+    const vol7 = state.workouts.filter((w) => w.startedAt >= weekAgo).reduce((t, w) => t + workoutVolume(w), 0);
+    const count7 = state.workouts.filter((w) => w.startedAt >= weekAgo).length;
+    const streak = streakWeeks();
+    const ago = (ts) => {
+      const min = Math.round((Date.now() - ts) / 60000);
+      if (min < 60) return min + ' min ago';
+      const h = Math.round(min / 60);
+      if (h < 24) return h + ' h ago';
+      const d = Math.round(h / 24);
+      return d === 1 ? 'yesterday' : d + ' days ago';
+    };
 
-    // a workout is running but the logger is minimized — offer to resume
-    const w = state.activeWorkout;
-    v.innerHTML = `
-      <h2>Workouts</h2>
-      <p class="subtitle">Session in progress</p>
-      <div class="card">
-        <h3>${esc(w.name)}</h3>
-        <p class="muted" style="margin-bottom:12px">${loggedSets(w).length} sets logged · started ${fmtDuration(Date.now() - w.startedAt)} ago</p>
-        <button class="btn btn-primary" id="resumeWorkout">Resume workout</button>
-      </div>`;
-    $('#resumeWorkout').addEventListener('click', () => { workoutOpen = true; openWkEntry(); render(); });
+    v.innerHTML =
+      '<div class="page-head">' +
+        '<div><h2>Workouts</h2><p class="subtitle">' + (active ? 'Session in progress' : 'Track and improve') + '</p></div>' +
+        '<button class="icon-btn" id="newRoutine" aria-label="New routine"><svg viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg></button>' +
+      '</div>' +
+
+      (active ?
+      '<div class="card wk-active">' +
+        '<div class="wa-top"><span class="wa-live"></span><span class="micro">Active session</span></div>' +
+        '<h3>' + esc(active.name) + '</h3>' +
+        '<p class="muted">' + loggedSets(active).length + ' sets logged · started ' + fmtDuration(Date.now() - active.startedAt) + ' ago</p>' +
+        '<button class="btn btn-primary" id="resumeWorkout">Resume workout</button>' +
+      '</div>' : '') +
+
+      '<div class="wk-grid2">' +
+        '<button class="card wk-stat" id="wkLast">' +
+          '<div class="ws-top"><span class="ws-ring">' + (last ? loggedSets(last).length : 0) + '</span>' +
+            '<svg class="ws-mini" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg></div>' +
+          '<div class="ws-name">' + (last ? esc(last.name) : 'No sessions yet') + '</div>' +
+          '<div class="ws-sub">' + (last ? esc(fmtDate(last.startedAt)) : 'Start your first workout') + '</div>' +
+        '</button>' +
+        '<button class="card wk-stat" id="wkWeight">' +
+          '<div class="ws-top"><span class="ws-big">' + (lw ? fmtNum(lw.value) : '—') + '<i>' + esc(unit()) + '</i></span></div>' +
+          '<div class="ws-name">Body weight</div>' +
+          '<div class="ws-sub">' + (lw ? esc(fmtShortDate(new Date(lw.date + 'T12:00:00').getTime())) : 'Tap to log') + '</div>' +
+        '</button>' +
+      '</div>' +
+
+      '<div class="card wk-cons">' +
+        '<div class="wc-head"><span class="micro">Consistency</span>' +
+          '<span class="wc-note">' + state.workouts.length + ' total' + (streak >= 2 ? ' · ' + streak + '-week streak' : '') + '</span></div>' +
+        '<div class="dot-months">' +
+          monthDots(new Date(now.getFullYear(), now.getMonth() - 2, 1), workoutDays) +
+          monthDots(new Date(now.getFullYear(), now.getMonth() - 1, 1), workoutDays) +
+          monthDots(new Date(now.getFullYear(), now.getMonth(), 1), workoutDays) +
+        '</div>' +
+      '</div>' +
+
+      '<div class="card wk-vol">' +
+        '<div><span class="micro">Volume lifted</span><span class="wv-sub">Last 7 days · ' + count7 + ' session' + (count7 === 1 ? '' : 's') + '</span></div>' +
+        '<div class="wv-num">' + Math.round(vol7).toLocaleString() + '<i>' + esc(unit()) + '</i></div>' +
+      '</div>' +
+
+      '<button class="btn btn-primary" id="startEmpty">Start empty workout</button>' +
+      '<div class="section-title">Routines</div>' +
+      '<div class="tpl-list">' +
+        templates.map((t) =>
+          '<div class="tpl-item" data-tpl="' + esc(t.id) + '" role="button" tabindex="0">' +
+            '<div>' +
+              '<div class="li-name">' + esc(t.name) + '</div>' +
+              '<div class="li-sub">' + t.exercises.length + ' exercises · ' +
+                t.exercises.map((e) => exerciseById(e.exerciseId)?.name).filter(Boolean).slice(0, 3).join(' · ') +
+                (t.exercises.length > 3 ? ' · …' : '') + '</div>' +
+            '</div>' +
+            (t.builtin ? '' :
+              '<button class="icon-btn" data-edit-tpl="' + esc(t.id) + '" aria-label="Edit routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/></svg></button>' +
+              '<button class="icon-btn" data-del-tpl="' + esc(t.id) + '" aria-label="Delete routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg></button>') +
+          '</div>').join('') +
+        '<button class="tpl-add" id="newRoutine2">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>New routine</button>' +
+      '</div>' +
+
+      '';
+
+    if (active) $('#resumeWorkout').addEventListener('click', () => { workoutOpen = true; openWkEntry(); render(); });
+    $('#startEmpty').addEventListener('click', () => startWorkout());
+    $('#newRoutine').addEventListener('click', () => openRoutineBuilder());
+    $('#newRoutine2').addEventListener('click', () => openRoutineBuilder());
+    $('#wkWeight').addEventListener('click', openWeightSheet);
+    $('#wkLast').addEventListener('click', () => { if (last) { progressSeg = 'history'; goTab('profile'); } });
+    $$('.tpl-item', v).forEach((el) => {
+      el.addEventListener('click', (e) => {
+        const delBtn = e.target.closest('[data-del-tpl]');
+        if (delBtn) {
+          if (confirm('Delete this routine?')) {
+            state.templates = state.templates.filter((t) => t.id !== delBtn.dataset.delTpl);
+            save(); render();
+          }
+          return;
+        }
+        const editBtn = e.target.closest('[data-edit-tpl]');
+        if (editBtn) { openRoutineBuilder(editBtn.dataset.editTpl); return; }
+        startWorkout(el.dataset.tpl);
+      });
+    });
   }
 
   /* -------- full-screen workout logger (Hevy-style) -------- */
@@ -1545,6 +1701,299 @@
         save(); closeSheet();
         if (onPick) onPick(ex.id); else render();
         toast('Exercise added');
+      });
+    });
+  }
+
+
+  /* ================= HABITS TAB ================= */
+
+  const HABIT_ICONS = {
+    dumbbell: '<path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/>',
+    steps: '<path d="M8.4 3.5c1.6 0 2.4 1 2.3 2.6-.1 1.5-.7 2.4-.7 3.8 0 1.2.4 1.9.4 3 0 1.5-1 2.3-2.6 2.3S5.4 14.4 5.4 13c0-1.1.4-1.8.4-3 0-1.4-.6-2.3-.7-3.8-.1-1.6.7-2.6 2.3-2.6ZM5.6 17.2h4.9v1.9c0 .9-.9 1.4-2.4 1.4s-2.5-.5-2.5-1.4ZM16.1 6.6c1.6 0 2.4 1 2.3 2.6-.1 1.5-.7 2.4-.7 3.8 0 1.2.4 1.9.4 3 0 1.5-1 2.3-2.6 2.3s-2.4-.8-2.4-2.2c0-1.1.4-1.8.4-3 0-1.4-.6-2.3-.7-3.8-.1-1.6.7-2.6 2.3-2.6Z"/>',
+    book: '<path d="M4.5 5.2h4.7A2.8 2.8 0 0 1 12 8v11a2.4 2.4 0 0 0-2.4-1.9H4.5ZM19.5 5.2h-4.7A2.8 2.8 0 0 0 12 8v11a2.4 2.4 0 0 1 2.4-1.9h5.1Z"/>',
+    sleep: '<path d="M19.6 14.4A7.6 7.6 0 0 1 9.6 4.4a7.6 7.6 0 1 0 10 10Z"/>',
+    water: '<path d="M12 3.6c3.1 3.6 5.3 6.1 5.3 8.8a5.3 5.3 0 1 1-10.6 0c0-2.7 2.2-5.2 5.3-8.8Z"/>',
+    run: '<path d="M14.2 5.4a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8ZM10.2 21l2.3-5.2-2.6-2.4.9-4.6-3.1 1.9-1.9 2.4M13.9 9.9l2.3 2.2 3.1-.6M10.7 7.4l3.4-1.2 2.1 2.6"/>',
+    sun: '<path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10ZM12 2.6v1.8M12 19.6v1.8M2.6 12h1.8M19.6 12h1.8M5.3 5.3l1.3 1.3M17.4 17.4l1.3 1.3M18.7 5.3l-1.3 1.3M6.6 17.4l-1.3 1.3"/>',
+    heart: '<path d="M12 20s-7.2-4.4-7.2-9.2A3.9 3.9 0 0 1 12 8.4a3.9 3.9 0 0 1 7.2 2.4C19.2 15.6 12 20 12 20Z"/>',
+    timer: '<path d="M12 21.2a8.1 8.1 0 1 0 0-16.2 8.1 8.1 0 0 0 0 16.2ZM12 9.2v4l2.6 1.6M9.4 2.6h5.2"/>',
+    flame: '<path d="M12 3.2c.7 3.1 3.4 4.4 3.4 7.4 0 1-.4 2-1.2 2.8.5-1.7-.6-3.1-1.7-3.9.2 2.3-1.4 3.5-2.3 4.8-1.7 2.2.2 5.5 3.4 5.5 3.1 0 5.4-2.4 5.4-5.4 0-4.9-4.3-7.9-7-11.2Z"/>',
+    pen: '<path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/>',
+    check: '<path d="M5 12.6 10 17.6 19 6.8"/>',
+    brain: '<path d="M9.5 4.5A2.6 2.6 0 0 0 7 7.1a2.5 2.5 0 0 0-1.4 4.4A2.6 2.6 0 0 0 7.3 16c.2 1.6 1.3 2.7 2.9 2.7.9 0 1.6-.4 1.8-1V5.9c-.4-.9-1.3-1.4-2.5-1.4ZM14.5 4.5A2.6 2.6 0 0 1 17 7.1a2.5 2.5 0 0 1 1.4 4.4A2.6 2.6 0 0 1 16.7 16c-.2 1.6-1.3 2.7-2.9 2.7-.9 0-1.6-.4-1.8-1"/>',
+    money: '<path d="M12 3.2v17.6M15.8 7.3c-.6-1.2-2-2-3.8-2-2.2 0-3.7 1.1-3.7 2.8 0 4 7.6 2.3 7.6 6.2 0 1.8-1.7 3-4 3-2 0-3.5-.8-4.1-2.2"/>',
+  };
+  const HABIT_ICON_KEYS = Object.keys(HABIT_ICONS);
+  const habitIcon = (key) => '<svg viewBox="0 0 24 24" aria-hidden="true">' + (HABIT_ICONS[key] || HABIT_ICONS.check) + '</svg>';
+
+  let habitMonthOffset = 0;   // 0 = this month
+
+  function habitsList() { return (state.habits || []).filter((h) => !h.archived); }
+  function habitById(id) { return (state.habits || []).find((h) => h.id === id); }
+  function habitValue(id, key = dateKey()) { return ((state.habitLog || {})[key] || {})[id] || 0; }
+  function habitTarget(h) { return h.type === 'check' ? 1 : (h.target || 1); }
+  function habitDone(h, key = dateKey()) { return habitValue(h.id, key) >= habitTarget(h); }
+  function setHabitValue(id, val, key = dateKey()) {
+    if (!state.habitLog) state.habitLog = {};
+    const day = state.habitLog[key] || (state.habitLog[key] = {});
+    if (val > 0) day[id] = val; else delete day[id];
+    if (!Object.keys(day).length) delete state.habitLog[key];
+  }
+  // consecutive days ending today (or yesterday, if today isn't logged yet)
+  function habitStreak(h) {
+    const d = new Date();
+    if (!habitDone(h, dateKey(d))) d.setDate(d.getDate() - 1);
+    let count = 0;
+    for (let i = 0; i < 400; i++) {
+      if (!habitDone(h, dateKey(d))) break;
+      count++;
+      d.setDate(d.getDate() - 1);
+    }
+    return count;
+  }
+  function habitsDone(key = dateKey()) {
+    const list = habitsList();
+    return { done: list.filter((h) => habitDone(h, key)).length, total: list.length };
+  }
+  // compact cell text: 10000 -> 10k, 6400 -> 6.4k
+  function habitShort(v) {
+    if (v >= 10000) return Math.round(v / 1000) + 'k';
+    if (v >= 1000) return (v / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    return String(Math.round(v * 10) / 10);
+  }
+  function habitRing(h, key, size) {
+    const frac = Math.min(1, habitValue(h.id, key) / habitTarget(h));
+    const r = 15.5, C = 2 * Math.PI * r;
+    return '<svg class="hb-ring-svg" viewBox="0 0 36 36" style="width:' + size + 'px;height:' + size + 'px" aria-hidden="true">' +
+      '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="var(--surface-2)" stroke-width="2.6"/>' +
+      '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="var(--ink-1)" stroke-width="2.6" stroke-linecap="round"' +
+      ' stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + (C * (1 - frac)).toFixed(1) + '" transform="rotate(-90 18 18)"/></svg>';
+  }
+
+  function renderHabits() {
+    const v = $('#view');
+    const list = habitsList();
+    const todayKey = dateKey();
+    const today = new Date();
+    const { done, total } = habitsDone();
+
+    // ---- month grid ----
+    const gridMonth = new Date(today.getFullYear(), today.getMonth() + habitMonthOffset, 1);
+    const daysInMonth = new Date(gridMonth.getFullYear(), gridMonth.getMonth() + 1, 0).getDate();
+    const cols = list.slice(0, 5);
+    const letters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    let rows = '';
+    for (let dnum = 1; dnum <= daysInMonth; dnum++) {
+      const d = new Date(gridMonth.getFullYear(), gridMonth.getMonth(), dnum);
+      const key = dateKey(d);
+      const isToday = key === todayKey;
+      const future = key > todayKey;
+      rows += '<tr class="' + (isToday ? 'is-today' : future ? 'is-future' : '') + '" data-day="' + key + '">' +
+        '<th scope="row"><span class="hg-d">' + dnum + '</span><span class="hg-w">' + letters[d.getDay()] + '</span></th>' +
+        cols.map((h) => {
+          const val = habitValue(h.id, key);
+          const ok = val >= habitTarget(h);
+          const txt = !val ? '·' : h.type === 'check' ? '✓' : habitShort(val);
+          return '<td class="' + (ok ? 'is-on' : val ? 'is-part' : '') + '" data-cell="' + esc(h.id) + '" data-day="' + key + '">' + txt + '</td>';
+        }).join('') + '</tr>';
+    }
+
+    const monthLabel = gridMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+    v.innerHTML =
+      '<div class="page-head">' +
+        '<div><h2>Habits</h2><p class="subtitle">' + done + ' of ' + total + ' done today</p></div>' +
+        '<button class="icon-btn" id="hbAdd" aria-label="New habit"><svg viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg></button>' +
+      '</div>' +
+
+      (list.length ? (
+      '<div class="card hb-today-card">' +
+        '<div class="hb-th"><span class="micro">Today</span><span class="hb-th-date">' +
+          today.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + '</span></div>' +
+        list.map((h) => {
+          const val = habitValue(h.id, todayKey);
+          const ok = val >= habitTarget(h);
+          const streak = habitStreak(h);
+          const sub = h.type === 'check'
+            ? (ok ? 'Done' : 'Not yet') + (streak > 1 ? ' · ' + streak + ' day streak' : '')
+            : habitShort(val) + ' / ' + habitShort(habitTarget(h)) + (h.unit ? ' ' + esc(h.unit) : '') + (streak > 1 ? ' · ' + streak + ' day streak' : '');
+          return '<div class="hb-row ' + (ok ? 'is-done' : '') + '" data-habit="' + esc(h.id) + '" role="button" tabindex="0">' +
+            '<span class="hb-ico">' + habitIcon(h.icon) + '</span>' +
+            '<div class="hb-body"><div class="hb-name">' + esc(h.name) + '</div><div class="hb-sub">' + sub + '</div></div>' +
+            (h.type === 'check'
+              ? '<span class="hb-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.6 10 17.6 19 6.8"/></svg></span>'
+              : '<span class="hb-mini">' + habitRing(h, todayKey, 34) + '<i>' + Math.round(Math.min(100, (val / habitTarget(h)) * 100)) + '</i></span>' +
+                '<button class="hb-plus" data-step="' + esc(h.id) + '" aria-label="Add ' + (h.step || 1) + ' ' + esc(h.unit || '') + '">+</button>') +
+          '</div>';
+        }).join('') +
+      '</div>' +
+
+      '<div class="card hb-grid-card">' +
+        '<div class="hb-month">' +
+          '<button class="hb-nav" id="hbPrev" aria-label="Previous month">‹</button>' +
+          '<span>' + esc(monthLabel) + '</span>' +
+          '<button class="hb-nav" id="hbNext" aria-label="Next month" ' + (habitMonthOffset >= 0 ? 'disabled' : '') + '>›</button>' +
+        '</div>' +
+        '<div class="hb-grid-scroll" id="hbScroll">' +
+          '<table class="hb-grid"><thead><tr><th></th>' +
+            cols.map((h) => '<th><span>' + esc(h.name.length > 7 ? h.name.slice(0, 7) : h.name) + '</span></th>').join('') +
+          '</tr></thead><tbody>' + rows + '</tbody></table>' +
+        '</div>' +
+        (list.length > 5 ? '<p class="hb-note">Showing the first 5 habits — the rest are in the list above.</p>' : '') +
+      '</div>'
+      ) : '<p class="empty-note">No habits yet. Tap + to add your first one.</p>');
+
+    $('#hbAdd').addEventListener('click', () => openHabitEditor());
+    const prev = $('#hbPrev'); if (prev) prev.addEventListener('click', () => { habitMonthOffset -= 1; render(); });
+    const next = $('#hbNext'); if (next) next.addEventListener('click', () => { if (habitMonthOffset < 0) { habitMonthOffset += 1; render(); } });
+
+    $$('.hb-row', v).forEach((row) => {
+      row.addEventListener('click', (e) => {
+        const h = habitById(row.dataset.habit);
+        if (!h) return;
+        if (e.target.closest('[data-step]')) {
+          e.stopPropagation();
+          setHabitValue(h.id, habitValue(h.id) + (h.step || 1));
+          save(); render();
+          return;
+        }
+        if (h.type === 'check') { toggleHabit(h); return; }
+        openHabitPad(h, todayKey);
+      });
+    });
+    $$('.hb-grid td[data-cell]', v).forEach((cell) => {
+      cell.addEventListener('click', () => {
+        const h = habitById(cell.dataset.cell);
+        if (!h) return;
+        if (h.type === 'check') { toggleHabit(h, cell.dataset.day); return; }
+        openHabitPad(h, cell.dataset.day);
+      });
+    });
+    // long-press a today row to edit the habit itself
+    $$('.hb-row', v).forEach((row) => {
+      let t = null;
+      const start = () => { t = setTimeout(() => openHabitEditor(row.dataset.habit), 550); };
+      const stop = () => clearTimeout(t);
+      row.addEventListener('touchstart', start, { passive: true });
+      row.addEventListener('touchend', stop);
+      row.addEventListener('touchmove', stop, { passive: true });
+    });
+
+    // keep today in view inside the month grid
+    const scroll = $('#hbScroll');
+    const todayRow = scroll && $('tr.is-today', scroll);
+    if (scroll && todayRow) scroll.scrollTop = Math.max(0, todayRow.offsetTop - scroll.clientHeight / 2);
+  }
+
+  function toggleHabit(h, key = dateKey()) {
+    const on = habitDone(h, key);
+    setHabitValue(h.id, on ? 0 : 1, key);
+    if (!on && navigator.vibrate) navigator.vibrate(18);
+    save(); render();
+  }
+
+  /* numeric pad for count habits (tap a value, then Track) */
+  function openHabitPad(h, key = dateKey()) {
+    const d = new Date(key + 'T00:00:00');
+    const label = (key === dateKey() ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'short' })) +
+      ' · ' + d.getDate() + ' ' + d.toLocaleDateString(undefined, { month: 'short' }).toUpperCase();
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'del'];
+    openSheet(h.name, '' +
+      '<div class="pad-wrap">' +
+        '<div class="pad-top"><span class="micro">' + esc(label) + '</span>' +
+          '<span class="pad-target">Goal ' + habitShort(habitTarget(h)) + (h.unit ? ' ' + esc(h.unit) : '') + '</span></div>' +
+        '<div class="pad-display"><span class="micro">' + esc((h.unit || 'amount').toUpperCase()) + '</span>' +
+          '<div class="pad-value" id="padVal">' + (habitValue(h.id, key) || 0) + '</div></div>' +
+        '<div class="pad-keys">' +
+          keys.map((k) => '<button class="pad-key' + (k === 'del' ? ' pad-del' : '') + '" data-k="' + k + '">' +
+            (k === 'del' ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h10.5v12H9L3.5 12Z"/><path d="M12.5 10l4 4M16.5 10l-4 4"/></svg>' : k) + '</button>').join('') +
+        '</div>' +
+        '<div class="pad-actions">' +
+          '<button class="btn btn-ghost" id="padClear">Clear</button>' +
+          '<button class="btn btn-primary" id="padSave">Track</button>' +
+        '</div>' +
+      '</div>', (body) => {
+      // the current value is shown, but typing starts a fresh number
+      let buf = String(habitValue(h.id, key) || '');
+      let fresh = true;
+      const disp = $('#padVal', body);
+      const paint = () => { disp.textContent = buf === '' ? '0' : buf; };
+      $$('.pad-key', body).forEach((b) => b.addEventListener('click', () => {
+        const k = b.dataset.k;
+        if (fresh && k !== 'del') { buf = ''; fresh = false; }
+        if (k === 'del') { fresh = false; buf = buf.slice(0, -1); }
+        else if (k === '.') { if (!buf.includes('.')) buf = (buf || '0') + '.'; }
+        else buf = (buf === '0' ? '' : buf) + k;
+        if (buf.replace('.', '').length > 7) buf = buf.slice(0, 8);
+        paint();
+      }));
+      $('#padClear', body).addEventListener('click', () => { buf = ''; paint(); });
+      $('#padSave', body).addEventListener('click', () => {
+        setHabitValue(h.id, Number(buf) || 0, key);
+        save(); closeSheet(); render();
+      });
+    });
+  }
+
+  function openHabitEditor(id) {
+    const h = id ? habitById(id) : null;
+    const draft = h ? { ...h } : { id: uid(), name: '', icon: 'check', type: 'check', target: 1, unit: '', step: 1 };
+    openSheet(h ? 'Edit habit' : 'New habit', '' +
+      '<div class="field"><label for="hbName">Name</label>' +
+        '<input id="hbName" type="text" placeholder="e.g. Read" value="' + esc(draft.name) + '"></div>' +
+      '<span class="micro" style="margin-bottom:8px">Icon</span>' +
+      '<div class="icon-pick" id="hbIcons">' +
+        HABIT_ICON_KEYS.map((k) => '<button class="ip-btn ' + (k === draft.icon ? 'is-on' : '') + '" data-icon="' + k + '" aria-label="' + k + '">' + habitIcon(k) + '</button>').join('') +
+      '</div>' +
+      '<span class="micro" style="margin:14px 0 8px">Type</span>' +
+      '<div class="seg" id="hbType">' +
+        '<button data-type="check" class="' + (draft.type === 'check' ? 'is-on' : '') + '">Done / not done</button>' +
+        '<button data-type="count" class="' + (draft.type === 'count' ? 'is-on' : '') + '">Amount</button>' +
+      '</div>' +
+      '<div id="hbCountFields" ' + (draft.type === 'count' ? '' : 'hidden') + '>' +
+        '<div class="field-row" style="margin-top:14px">' +
+          '<div class="field"><label for="hbTarget">Daily goal</label><input id="hbTarget" type="number" inputmode="decimal" min="0" value="' + (draft.target || '') + '"></div>' +
+          '<div class="field"><label for="hbUnit">Unit</label><input id="hbUnit" type="text" placeholder="pages" value="' + esc(draft.unit || '') + '"></div>' +
+        '</div>' +
+        '<div class="field"><label for="hbStep">+ button adds</label><input id="hbStep" type="number" inputmode="decimal" min="0" value="' + (draft.step || 1) + '"></div>' +
+      '</div>' +
+      '<button class="btn btn-primary" id="hbSave" style="margin-top:16px">' + (h ? 'Save habit' : 'Add habit') + '</button>' +
+      (h ? '<button class="btn btn-danger" id="hbDel" style="margin-top:10px">Delete habit</button>' : ''),
+    (body) => {
+      $$('.ip-btn', body).forEach((b) => b.addEventListener('click', () => {
+        draft.icon = b.dataset.icon;
+        $$('.ip-btn', body).forEach((x) => x.classList.toggle('is-on', x === b));
+      }));
+      $$('#hbType button', body).forEach((b) => b.addEventListener('click', () => {
+        draft.type = b.dataset.type;
+        $$('#hbType button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+        $('#hbCountFields', body).hidden = draft.type !== 'count';
+      }));
+      $('#hbSave', body).addEventListener('click', () => {
+        const name = $('#hbName', body).value.trim();
+        if (!name) { toast('Give the habit a name'); return; }
+        draft.name = name;
+        if (draft.type === 'count') {
+          draft.target = Number($('#hbTarget', body).value) || 1;
+          draft.unit = $('#hbUnit', body).value.trim();
+          draft.step = Number($('#hbStep', body).value) || 1;
+        } else { draft.target = 1; draft.unit = ''; draft.step = 1; }
+        if (!state.habits) state.habits = [];
+        const i = state.habits.findIndex((x) => x.id === draft.id);
+        if (i >= 0) state.habits[i] = draft; else state.habits.push(draft);
+        save(); closeSheet(); goTab('habits');
+        toast(h ? 'Habit saved' : 'Habit added');
+      });
+      const del = $('#hbDel', body);
+      if (del) del.addEventListener('click', () => {
+        if (!confirm('Delete "' + draft.name + '" and its history?')) return;
+        state.habits = state.habits.filter((x) => x.id !== draft.id);
+        Object.keys(state.habitLog || {}).forEach((k) => {
+          delete state.habitLog[k][draft.id];
+          if (!Object.keys(state.habitLog[k]).length) delete state.habitLog[k];
+        });
+        save(); closeSheet(); render();
       });
     });
   }
@@ -2250,7 +2699,7 @@
 
   /* ---------------- swipe between tabs ---------------- */
 
-  const TAB_ORDER = ['home', 'workout', 'meals'];
+  const TAB_ORDER = ['home', 'workout', 'meals', 'habits'];
   let swipeStart = null;
   let slideDir = null;
 
@@ -2259,7 +2708,9 @@
     if (e.touches.length !== 1) return;
     // never hijack gestures inside the logger, a sheet, inputs or charts
     if (workoutOpen || $('#sheetRoot').children.length) return;
-    if (e.target.closest('input, textarea, select, button, .chart-wrap, .cal-grid')) return;
+    // a real swipe cancels the tap, so buttons are fine to start on —
+    // only text fields and horizontally-drawn widgets must keep the gesture
+    if (e.target.closest('input, textarea, select, .chart-wrap, .cal-grid, .pad-keys, .hbh-row')) return;
     const t = e.touches[0];
     swipeStart = { x: t.clientX, y: t.clientY, at: Date.now() };
   }, { passive: true });
@@ -2320,6 +2771,7 @@
       case 'home': renderHome(); break;
       case 'workout': renderWorkout(); break;
       case 'meals': renderMeals(); break;
+      case 'habits': renderHabits(); break;
       case 'profile': renderProfile(); break;
     }
     renderWorkoutOverlay();

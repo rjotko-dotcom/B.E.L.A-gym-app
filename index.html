@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest?v=5" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="css/style.css?v=6.4" />
+  <link rel="stylesheet" href="css/style.css?v=7.0" />
   <script>
     // apply saved appearance before first paint (default: follow the device)
     try {
@@ -57,14 +57,18 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5c0-3 3.35-5 7.5-5s7.5 2 7.5 5M3.6 15.5h16.8M5.5 18.4h13"/></svg>
       <span class="tab-label">Nutrition</span>
     </button>
+    <button class="tab" data-tab="habits" aria-label="Habits">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/><path d="M4.5 4.5h9M4.5 20h5"/></svg>
+      <span class="tab-label">Habits</span>
+    </button>
   </nav>
   <div id="workoutRoot"></div>
   <div id="sheetRoot"></div>
   <div id="toastRoot" class="toast-root" aria-live="polite"></div>
 
-  <script src="js/exercises.js?v=6.4"></script>
-  <script src="js/foods.js?v=6.4"></script>
-  <script src="js/app.js?v=6.4"></script>
+  <script src="js/exercises.js?v=7.0"></script>
+  <script src="js/foods.js?v=7.0"></script>
+  <script src="js/app.js?v=7.0"></script>
   <script>
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       addEventListener('load', () => {
