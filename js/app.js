@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '7.5';
+  const APP_VERSION = '7.6';
 
   /* ---------------- state ---------------- */
 
@@ -995,22 +995,20 @@
         '</button>' +
       '</div>' +
 
-      '<div class="card kcal-line">' +
-        '<div class="kl-head"><span class="micro">Calories</span>' +
-          '<span class="kl-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c.7 3.1 3.4 4.4 3.4 7.4 0 1-.4 2-1.2 2.8.5-1.7-.6-3.1-1.7-3.9.2 2.3-1.4 3.5-2.3 4.8-1.7 2.2.2 5.5 3.4 5.5 3.1 0 5.4-2.4 5.4-5.4 0-4.9-4.3-7.9-7-11.2Z"/></svg></span>' +
-        '</div>' +
-        '<div class="kl-row">' +
+      '<div class="card kcal-line kcal-dash">' +
+        '<div class="kl-top">' +
+          '<div class="kl-col">' +
+            '<span class="micro">Calories</span>' +
+            '<div class="kl-total"><b class="' + (over ? 'over' : '') + '">' + Math.round(totals.kcal).toLocaleString() + '</b> / ' + targets.kcal.toLocaleString() + ' <span>kcal</span></div>' +
+            '<div class="kl-left">' + (over ? Math.round(totals.kcal - targets.kcal).toLocaleString() + ' kcal over' : Math.round(targets.kcal - totals.kcal).toLocaleString() + ' kcal left') + '</div>' +
+          '</div>' +
           '<div class="kl-ring"><svg viewBox="0 0 52 52" aria-hidden="true">' +
             '<circle cx="26" cy="26" r="22" fill="none" stroke="var(--surface-2)" stroke-width="4"/>' +
             '<circle cx="26" cy="26" r="22" fill="none" stroke="' + (over ? 'var(--critical)' : 'var(--ink-1)') + '" stroke-width="4" stroke-linecap="round"' +
             ' stroke-dasharray="' + RING.toFixed(1) + '" stroke-dashoffset="' + ringOffset.toFixed(1) + '" transform="rotate(-90 26 26)"/>' +
           '</svg><span class="kl-pct">' + kcalPct + '%</span></div>' +
-          '<div class="kl-right">' +
-            '<div class="macro-track kl-track"><div class="macro-fill ' + (over ? 'over' : '') + '" style="width:' + Math.min(100, frac * 100) + '%"></div></div>' +
-            '<div class="kl-total"><b class="' + (over ? 'over' : '') + '">' + Math.round(totals.kcal) + '</b> / ' + targets.kcal.toLocaleString() + ' <span>kcal</span></div>' +
-            '<div class="kl-left">' + (over ? Math.round(totals.kcal - targets.kcal) + ' kcal over' : Math.round(targets.kcal - totals.kcal) + ' kcal left') + '</div>' +
-          '</div>' +
         '</div>' +
+        '<div class="macro-track kl-track"><div class="macro-fill ' + (over ? 'over' : '') + '" style="width:' + Math.min(100, frac * 100) + '%"></div></div>' +
         '<div class="kl-macros">' +
           [['Protein', totals.protein, targets.protein], ['Carbs', totals.carbs, targets.carbs], ['Fat', totals.fat, targets.fat]].map(([label, val, target]) => {
             const pct = target ? Math.min(100, (val / target) * 100) : 0;
@@ -1515,7 +1513,6 @@
         '<div class="wv-num">' + Math.round(vol7).toLocaleString() + '<i>' + esc(unit()) + '</i></div>' +
       '</div>' +
 
-      '<button class="btn btn-primary" id="startEmpty">Start empty workout</button>' +
       '<div class="card wk-plan">' +
         '<div class="wc-head"><span class="micro">Weekly plan</span><span class="wc-note">Tap a day to set it</span></div>' +
         '<div class="plan-row">' +
@@ -1526,6 +1523,8 @@
           }).join('') +
         '</div>' +
       '</div>' +
+
+      '<button class="btn btn-primary wk-start" id="startEmpty">Start empty workout</button>' +
 
       '<div class="section-title">Routines</div>' +
       '<div class="tpl-list">' +

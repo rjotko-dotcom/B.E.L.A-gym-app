@@ -1444,3 +1444,34 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .backup-nudge svg { width: 22px; height: 22px; flex-shrink: 0; fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .backup-nudge b { display: block; font-size: 0.9rem; margin-bottom: 2px; }
 .backup-nudge span { color: var(--ink-muted); font-size: 0.76rem; line-height: 1.35; }
+
+/* the start button needs air on both sides of it */
+.wk-start { margin: 12px 0 4px; }
+
+/* ---------- home calories card, rebalanced ----------
+   the ring used to sit diagonally opposite the badge, which left two empty
+   corners; numbers and ring now share one line and the bar spans the card */
+.kcal-dash .kl-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 13px; }
+.kcal-dash .kl-col { min-width: 0; }
+.kcal-dash .kl-total { font-size: 1.28rem; font-weight: 600; letter-spacing: -0.01em; margin-top: 5px; }
+.kcal-dash .kl-total b { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.03em; }
+.kcal-dash .kl-total span { color: var(--ink-2); font-size: 0.86rem; font-weight: 600; }
+.kcal-dash .kl-left { margin-top: 3px; font-size: 0.8rem; }
+.kcal-dash .kl-ring { width: clamp(58px, 8svh, 68px); flex-shrink: 0; }
+/* kl-track carries flex:1 from the old row layout — in this column card that
+   made the bar grow into a giant slab */
+.kcal-dash .kl-track { flex: none; height: 6px; margin-bottom: 0; }
+.kcal-dash .kl-macros { margin-top: 13px; padding-top: 12px; }
+.home-compact .kcal-dash .kl-top { margin-bottom: 10px; }
+.home-compact .kcal-dash .kl-total b { font-size: 1.4rem; }
+
+/* let the cards take the leftover height instead of leaving a void above the
+   nav — gaps stay tight and equal, the blocks just breathe a little more */
+/* only the stat pair grows into spare height — it has a chart and habit cells
+   that use it. The calories card keeps its natural height so it never opens a
+   hole in the middle. */
+.view.home-screen .home-pair { flex: 1 0 auto; max-height: 182px; }
+/* the sparkline takes whatever the card gains, so the space reads as chart */
+.view.home-screen .hstat-spark { flex: 1; height: auto; min-height: 26px; padding-top: 8px; }
+.view.home-screen .hstat-spark svg { height: 100%; }
+.hstat { height: 100%; }
