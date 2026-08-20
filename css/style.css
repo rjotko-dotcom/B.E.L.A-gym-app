@@ -1697,3 +1697,68 @@ body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
 .plan-day.is-done { background: var(--done-soft); }
 .plan-day.is-done b { color: var(--done); }
 .plan-day.is-done span { color: var(--done); }
+
+/* ================= the feel of it =================
+   Motion is kept to things that changed meaning — a set logged, a goal met,
+   a sheet opening — because every action re-renders its whole view, and a
+   page that animates on every tap reads as slow rather than alive. */
+
+/* everything you press gives a little under the thumb */
+.card, .btn, .ha-btn, .lib-item, .tpl-item, .plan-day, .wd, .hb-row, .icon-btn,
+.chip-btn, .qchip, .li-add, .seg button, .menu-item, .set-done, .set-num, .hb-plus,
+.hs-cell, .hc-day, .ws-nav, .mini-btn, .pad-key {
+  transition: transform 0.11s ease, filter 0.11s ease, background-color 0.16s ease, color 0.16s ease;
+}
+.card:active, .btn:active, .ha-btn:active, .lib-item:active, .tpl-item:active,
+.plan-day:active, .wd:active, .hb-row:active, .chip-btn:active, .qchip:active,
+.li-add:active, .menu-item:active, .hs-cell:active, .hc-day:active, .pad-key:active {
+  transform: scale(0.975);
+}
+.icon-btn:active, .set-done:active, .set-num:active, .hb-plus:active, .ws-nav:active, .mini-btn:active {
+  transform: scale(0.92);
+}
+
+/* a logged set: the tick lands, then the row settles back */
+@keyframes tick-pop { 0% { transform: scale(0.7); } 55% { transform: scale(1.14); } 100% { transform: none; } }
+@keyframes row-flash {
+  0% { background: var(--done-soft); }
+  70% { background: var(--done-soft); }
+  100% { background: transparent; }
+}
+.set-row.just-logged { animation: row-flash 0.9s ease-out; border-radius: 12px; }
+.set-row.just-logged .set-done svg { animation: tick-pop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+/* a habit ring that just closed, and the crown on a record */
+@keyframes mark-in { from { transform: scale(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
+.hb-mini .hb-tick { animation: mark-in 0.32s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.toast .pr-mark { animation: mark-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+/* the rest bar drains smoothly instead of stepping every quarter second */
+.rest-fill { transition: width 0.26s linear; }
+
+/* nutrition draws itself in: the consumed bar grows, the rings sweep round */
+@keyframes bar-grow { from { transform: scaleX(0); } to { transform: none; } }
+@keyframes ring-sweep { from { stroke-dashoffset: 97.4; } }
+.nut-consumed .macro-fill { transform-origin: left center; animation: bar-grow 0.45s ease-out; }
+.nm-ring circle:last-child { animation: ring-sweep 0.55s ease-out; }
+
+/* toasts rise rather than appear */
+@keyframes toast-in { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+.toast { animation: toast-in 0.22s ease-out; }
+
+/* the tab you are on sits a touch forward */
+.tab svg { transition: transform 0.16s ease; }
+.tab.active svg { transform: translateY(-1px) scale(1.06); }
+.tab:active svg { transform: scale(0.9); }
+
+@media (prefers-reduced-motion: reduce) {
+  .set-row.just-logged, .set-row.just-logged .set-done svg, .hb-mini .hb-tick,
+  .toast, .toast .pr-mark, .nut-consumed .macro-fill, .nm-ring circle:last-child { animation: none; }
+  .card, .btn, .ha-btn, .lib-item, .tpl-item, .plan-day, .wd, .hb-row, .icon-btn,
+  .chip-btn, .qchip, .li-add, .seg button, .menu-item, .set-done, .set-num, .hb-plus,
+  .hs-cell, .hc-day, .ws-nav, .mini-btn, .pad-key, .tab svg { transition: none; }
+  .card:active, .btn:active, .ha-btn:active, .lib-item:active, .tpl-item:active,
+  .plan-day:active, .wd:active, .hb-row:active, .icon-btn:active, .set-done:active,
+  .tab.active svg { transform: none; }
+  .rest-fill { transition: none; }
+}

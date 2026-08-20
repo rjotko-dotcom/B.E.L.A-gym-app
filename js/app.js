@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '9.4';
+  const APP_VERSION = '9.5';
 
   /* ---------------- state ---------------- */
 
@@ -718,7 +718,7 @@
       '<button class="btn ' + (danger ? 'btn-danger' : 'btn-primary') + '" id="cfYes">' + esc(label) + '</button>' +
       '<button class="btn btn-quiet" id="cfNo" style="margin-top:10px">Cancel</button>',
     (body) => {
-      $('#cfYes', body).addEventListener('click', () => { closeSheet(); onConfirm(); });
+      $('#cfYes', body).addEventListener('click', () => { haptic(danger ? 'warn' : 'tap'); closeSheet(); onConfirm(); });
       $('#cfNo', body).addEventListener('click', () => {
         if (onCancel) { closeSheetNow(); onCancel(); } else closeSheet();
       });
@@ -800,6 +800,22 @@
     }
   }
 
+  /* ---------------- haptics ----------------
+     One place for every buzz, so they stay in the same family and can be
+     turned off in one switch. Anything the phone does not support is a no-op. */
+  const BUZZ = {
+    tap: 10,                        // a value changed under your thumb
+    tick: 18,                       // something was completed
+    done: [14, 40, 24],             // a whole thing finished — workout, day
+    warn: [30, 60, 30],             // something was deleted or discarded
+    alert: [200, 100, 200],         // rest is over, look at me
+    pr: [25, 45, 25, 45, 120],      // a record
+  };
+  function haptic(kind = 'tap') {
+    if (state.settings.haptics === false || !navigator.vibrate) return;
+    try { navigator.vibrate(BUZZ[kind] || BUZZ.tap); } catch (e) { /* some browsers refuse */ }
+  }
+
   /* ---------------- rest timer ----------------
      The countdown runs off a finish time, not a tally of ticks: Android
      freezes timers the moment the screen locks or the app goes to the
@@ -839,7 +855,7 @@
     if (away) notifyRestOver();
     toast('Rest over — next set!');
     beep();
-    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    haptic('alert');
   }
   function stopRest() {
     clearInterval(rest.timer);
@@ -859,6 +875,7 @@
   }
   const shiftRest = (secs) => {
     if (!rest.timer) return;
+    haptic('tap');
     rest.endsAt += secs * 1000;
     if (restLeft() <= 0) { stopRest(); return; }
     rest.total = Math.max(rest.total, restLeft());
@@ -866,7 +883,7 @@
     armRestAlarm();
     renderRest();
   };
-  $('#restSkip').addEventListener('click', stopRest);
+  $('#restSkip').addEventListener('click', () => { haptic('tap'); stopRest(); });
   $('#restPlus').addEventListener('click', () => shiftRest(15));
   $('#restMinus').addEventListener('click', () => shiftRest(-15));
 
@@ -1612,8 +1629,8 @@
 
     $('#dayPrev').addEventListener('click', () => { mealDayOffset -= 1; render(); });
     $('#dayNext').addEventListener('click', () => { if (mealDayOffset < 0) { mealDayOffset += 1; render(); } });
-    $('#waterPlus').addEventListener('click', () => { setWater(key, waterFor(key) + 1); save(); render(); });
-    $('#waterMinus').addEventListener('click', () => { setWater(key, Math.max(0, waterFor(key) - 1)); save(); render(); });
+    $('#waterPlus').addEventListener('click', () => { setWater(key, waterFor(key) + 1); haptic('tap'); save(); render(); });
+    $('#waterMinus').addEventListener('click', () => { setWater(key, Math.max(0, waterFor(key) - 1)); haptic('tap'); save(); render(); });
     $('#addMeal').addEventListener('click', () => openMealSheet(key));
     $('#editTargets').addEventListener('click', openTargetsSheet);
     $$('.slot-add', v).forEach((b) => b.addEventListener('click', () => openMealSheet(key, b.dataset.slot)));
@@ -1798,6 +1815,7 @@
         if (!amount) { toast(piece ? 'Enter how many' : 'Enter a portion size'); return; }
         const v = scaleFood(food, amount);
         logMeal({ name: portionName(food, amount), ...v }, slot, date);
+        haptic('tick');
         if (opts.offerSave && $('#pdSave', body) && $('#pdSave', body).checked) rememberFood({ ...food, serving: amount });
         else if (food.id) touchFood(food.id);
         save(); closeSheet(); mealDayOffset = 0; goTab('meals');
@@ -1907,6 +1925,7 @@
     `, (body) => {
       const addMeal = (f) => {
         logMeal(f, slot, key);
+        haptic('tick');
         save(); closeSheet();
         mealDayOffset = 0;
         goTab('meals');
@@ -2202,6 +2221,7 @@
   /* -------- full-screen workout logger (Hevy-style) -------- */
 
   let wkScrollTo = null;   // index of an exercise to bring into view after a rebuild
+  let flashSet = null;     // 'exIdx:setIdx' of a set just logged, so its row can light up
 
   function renderWorkoutOverlay() {
     const root = $('#workoutRoot');
@@ -2275,6 +2295,14 @@
 
     const wkBody = $('.wk-body', root);
     if (keptScroll != null && wkBody) wkBody.scrollTop = keptScroll;
+    if (flashSet) {
+      // the row is rebuilt by the time we get here, so the class goes on the
+      // fresh one; it only drives a one-shot animation
+      const [ei, si] = flashSet.split(':');
+      const row = $('.ex-block[data-ex="' + ei + '"] .set-row[data-set="' + si + '"]', root);
+      if (row) row.classList.add('just-logged');
+      flashSet = null;
+    }
     if (wkScrollTo != null && wkBody) {
       // a brand new exercise: bring it into view instead of holding the old spot
       const block = $$('.ex-block', root)[wkScrollTo];
@@ -2344,6 +2372,8 @@
             }
             if (set.reps == null) { toast(cardio ? 'Enter minutes first' : 'Enter reps first'); return; }
             set.done = true;
+            haptic('tick');
+            flashSet = exIdx + ':' + setIdx;
             // PR check against history (warm-ups and cardio excluded)
             if (!cardio && (set.type || 'N') !== 'W' && set.weight) {
               const prevBest = bestSetFor(ex.exerciseId);
@@ -2351,7 +2381,7 @@
                 set.pr = true;
                 // a longer, rhythmic buzz so a record feels different from
                 // the plain tick of an ordinary set
-                if (navigator.vibrate) navigator.vibrate([25, 45, 25, 45, 120]);
+                haptic('pr');
                 toast(prIcon('pr-mark toast-pr') + ` New record — ${fmtNum(set.weight)} ${unit()} × ${set.reps}`, true);
               }
             }
@@ -2361,6 +2391,7 @@
           } else {
             set.done = false;
             delete set.pr;
+            haptic('tap');
             save(); render();
           }
         });
@@ -2393,6 +2424,7 @@
         const item = e.target.closest('[data-type]');
         if (!item) return;
         set.type = item.dataset.type;
+        haptic('tap');
         save(); closeSheet(); render();
       });
       $('#setDel', body).addEventListener('click', () => {
@@ -2416,6 +2448,7 @@
         const item = e.target.closest('[data-rpe]');
         if (!item) return;
         set.rpe = Number(item.dataset.rpe);
+        haptic('tap');
         save(); closeSheet(); render();
       });
       const clr = $('#rpeClear', body);
@@ -2750,6 +2783,7 @@
         state.activeWorkout = null;
         workoutOpen = false;
         stopRest();
+        haptic('done');
         save(); closeSheet(); closeWkEntry(); render();
         toast(w.editingId ? 'Changes saved'
           : prs.length ? prIcon('pr-mark toast-pr') + ` Workout saved — ${prs.length} record${prs.length === 1 ? '' : 's'}`
@@ -2967,7 +3001,7 @@
             const codes = await detector.detect(video);
             if (codes.length) {
               const code = codes[0].rawValue;
-              if (navigator.vibrate) navigator.vibrate(30);
+              haptic('tap');
               closeScanner();
               onCode(code);
             }
@@ -3376,7 +3410,7 @@
   function toggleHabit(h, key = dateKey()) {
     const on = habitDone(h, key);
     setHabitValue(h.id, on ? 0 : 1, key);
-    if (!on && navigator.vibrate) navigator.vibrate(18);
+    haptic(on ? 'tap' : 'tick');
     save(); render();
   }
 
@@ -3418,6 +3452,7 @@
       $('#padClear', body).addEventListener('click', () => { buf = ''; paint(); });
       $('#padSave', body).addEventListener('click', () => {
         setHabitValue(h.id, Number(buf) || 0, key);
+        haptic(habitDone(h, key) ? 'tick' : 'tap');
         save(); closeSheet(); render();
       });
     });
@@ -4546,6 +4581,10 @@
         <input type="checkbox" id="keepAwake" ${s.keepAwake === false ? '' : 'checked'}>
       </label>
       <label class="switch-row">
+        <span><b>Vibration</b><i>A short buzz when a set is logged, a habit is ticked or a record falls</i></span>
+        <input type="checkbox" id="hapticSw" ${s.haptics === false ? '' : 'checked'}>
+      </label>
+      <label class="switch-row">
         <span><b>Tell me when rest is over</b><i>A notification when the timer finishes with the app in the background</i></span>
         <input type="checkbox" id="restNotify" ${s.restNotify ? 'checked' : ''}>
       </label>
@@ -4690,6 +4729,11 @@
       $('#keepAwake', body).addEventListener('change', (e) => {
         state.settings.keepAwake = e.target.checked;
         save(); syncWakeLock();
+      });
+      $('#hapticSw', body).addEventListener('change', (e) => {
+        state.settings.haptics = e.target.checked;
+        save();
+        if (e.target.checked) haptic('tick');
       });
       $('#restNotify', body).addEventListener('change', async (e) => {
         if (e.target.checked && !(await askRestNotify())) { e.target.checked = false; return; }

@@ -209,6 +209,44 @@ module.exports = async (t) => {
   }));
   await page.evaluate(() => { localStorage.setItem = window.__set; });
 
+  // the feel: a buzz and a flash when a set lands, and a switch to silence it
+  const openLogger = async () => {
+    await page.evaluate(() => { const m = document.querySelector('#miniExpand'); if (m) m.click(); });
+    await page.waitForTimeout(450);
+  };
+  await openLogger();
+  await page.evaluate(() => { window.__buzz = []; navigator.vibrate = (v) => { window.__buzz.push(JSON.stringify(v)); return true; }; });
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll('.set-row');
+    const open = [...rows].find((r) => !r.classList.contains('logged')) || rows[0];
+    open.querySelector('.set-done').click();
+  });
+  await page.waitForTimeout(450);
+  const feel = await page.evaluate(() => {
+    const row = document.querySelector('.set-row.just-logged');
+    return { buzz: window.__buzz.length, flash: !!row,
+      anim: row ? getComputedStyle(row).animationName : '' };
+  });
+  t.check('logging a set buzzes', feel.buzz > 0, String(feel.buzz));
+  t.check('and the row lights up', feel.flash && feel.anim === 'row-flash', feel.anim);
+
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    st.settings.haptics = false;
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await openLogger();
+  await page.evaluate(() => { window.__buzz = []; navigator.vibrate = (v) => { window.__buzz.push(JSON.stringify(v)); return true; }; });
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll('.set-row');
+    const open = [...rows].find((r) => !r.classList.contains('logged')) || rows[0];
+    open.querySelector('.set-done').click();
+  });
+  await page.waitForTimeout(450);
+  t.equal('vibration can be switched off', await page.evaluate(() => window.__buzz.length), 0);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();
