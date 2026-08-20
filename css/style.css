@@ -73,8 +73,10 @@
 html { -webkit-text-size-adjust: 100%; }
 /* the app never shows scrollbars — swiping between tabs was flashing them
    on the right/bottom edge (the slide animation nudges content sideways) */
-html, body { overflow-x: hidden; scrollbar-width: none; }
-html::-webkit-scrollbar, body::-webkit-scrollbar { width: 0; height: 0; display: none; }
+html, body { overflow-x: hidden; }
+/* no scrollbar anywhere — not on the page, not inside any scrolling card */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
 body {
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   background: var(--page);
@@ -119,7 +121,6 @@ body {
 /* home is a single non-scrolling screen; spare height spreads between blocks.
    gap is the single source of spacing so all gaps stay identical */
 .view.home-screen { display: flex; flex-direction: column; justify-content: flex-start; gap: 12px; max-height: 100svh; overflow: hidden; }
-.view.home-screen::after { content: ''; flex: 1 1 0; }
 .view.home-screen > * { margin-bottom: 0 !important; margin-top: 0 !important; }
 .home-top { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 4px; }
 .home-top h2 { margin: 0 2px; font-size: 1.7rem; }

@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '7.0';
+  const APP_VERSION = '7.1';
 
   /* ---------------- state ---------------- */
 
@@ -580,11 +580,12 @@
       return d >= monday;
     }).length;
     const streak = streakWeeks();
+    // kept short: the sub-line is one line only, and an ellipsis there looks broken
     const subParts = [
-      today.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }),
-      `${weekCount} workout${weekCount === 1 ? '' : 's'} this week`,
+      today.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+      `${weekCount} workout${weekCount === 1 ? '' : 's'}`,
     ];
-    if (streak >= 2) subParts.push(`${streak}-week streak 🔥`);
+    if (streak >= 2) subParts.push(`${streak}w streak 🔥`);
 
     const macros = [
       ['Protein', totals.protein, targets.protein, '<path d="M12.409 13.017A5 5 0 0 1 22 15c0 3.866-4 7-9 7-4.077 0-8.153-.82-10.371-2.462-.426-.316-.631-.832-.62-1.362C2.118 12.723 2.627 2 6 2h4a2 2 0 0 1 0 4h-1a2 2 0 0 0 0 4h1a3 3 0 0 0 2.235-1"/>'],
@@ -2736,25 +2737,32 @@
   // rendered result and step down through the compact tiers until it fits.
   function fitHome() {
     const v = $('#view');
-    if (!v.classList.contains('home-screen')) { v.style.height = ''; return; }
+    if (!v.classList.contains('home-screen')) { v.style.height = ''; v.style.gap = ''; return; }
     v.classList.remove('home-compact', 'home-tight');
-    // pin the home container to the height actually visible right now, so the
-    // space-between layout can never distribute past the bottom of the screen
+    v.style.gap = '';
+    // pin the container to the height actually visible right now
     const vpH = window.visualViewport?.height || document.documentElement.clientHeight;
     v.style.height = vpH + 'px';
-    // measure against the *visible* viewport: during a pull-to-refresh the URL
-    // bar is showing, so the usable height is smaller than the layout viewport
-    const visible = () => (window.visualViewport?.height || document.documentElement.clientHeight);
-    const overflows = () => {
-      const kids = v.children;
-      if (!kids.length) return false;
-      const bottom = kids[kids.length - 1].getBoundingClientRect().bottom;
-      const navTop = $('.tab-bar').getBoundingClientRect().top;
-      return bottom > Math.min(navTop, visible()) - 2
-        || document.documentElement.scrollHeight > visible() + 1;
-    };
+    // measure the container against itself: comparing against the document
+    // height gets fooled whenever the page is taller than the visible viewport,
+    // which silently forced the smallest tier on tall phones
+    const overflows = () => v.scrollHeight > v.clientHeight + 1;
     if (overflows()) v.classList.add('home-compact');
     if (overflows()) v.classList.add('home-tight');
+    // spread whatever height is left over into the gaps (up to a limit) so the
+    // screen fills evenly instead of leaving one dead block above the nav
+    const kids = [...v.children].filter((k) => getComputedStyle(k).position !== 'absolute');
+    if (kids.length > 1) {
+      // scrollHeight can't report less than the box, so measure the real gap
+      // between the last block and the bottom of the content area
+      const cs = getComputedStyle(v);
+      const floor = v.getBoundingClientRect().bottom - parseFloat(cs.paddingBottom);
+      const slack = floor - kids[kids.length - 1].getBoundingClientRect().bottom;
+      if (slack > 6) {
+        const base = parseFloat(cs.gap) || 12;
+        v.style.gap = (base + Math.min(11, slack / (kids.length - 1))) + 'px';
+      }
+    }
   }
   // browser chrome (URL bar) sliding in/out changes the usable height, so
   // re-fit whenever it moves as well as on rotation and load
