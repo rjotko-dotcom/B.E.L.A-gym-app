@@ -13,7 +13,9 @@ const files = fs.readdirSync(__dirname)
 
 (async () => {
   if (!files.length) { console.error('No matching tests.'); process.exit(1); }
-  const browser = await playwright().launch();
+  // CHROMIUM_PATH lets a sandbox point at a browser Playwright did not download
+  const browser = await playwright().launch(
+    process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
   let passed = 0, failed = 0;
   const failures = [];
 

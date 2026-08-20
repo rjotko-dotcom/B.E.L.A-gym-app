@@ -207,6 +207,28 @@ module.exports = async (t) => {
   }
   fs.unlinkSync(csvPath);
 
+  // a new habit can be given the toothbrush icon, and it renders as a drawing
+  await page.evaluate(() => { const s = document.querySelector('[data-close]'); if (s) s.click(); });
+  await page.waitForTimeout(350);
+  await page.click('#hbAdd');
+  await page.waitForTimeout(350);
+  const hasTooth = await page.evaluate(() => !!document.querySelector('.ip-btn[data-icon="toothbrush"] svg path'));
+  t.check('the icon picker offers a toothbrush', hasTooth);
+  if (hasTooth) {
+    await page.fill('#hbName', 'Brush teeth');
+    await page.click('.ip-btn[data-icon="toothbrush"]');
+    await page.click('#hbSave');
+    await page.waitForTimeout(450);
+    const saved = (await readState(page)).habits.find((h) => h.name === 'Brush teeth');
+    t.equal('the habit keeps the icon it was given', saved && saved.icon, 'toothbrush');
+    const drawn = await page.evaluate(() => {
+      const row = [...document.querySelectorAll('.hb-row')].find((r) => /Brush teeth/.test(r.textContent));
+      const svg = row && row.querySelector('.hb-ico svg');
+      return svg ? svg.getBBox().width : 0;
+    });
+    t.check('the row draws the icon inside the box', drawn > 8 && drawn < 24, String(drawn));
+  }
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();
