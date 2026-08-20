@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '7.3';
+  const APP_VERSION = '7.4';
 
   /* ---------------- state ---------------- */
 
@@ -561,7 +561,8 @@
     }).join('');
   }
 
-  function renderHome() {
+  /* the original home, kept so it can be switched back on in settings */
+  function renderHomeClassic() {
     const v = $('#view');
     const today = new Date();
     const todayKey = dateKey(today);
@@ -700,7 +701,7 @@
       <div class="card hb-home">
         <div class="hbh-head">
           <span class="micro">Habits</span>
-          <span class="hbh-count">${hbDone} / ${hbTotal} today</span>
+          <span class="hbh-count ${hbTotal && hbDone === hbTotal ? 'all-done' : ''}">${hbDone} / ${hbTotal} today</span>
         </div>
         ${hbTotal ? `<div class="hbh-row">${habitsList().slice(0, 6).map((h) => {
           const done = habitDone(h, todayKey);
@@ -740,6 +741,167 @@
     }));
     const hbHome = $('.hb-home', v);
     if (hbHome) hbHome.addEventListener('click', (e) => { if (!e.target.closest('.hbh-chip')) goTab('habits'); });
+  }
+
+
+  /* Home, rebuilt in the same language as the other tabs: a page head, a
+     stat pair like the workouts dashboard, the calories card from nutrition,
+     and the habit cells from the habits calendar. */
+  function renderHomeDash() {
+    const v = $('#view');
+    const today = new Date();
+    const todayKey = dateKey(today);
+    const totals = dayTotals(todayKey);
+    const targets = state.nutrition.targets;
+    const frac = targets.kcal ? totals.kcal / targets.kcal : 0;
+    const over = totals.kcal > targets.kcal;
+    const kcalPct = Math.round(frac * 100);
+    const RING = 2 * Math.PI * 22;
+    const ringOffset = RING * (1 - Math.min(1, frac));
+
+    const dow = (today.getDay() + 6) % 7;
+    const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow);
+    const workoutDays = new Set(state.workouts.map((w) => dateKey(new Date(w.startedAt))));
+    const mealDays = new Set(state.nutrition.meals.map((m) => m.date));
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const strip = dayNames.map((L, i) => {
+      const d = new Date(monday); d.setDate(d.getDate() + i);
+      const key = dateKey(d);
+      const isToday = key === todayKey;
+      const logged = workoutDays.has(key) || mealDays.has(key);
+      return '<div class="wd ' + (isToday ? 'is-today' : key < todayKey ? 'is-past' : '') + '">' +
+        '<span class="wd-letter">' + L.slice(0, 1) + '</span>' +
+        '<span class="wd-num">' + d.getDate() + '</span>' +
+        '<span class="wd-mark ' + (logged ? 'on' : '') + '"></span></div>';
+    }).join('');
+
+    const lw = latestWeight();
+    const st = weightStats();
+    const week = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday); d.setDate(d.getDate() + i);
+      return weightOn(dateKey(d));
+    });
+    const list = habitsList();
+    const { done: hbDone, total: hbTotal } = habitsDone(todayKey);
+    const active = state.activeWorkout;
+    const hour = today.getHours();
+    const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    const weekCount = state.workouts.filter((x) => new Date(x.startedAt) >= monday).length;
+    const streak = streakWeeks();
+    const sub = [
+      today.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+      weekCount + ' workout' + (weekCount === 1 ? '' : 's'),
+    ].concat(streak >= 2 ? [streak + 'w streak 🔥'] : []).join(' · ');
+
+    v.innerHTML =
+      '<div class="page-head home-head">' +
+        '<div class="hh-text">' +
+          '<span class="hh-greet">' + greeting + ',</span>' +
+          '<h2 class="hh-name">' + esc(state.settings.name || 'Athlete') + '<span class="hh-dot">.</span></h2>' +
+          '<p class="hh-sub">' + esc(sub) + '</p>' +
+        '</div>' +
+        '<button class="hh-avatar" id="homeAvatar" aria-label="Open profile">' + avatarHTML('hh-initial') + '</button>' +
+      '</div>' +
+
+      '<div class="week-strip">' + strip + '</div>' +
+
+      '<div class="home-pair">' +
+        '<button class="card hstat" id="bwCard">' +
+          '<span class="micro">Bodyweight</span>' +
+          '<div class="hstat-val">' + (lw ? fmtNum(lw.value) : '—') + '<i>' + esc(unit()) + '</i></div>' +
+          '<div class="hstat-sub">' + (st && st.week != null
+            ? (st.week > 0 ? '↑' : st.week < 0 ? '↓' : '→') + ' ' + Math.abs(st.week).toFixed(1) + ' ' + esc(unit()) + ' this week'
+            : 'Tap to log today') + '</div>' +
+          '<div class="hstat-spark">' + weightSpark(week) + '</div>' +
+        '</button>' +
+        '<button class="card hstat" id="hbCard">' +
+          '<span class="micro">Habits</span>' +
+          '<div class="hstat-val ' + (hbTotal && hbDone === hbTotal ? 'all-done' : '') + '">' + hbDone + '<i>/ ' + hbTotal + '</i></div>' +
+          '<div class="hstat-sub">' + (hbTotal ? (hbDone === hbTotal ? 'All done today' : (hbTotal - hbDone) + ' to go') : 'Add your first') + '</div>' +
+          '<div class="hstat-cells">' + list.slice(0, 5).map((h) => {
+            const val = habitValue(h.id, todayKey);
+            const pct = Math.round(Math.min(1, val / habitTarget(h)) * 100);
+            return '<span class="hc-day hs-cell ' + (pct === 100 ? 'is-full' : pct ? 'is-part' : '') + '" data-h="' + esc(h.id) + '" title="' + esc(h.name) + '">' +
+              (pct && pct < 100 ? '<i class="hc-fill" style="height:' + pct + '%"></i>' : '') +
+              '<span>' + habitIcon(h.icon) + '</span></span>';
+          }).join('') + '</div>' +
+        '</button>' +
+      '</div>' +
+
+      '<div class="card kcal-line">' +
+        '<div class="kl-head"><span class="micro">Calories</span>' +
+          '<span class="kl-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c.7 3.1 3.4 4.4 3.4 7.4 0 1-.4 2-1.2 2.8.5-1.7-.6-3.1-1.7-3.9.2 2.3-1.4 3.5-2.3 4.8-1.7 2.2.2 5.5 3.4 5.5 3.1 0 5.4-2.4 5.4-5.4 0-4.9-4.3-7.9-7-11.2Z"/></svg></span>' +
+        '</div>' +
+        '<div class="kl-row">' +
+          '<div class="kl-ring"><svg viewBox="0 0 52 52" aria-hidden="true">' +
+            '<circle cx="26" cy="26" r="22" fill="none" stroke="var(--surface-2)" stroke-width="4"/>' +
+            '<circle cx="26" cy="26" r="22" fill="none" stroke="' + (over ? 'var(--critical)' : 'var(--ink-1)') + '" stroke-width="4" stroke-linecap="round"' +
+            ' stroke-dasharray="' + RING.toFixed(1) + '" stroke-dashoffset="' + ringOffset.toFixed(1) + '" transform="rotate(-90 26 26)"/>' +
+          '</svg><span class="kl-pct">' + kcalPct + '%</span></div>' +
+          '<div class="kl-right">' +
+            '<div class="macro-track kl-track"><div class="macro-fill ' + (over ? 'over' : '') + '" style="width:' + Math.min(100, frac * 100) + '%"></div></div>' +
+            '<div class="kl-total"><b class="' + (over ? 'over' : '') + '">' + Math.round(totals.kcal) + '</b> / ' + targets.kcal.toLocaleString() + ' <span>kcal</span></div>' +
+            '<div class="kl-left">' + (over ? Math.round(totals.kcal - targets.kcal) + ' kcal over' : Math.round(targets.kcal - totals.kcal) + ' kcal left') + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="kl-macros">' +
+          [['Protein', totals.protein, targets.protein], ['Carbs', totals.carbs, targets.carbs], ['Fat', totals.fat, targets.fat]].map(([label, val, target]) => {
+            const pct = target ? Math.min(100, (val / target) * 100) : 0;
+            const isOver = target && val > target;
+            return '<div class="klm">' +
+              '<div class="klm-head"><span class="klm-name">' + label + '</span>' +
+                '<span class="klm-val ' + (isOver ? 'over' : '') + '">' + Math.round(val) + '<i>/' + target + 'g</i></span></div>' +
+              '<div class="mc-bar"><div class="mc-fill ' + (isOver ? 'over' : '') + '" style="width:' + pct + '%"></div></div>' +
+            '</div>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+
+      '<div class="home-actions">' +
+        '<button class="ha-btn ha-primary" id="homeStart">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg>' +
+          (active ? 'Resume workout' : 'Start workout') + '</button>' +
+        '<button class="ha-btn" id="homeLog">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg>' +
+          'Log meal</button>' +
+      '</div>';
+
+    $('#homeAvatar').addEventListener('click', () => goTab('profile'));
+    $('#bwCard').addEventListener('click', openWeightSheet);
+    $('#hbCard').addEventListener('click', (e) => {
+      const cell = e.target.closest('[data-h]');
+      const h = cell && habitById(cell.dataset.h);
+      if (!h) { goTab('habits'); return; }
+      if (h.source) goHabitSource(h);
+      else if (habitType(h) === 'check') toggleHabit(h);
+      else openHabitPad(h, todayKey);
+    });
+    $('#homeStart').addEventListener('click', () => {
+      if (state.activeWorkout) { workoutOpen = true; openWkEntry(); }
+      goTab('workout');
+    });
+    $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
+  }
+
+  /* tiny 7-day line for the bodyweight stat card */
+  function weightSpark(week) {
+    const pts = week.map((e, i) => (e ? { i, v: e.value } : null)).filter(Boolean);
+    if (pts.length < 2) return '<span class="spark-note">Log two days to see a trend</span>';
+    const vals = pts.map((p) => p.v);
+    const min = Math.min(...vals), max = Math.max(...vals);
+    const span = max - min || 1;
+    const W = 100, H = 26;
+    const xy = pts.map((p) => [((p.i / 6) * W).toFixed(1), (H - ((p.v - min) / span) * (H - 4) - 2).toFixed(1)]);
+    const d = xy.map(([x, y], i) => (i ? 'L' : 'M') + x + ',' + y).join(' ');
+    const lastPt = xy[xy.length - 1];
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
+      '<path d="' + d + '" fill="none" stroke="var(--ink-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>' +
+      '<circle cx="' + lastPt[0] + '" cy="' + lastPt[1] + '" r="2.2" fill="var(--ink-1)"/></svg>';
+  }
+
+  function renderHome() {
+    if (state.settings.homeLayout === 'classic') renderHomeClassic();
+    else renderHomeDash();
   }
 
   function openWeightSheet() {
@@ -2065,19 +2227,48 @@
       const d = new Date(gridMonth.getFullYear(), gridMonth.getMonth(), dnum);
       const key = dateKey(d);
       const doneCount = list.filter((h) => habitDone(h, key)).length;
-      const state = !list.length ? '' : doneCount === list.length ? 'is-full' : doneCount ? 'is-part' : '';
+      const pct = list.length ? Math.round((doneCount / list.length) * 100) : 0;
+      const state = pct === 100 ? 'is-full' : doneCount ? 'is-part' : '';
       cells += '<button class="hc-day ' + state + (key === todayKey ? ' is-today' : '') + (key > todayKey ? ' is-future' : '') +
         '" data-day="' + key + '" aria-label="' + dnum + ': ' + doneCount + ' of ' + list.length + ' done">' +
-        dnum + (doneCount && doneCount < list.length ? '<i class="hc-part" style="width:' + Math.round((doneCount / list.length) * 100) + '%"></i>' : '') +
-        '</button>';
+        (state === 'is-part' ? '<i class="hc-fill" style="height:' + pct + '%"></i>' : '') +
+        '<span>' + dnum + '</span></button>';
+    }
+
+    // ---- list view: a column per habit, values in the cells ----
+    const cols = list.slice(0, 5);
+    const dowLetters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    let rows = '';
+    for (let dnum = 1; dnum <= daysInMonth; dnum++) {
+      const d = new Date(gridMonth.getFullYear(), gridMonth.getMonth(), dnum);
+      const key = dateKey(d);
+      const doneCount = list.filter((h) => habitDone(h, key)).length;
+      const pct = list.length ? Math.round((doneCount / list.length) * 100) : 0;
+      rows += '<tr class="' + (pct === 100 ? 'is-all ' : '') + (key === todayKey ? 'is-today' : key > todayKey ? 'is-future' : '') + '">' +
+        '<th scope="row" data-day="' + key + '"><span class="hg-d">' + dnum + '</span><span class="hg-w">' + dowLetters[d.getDay()] + '</span>' +
+          '<i class="hg-bar"><b style="width:' + pct + '%"></b></i></th>' +
+        cols.map((h) => {
+          const val = habitValue(h.id, key);
+          const ok = val >= habitTarget(h);
+          const txt = !val ? '·' : habitType(h) === 'check' ? '✓' : habitShort(val);
+          return '<td class="' + (ok ? 'is-on' : val ? 'is-part' : '') + '" data-cell="' + esc(h.id) + '" data-day="' + key + '">' + txt + '</td>';
+        }).join('') + '</tr>';
     }
 
     const monthLabel = gridMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const hView = state.settings.habitView === 'list' ? 'list' : 'calendar';
 
     v.innerHTML =
       '<div class="page-head">' +
-        '<div><h2>Habits</h2><p class="subtitle">' + done + ' of ' + total + ' done today</p></div>' +
-        '<button class="icon-btn" id="hbAdd" aria-label="New habit"><svg viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg></button>' +
+        '<div><h2>Habits</h2><p class="subtitle' + (total && done === total ? ' all-done' : '') + '">' + done + ' of ' + total + ' done today</p></div>' +
+        '<div class="ph-actions">' +
+          '<button class="icon-btn" id="hbViewBtn" aria-label="' + (hView === 'calendar' ? 'Switch to list view' : 'Switch to calendar view') + '">' +
+            (hView === 'calendar'
+              ? '<svg viewBox="0 0 24 24"><path d="M4 6.5h3M10 6.5h10M4 12h3M10 12h10M4 17.5h3M10 17.5h10"/></svg>'
+              : '<svg viewBox="0 0 24 24"><path d="M4.5 5.5h15v13h-15Z"/><path d="M4.5 10h15M9.5 10v8.5M14.5 10v8.5"/></svg>') +
+          '</button>' +
+          '<button class="icon-btn" id="hbAdd" aria-label="New habit"><svg viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg></button>' +
+        '</div>' +
       '</div>' +
 
       (list.length ? (
@@ -2109,8 +2300,15 @@
           '<span>' + esc(monthLabel) + '</span>' +
           '<button class="hb-nav" id="hbNext" aria-label="Next month" ' + (habitMonthOffset >= 0 ? 'disabled' : '') + '>›</button>' +
         '</div>' +
-        '<div class="hc-dow">' + ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((l) => '<span>' + l + '</span>').join('') + '</div>' +
-        '<div class="hc-grid">' + cells + '</div>' +
+        (hView === 'calendar'
+          ? '<div class="hc-dow">' + ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((l) => '<span>' + l + '</span>').join('') + '</div>' +
+            '<div class="hc-grid">' + cells + '</div>'
+          : '<div class="hb-grid-scroll" id="hbScroll">' +
+              '<table class="hb-grid"><thead><tr><th></th>' +
+                cols.map((h) => '<th><span>' + esc(h.name.length > 7 ? h.name.slice(0, 7) : h.name) + '</span></th>').join('') +
+              '</tr></thead><tbody>' + rows + '</tbody></table>' +
+            '</div>' +
+            (list.length > 5 ? '<p class="hb-note">Showing the first 5 habits — tap a date for the rest.</p>' : '')) +
       '</div>'
       ) : '<p class="empty-note">No habits yet. Tap + to add your first one.</p>');
 
@@ -2134,6 +2332,22 @@
       });
     });
     $$('.hc-day', v).forEach((cell) => cell.addEventListener('click', () => openDaySheet(cell.dataset.day)));
+    $('#hbViewBtn').addEventListener('click', () => {
+      state.settings.habitView = hView === 'calendar' ? 'list' : 'calendar';
+      save(); render();
+    });
+    $$('.hb-grid th[data-day]', v).forEach((th) => th.addEventListener('click', () => openDaySheet(th.dataset.day)));
+    $$('.hb-grid td[data-cell]', v).forEach((cell) => cell.addEventListener('click', () => {
+      const h = habitById(cell.dataset.cell);
+      if (!h) return;
+      if (h.source) { toast(esc(h.name) + ' fills in automatically'); return; }
+      if (habitType(h) === 'check') { toggleHabit(h, cell.dataset.day); return; }
+      openHabitPad(h, cell.dataset.day);
+    }));
+    // in list view, start on today rather than the 1st
+    const scroll = $('#hbScroll');
+    const todayRow = scroll && $('tr.is-today', scroll);
+    if (scroll && todayRow) scroll.scrollTop = Math.max(0, todayRow.offsetTop - scroll.clientHeight / 2);
     // long-press a today row to edit the habit itself
     $$('.hb-row', v).forEach((row) => {
       let t = null;
@@ -2882,6 +3096,13 @@
         <label for="restSecs">Default rest timer (seconds)</label>
         <input id="restSecs" type="number" inputmode="numeric" min="15" step="15" value="${s.restSeconds}">
       </div>
+      <div class="field">
+        <label>Home layout</label>
+        <div class="seg" id="homeLayoutSeg">
+          <button data-hl="dash" class="${s.homeLayout === 'classic' ? '' : 'is-on'}">Dashboard</button>
+          <button data-hl="classic" class="${s.homeLayout === 'classic' ? 'is-on' : ''}">Classic</button>
+        </div>
+      </div>
       <div class="section-title" style="margin-top:8px">Nutrition targets</div>
       <div class="field">
         <label for="tKcal">Calories (kcal / day)</label>
@@ -2950,6 +3171,13 @@
         state.settings.restSeconds = Math.max(15, Number(e.target.value) || 90);
         save();
       });
+      $$('#homeLayoutSeg button', body).forEach((b) => b.addEventListener('click', () => {
+        state.settings.homeLayout = b.dataset.hl === 'classic' ? 'classic' : 'dash';
+        $$('#homeLayoutSeg button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+        save(); render();
+        toast(state.settings.homeLayout === 'classic' ? 'Classic home restored' : 'Dashboard home on');
+      }));
+
       const bindTarget = (id, keyName) => {
         $(id, body).addEventListener('change', (e) => {
           state.nutrition.targets[keyName] = Math.max(0, Number(e.target.value) || 0);
@@ -3076,7 +3304,7 @@
       const slack = floor - kids[kids.length - 1].getBoundingClientRect().bottom;
       if (slack > 6) {
         const base = parseFloat(cs.gap) || 12;
-        v.style.gap = (base + Math.min(11, slack / (kids.length - 1))) + 'px';
+        v.style.gap = (base + Math.min(18, slack / (kids.length - 1))) + 'px';
       }
     }
   }
