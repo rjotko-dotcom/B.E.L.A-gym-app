@@ -65,7 +65,7 @@ module.exports = async (t) => {
   await page.waitForTimeout(400);
   t.equal('tapping the label returns to this week', (await page.textContent('#wkLabel')).trim(), wk0.trim());
 
-  // dragging the strip walks weeks without changing tab
+  // a sideways swipe across home belongs to the tabs, not to the strip
   await page.evaluate(() => {
     const w = document.querySelector('.week-wrap');
     const r = w.getBoundingClientRect(), y = r.top + r.height / 2;
@@ -74,10 +74,10 @@ module.exports = async (t) => {
     w.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [t(120)], bubbles: true }));
   });
   await page.waitForTimeout(400);
-  t.check('a drag moves the week', (await page.textContent('#wkLabel')) !== wk0);
-  t.equal('and stays on home', await page.evaluate(() => document.querySelector('.tab.active')?.dataset.tab), 'home');
-  await page.click('#wkLabel');
-  await page.waitForTimeout(350);
+  t.equal('swiping the home strip changes tab instead', await page.evaluate(() => document.querySelector('.tab.active')?.dataset.tab), 'workout');
+  await page.click('.tab[data-tab="home"]');
+  await page.waitForTimeout(400);
+  t.equal('and the week is untouched', (await page.textContent('#wkLabel')).trim(), wk0.trim());
 
   // the calories card is a way into nutrition
   await page.click('#kcalCard');
@@ -128,6 +128,31 @@ module.exports = async (t) => {
   await page.click('.plan-day');
   await page.waitForTimeout(400);
   t.check('tapping a day still sets the plan', await page.evaluate(() => !!document.querySelector('#sheetRoot .sheet')));
+  await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
+  await page.waitForTimeout(350);
+
+  // the last-session card describes the session, not a bare number
+  await page.click('.tab[data-tab="workout"]');
+  await page.waitForTimeout(450);
+  const lastCard = await page.evaluate(() => ({
+    text: document.querySelector('#wkLast').textContent.replace(/\s+/g, ' ').trim(),
+    ring: !!document.querySelector('#wkLast .ws-ring'),
+  }));
+  t.check('the card is labelled as the last session', /Last session/.test(lastCard.text), lastCard.text);
+  t.check('it names what was in it', /·/.test(lastCard.text) && /sets/.test(lastCard.text), lastCard.text);
+  t.check('and no longer shows a lone number in a ring', !lastCard.ring);
+
+  // the score ring explains itself one tap away
+  await page.click('.tab[data-tab="home"]');
+  await page.waitForTimeout(400);
+  await page.click('#homeAvatar');
+  await page.waitForTimeout(500);
+  const card = await page.evaluate(() => document.querySelector('#scoreCard')?.textContent.replace(/\s+/g, ' ').trim() || '');
+  t.check('the profile breaks the day score down', /Training \d+\/30/.test(card) && /Weigh-in \d+\/10/.test(card), card);
+  t.check('and says what is still open', /Still open|nothing left/.test(card), card);
+  await page.click('#scoreCard');
+  await page.waitForTimeout(450);
+  t.check('tapping it opens the whole day', await page.evaluate(() => !!document.querySelector('.ds-score')));
   await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
   await page.waitForTimeout(350);
 

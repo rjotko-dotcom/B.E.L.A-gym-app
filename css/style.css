@@ -1332,8 +1332,14 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .hc-day.is-future { background: transparent; color: var(--ink-muted); opacity: 0.55; }
 .hb-grid-card { padding: 14px 10px 12px; }
 
-/* workout stat cards: one centred column, and the number carries the card */
-.wk-stat { text-align: center; align-items: center; padding: 16px 12px 17px; }
+/* workout stat cards: the session says what it was, the weight says the number */
+.wk-stat { text-align: left; align-items: stretch; padding: 14px 14px 15px; }
+.wk-stat .micro { margin-bottom: 8px; }
+.ws-ex {
+  color: var(--ink-2); font-size: 0.74rem; line-height: 1.35; margin-top: 4px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.wk-last .ws-sub { margin-top: auto; padding-top: 6px; }
 .ws-top { justify-content: center; margin-bottom: 12px; }
 .ws-big { font-size: 2.15rem; letter-spacing: -0.03em; }
 .ws-big i { font-size: 0.95rem; }
@@ -1659,7 +1665,7 @@ body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
 .nh-num.nh-hit { font-size: 1.9rem; letter-spacing: -0.02em; }
 
 /* ---------- the home week strip, week by week ---------- */
-.week-wrap { touch-action: pan-y; }
+.wk-plan.week-wrap { touch-action: pan-y; }
 .ws-head {
   display: flex; align-items: center; justify-content: center; gap: 4px;
   margin: 0 2px -2px;
@@ -1762,3 +1768,21 @@ body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
   .tab.active svg { transform: none; }
   .rest-fill { transition: none; }
 }
+
+/* ---------- today's score, spelled out ----------
+   The ring on home is a day out of 100 and rarely lands on a round number, so
+   this says which part is still short rather than leaving a gap in a circle. */
+.score-card {
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  text-align: left; padding: 14px 16px; margin-bottom: 12px; cursor: pointer;
+}
+.sc-ring { position: relative; width: 56px; height: 56px; flex-shrink: 0; display: grid; place-items: center; }
+.sc-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.sc-ring b { font-size: 1.02rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.sc-body { flex: 1; min-width: 0; }
+.sc-title { font-size: 0.94rem; font-weight: 700; }
+.sc-parts {
+  display: flex; flex-wrap: wrap; gap: 3px 10px; margin-top: 4px;
+  color: var(--ink-2); font-size: 0.7rem; font-weight: 600;
+}
+.sc-gap { color: var(--ink-muted); font-size: 0.73rem; line-height: 1.35; margin-top: 5px; }

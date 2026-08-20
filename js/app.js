@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '9.5';
+  const APP_VERSION = '9.6';
 
   /* ---------------- state ---------------- */
 
@@ -442,6 +442,26 @@
     if (t.protein && tot.protein >= t.protein * 0.9) parts.nutrition += 10;
     const total = parts.training + parts.nutrition + parts.habits + parts.weight;
     return { total, parts, trained, planned };
+  }
+
+  /* What the ring is still waiting for. The score is out of 100 and the day
+     rarely ends on a round number, so it helps to say which part is short
+     rather than leave a gap in a circle. */
+  function scoreGaps(key = dateKey()) {
+    const sc = dayScore(key);
+    const t = state.nutrition.targets;
+    const tot = dayTotals(key);
+    const gaps = [];
+    if (sc.parts.training < 30) gaps.push(sc.planned && !sc.planned.rest ? esc(sc.planned.name) + ' not logged' : 'no session logged');
+    if (t.kcal && !(tot.kcal / t.kcal >= 0.9 && tot.kcal / t.kcal <= 1.1)) {
+      const off = Math.round(t.kcal - tot.kcal);
+      gaps.push(off > 0 ? off.toLocaleString() + ' kcal short of the goal' : Math.abs(off).toLocaleString() + ' kcal past the goal');
+    }
+    if (t.protein && tot.protein < t.protein * 0.9) gaps.push(Math.round(t.protein - tot.protein) + ' g of protein to go');
+    const due = habitsDueOn(key).filter((h) => !habitDone(h, key));
+    if (due.length) gaps.push(due.length + ' habit' + (due.length === 1 ? '' : 's') + ' left');
+    if (!weightOn(key)) gaps.push('no weigh-in today');
+    return { score: sc, gaps };
   }
 
   /* where the goal weight lands at the current rate */
@@ -1336,21 +1356,8 @@
     $('#wkPrev', v).addEventListener('click', () => showWeek(homeWeekOffset - 1));
     $('#wkNext', v).addEventListener('click', () => showWeek(homeWeekOffset + 1));
     $('#wkLabel', v).addEventListener('click', () => showWeek(0));
-    // dragging the strip walks the weeks — the tab swipe leaves this area alone
-    const wrap = $('.week-wrap', v);
-    let wkTouch = null;
-    wrap.addEventListener('touchstart', (e) => {
-      wkTouch = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null;
-    }, { passive: true });
-    wrap.addEventListener('touchend', (e) => {
-      if (!wkTouch) return;
-      const t = e.changedTouches[0];
-      const dx = t.clientX - wkTouch.x, dy = t.clientY - wkTouch.y;
-      const quick = Date.now() - wkTouch.at < 700;
-      wkTouch = null;
-      if (!quick || Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-      showWeek(homeWeekOffset + (dx < 0 ? 1 : -1));
-    }, { passive: true });
+    // no drag here: a sideways swipe across home belongs to the tabs, so the
+    // week moves by its arrows (the plan card on workouts is the one you drag)
     $('#kcalCard').addEventListener('click', () => { mealDayOffset = 0; goTab('meals'); });
     $('#bwCard').addEventListener('click', openWeightSheet);
     $('#hbCard').addEventListener('click', (e) => {
@@ -2038,6 +2045,14 @@
       monthDate.toLocaleDateString(undefined, { month: 'short' }) + '</span><div class="dm-grid">' + out + '</div></div>';
   }
 
+  /* what a session actually contained, for the card that stands in for it */
+  function sessionExercises(w, max = 3) {
+    const names = (w.exercises || []).map((e) => exerciseById(e.exerciseId)?.name).filter(Boolean);
+    if (!names.length) return 'No exercises';
+    const short = names.slice(0, max).map((n) => n.replace(/^(Barbell|Dumbbell|Cable|Machine|Seated) /, ''));
+    return short.join(' · ') + (names.length > max ? ' +' + (names.length - max) : '');
+  }
+
   function renderWorkout() {
     const v = $('#view');
     const templates = [...BUILTIN_TEMPLATES, ...state.templates];
@@ -2080,14 +2095,18 @@
       '</div>' : '') +
 
       '<div class="wk-grid2">' +
-        '<button class="card wk-stat" id="wkLast">' +
-          '<div class="ws-top"><span class="ws-ring">' + (last ? loggedSets(last).length : 0) + '</span></div>' +
+        '<button class="card wk-stat wk-last" id="wkLast">' +
+          '<span class="micro">Last session</span>' +
           '<div class="ws-name">' + (last ? esc(last.name) : 'No sessions yet') + '</div>' +
-          '<div class="ws-sub">' + (last ? esc(fmtDate(last.startedAt)) : 'Start your first workout') + '</div>' +
+          (last
+            ? '<div class="ws-ex">' + esc(sessionExercises(last)) + '</div>' +
+              '<div class="ws-sub">' + esc(fmtShortDate(last.startedAt)) + ' · ' + loggedSets(last).length + ' sets' +
+                (last.endedAt ? ' · ' + esc(fmtDuration(last.endedAt - last.startedAt)) : '') + '</div>'
+            : '<div class="ws-sub">Start your first workout</div>') +
         '</button>' +
         '<button class="card wk-stat" id="wkWeight">' +
-          '<div class="ws-top"><span class="ws-big">' + (lw ? fmtNum(lw.value) : '—') + '<i>' + esc(unit()) + '</i></span></div>' +
-          '<div class="ws-name">Body weight</div>' +
+          '<span class="micro">Body weight</span>' +
+          '<div class="ws-big">' + (lw ? fmtNum(lw.value) : '—') + '<i>' + esc(unit()) + '</i></div>' +
           '<div class="ws-sub">' + (lw ? esc(fmtShortDate(new Date(lw.date + 'T12:00:00').getTime())) : 'Tap to log') + '</div>' +
         '</button>' +
       '</div>' +
@@ -2174,7 +2193,7 @@
       if (!quick || Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
       showPlanWeek(planWeekOffset + (dx < 0 ? 1 : -1));
     }, { passive: true });
-    $('#wkLast').addEventListener('click', () => { if (last) { progressSeg = 'history'; goTab('profile'); } });
+    $('#wkLast').addEventListener('click', () => { if (last) { progressSeg = 'history'; expandedHistoryId = last.id; goTab('profile'); } });
     $$('.tpl-item', v).forEach((el) => {
       el.addEventListener('click', (e) => {
         const delBtn = e.target.closest('[data-del-tpl]');
@@ -3757,6 +3776,30 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5V4.5M8 8.5 12 4.5l4 4M4.5 15.5v3a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-3"/></svg>
         <span><b>Back up your data</b>${state.settings.lastExport ? 'Last export ' + fmtShortDate(state.settings.lastExport) : 'Never exported'} — everything lives only on this phone.</span>
       </button>` : ''}
+      ${(() => {
+        const { score, gaps } = scoreGaps();
+        return `
+      <button class="card score-card" id="scoreCard">
+        <div class="sc-ring">
+          <svg viewBox="0 0 56 56" aria-hidden="true">
+            <circle cx="28" cy="28" r="26" fill="none" stroke="var(--surface-2)" stroke-width="3.4"/>
+            <circle cx="28" cy="28" r="26" fill="none" stroke="${score.total >= 100 ? 'var(--done)' : 'var(--ink-1)'}" stroke-width="3.4" stroke-linecap="round"
+              stroke-dasharray="163.4" stroke-dashoffset="${(163.4 * (1 - score.total / 100)).toFixed(1)}" transform="rotate(-90 28 28)"/>
+          </svg>
+          <b>${score.total}</b>
+        </div>
+        <div class="sc-body">
+          <div class="sc-title">Today${score.total >= 100 ? ' · perfect day' : ''}</div>
+          <div class="sc-parts">
+            <span>Training ${score.parts.training}/30</span>
+            <span>Nutrition ${score.parts.nutrition}/30</span>
+            <span>Habits ${score.parts.habits}/30</span>
+            <span>Weigh-in ${score.parts.weight}/10</span>
+          </div>
+          <div class="sc-gap">${gaps.length ? 'Still open: ' + gaps.join(' · ') : 'Everything done — nothing left today.'}</div>
+        </div>
+      </button>`;
+      })()}
       <div class="seg" id="progSeg">
         <button data-seg="week" class="${progressSeg === 'week' ? 'on' : ''}">Week</button>
         <button data-seg="trends" class="${progressSeg === 'trends' ? 'on' : ''}">Trends</button>
@@ -3766,6 +3809,7 @@
       <div id="segBody"></div>`;
 
     $('#profileSettings').addEventListener('click', openSettings);
+    $('#scoreCard').addEventListener('click', () => openDaySummary(dateKey()));
     const nudge = $('#backupNudge');
     if (nudge) nudge.addEventListener('click', openSettings);
     $('#progSeg').addEventListener('click', (e) => {
@@ -4821,7 +4865,7 @@
     if (workoutOpen || scanOpen || $('#sheetRoot').children.length) return;
     // a real swipe cancels the tap, so buttons are fine to start on —
     // only text fields and horizontally-drawn widgets must keep the gesture
-    if (e.target.closest('input, textarea, select, .chart-wrap, .cal-grid, .pad-keys, .hbh-row, .week-wrap')) return;
+    if (e.target.closest('input, textarea, select, .chart-wrap, .cal-grid, .pad-keys, .hbh-row, .wk-plan')) return;
     const t = e.touches[0];
     swipeStart = { x: t.clientX, y: t.clientY, at: Date.now() };
   }, { passive: true });
