@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '8.1';
+  const APP_VERSION = '8.2';
 
   /* ---------------- state ---------------- */
 
@@ -272,6 +272,47 @@
       weight: allHit ? Math.round((top.weight + inc) * 2) / 2 : top.weight,
       reps: allHit ? goal : Math.min(goal, (top.reps || 0) + 1),
     };
+  }
+
+
+  /* ---- switching kg <-> lb ----
+     Changing the unit used to relabel every number, so 80 kg silently became
+     "80 lb" across sets, records, volume, the goal and every chart. Switching
+     now converts what is stored. Cardio rows keep km, and body measurements
+     stay in cm. */
+
+  const LB_PER_KG = 2.2046226218;
+  function convertWeights(from, to) {
+    if (from === to) return 0;
+    const f = to === 'lb' ? LB_PER_KG : 1 / LB_PER_KG;
+    const lift = (v) => (v == null ? v : Math.round(v * f * 2) / 2);     // nearest 0.5
+    const body = (v) => (v == null ? v : Math.round(v * f * 10) / 10);   // nearest 0.1
+    let touched = 0;
+
+    const doWorkout = (w) => {
+      if (!w) return;
+      w.exercises.forEach((ex) => {
+        if (isCardio(ex.exerciseId)) return;    // that column holds km, not weight
+        ex.sets.forEach((st) => {
+          if (st.weight == null) return;
+          st.weight = lift(st.weight);
+          touched++;
+        });
+      });
+    };
+    state.workouts.forEach(doWorkout);
+    doWorkout(state.activeWorkout);
+
+    state.nutrition.weights.forEach((w) => { w.value = body(w.value); touched++; });
+    if (state.settings.goalWeight) state.settings.goalWeight = body(state.settings.goalWeight);
+
+    // photos carry the bodyweight of the day they were taken
+    if (typeof photoAll === 'function') {
+      photoAll().then((list) => list.forEach((r) => {
+        if (r.weight != null) photoPut({ ...r, weight: body(r.weight) });
+      })).catch(() => {});
+    }
+    return touched;
   }
 
   /* -------- weekly plan -------- */
@@ -647,7 +688,15 @@
   function closeSheetNow() { $('#sheetRoot').innerHTML = ''; }
   function closeSheet() {
     closeSheetNow();
-    if (sheetHasEntry) { sheetHasEntry = false; skipPop++; history.back(); }
+    /* history.back() lands asynchronously. If a caller closes one sheet and
+       opens another in the same tick — a confirmation that reopens settings,
+       say — the pushState would be swallowed by the pending back(), leaving
+       the layer count one short and the next back press walking out of the
+       app. So only give the entry back once nothing has reopened. */
+    queueMicrotask(() => {
+      if ($('#sheetRoot').children.length) return;
+      if (sheetHasEntry) { sheetHasEntry = false; skipPop++; history.back(); }
+    });
   }
 
   /* ---------------- screen wake lock ----------------
@@ -684,6 +733,7 @@
     rest.total = seconds;
     rest.remaining = seconds;
     $('#restBar').hidden = false;
+    document.body.classList.add('is-resting');
     renderRest();
     rest.timer = setInterval(() => {
       rest.remaining -= 1;
@@ -701,6 +751,7 @@
     clearInterval(rest.timer);
     rest.timer = null;
     $('#restBar').hidden = true;
+    document.body.classList.remove('is-resting');
   }
   function renderRest() {
     $('#restTime').textContent = fmtClock(Math.max(0, rest.remaining));
@@ -725,7 +776,7 @@
     if (mini) mini.textContent = txt;
   }
   function ensureElapsedTimer() {
-    const want = !!state.activeWorkout;
+    const want = !!state.activeWorkout && !state.activeWorkout.editingId;
     if (want && !elapsedTimer) elapsedTimer = setInterval(tickElapsed, 1000);
     if (!want && elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
   }
@@ -1728,11 +1779,13 @@
     const w = state.activeWorkout;
     const sets = w ? loggedSets(w).length : 0;
     confirmAction({
-      title: 'Discard workout',
-      message: sets
-        ? sets + ' logged set' + (sets === 1 ? '' : 's') + ' will be deleted. This cannot be undone.'
-        : 'Nothing has been logged yet, so nothing will be lost.',
-      confirm: 'Discard workout',
+      title: w && w.editingId ? 'Discard changes' : 'Discard workout',
+      message: w && w.editingId
+        ? 'Your edits are thrown away. The saved workout stays exactly as it was.'
+        : sets
+          ? sets + ' logged set' + (sets === 1 ? '' : 's') + ' will be deleted. This cannot be undone.'
+          : 'Nothing has been logged yet, so nothing will be lost.',
+      confirm: w && w.editingId ? 'Discard changes' : 'Discard workout',
       onConfirm: () => {
         state.activeWorkout = null;
         workoutOpen = false;
@@ -1748,6 +1801,7 @@
     const root = $('#workoutRoot');
     const w = state.activeWorkout;
     document.body.classList.toggle('has-mini', !!w && !workoutOpen);
+    document.body.classList.toggle('wk-open', !!w && workoutOpen);
     syncWakeLock();
     if (!w) { root.innerHTML = ''; return; }
     if (!workoutOpen) {
@@ -1786,11 +1840,11 @@
           <button class="icon-btn" id="wkMin" aria-label="Minimize workout">
             <svg viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></svg>
           </button>
-          <b class="wk-title">${esc(w.name)}</b>
-          <button class="chip-btn chip-strong" id="wkFinishTop">Finish</button>
+          <b class="wk-title">${w.editingId ? 'Editing · ' : ''}${esc(w.name)}</b>
+          <button class="chip-btn chip-strong" id="wkFinishTop">${w.editingId ? 'Save' : 'Finish'}</button>
         </div>
         <div class="wk-stats">
-          <div><span class="micro">Duration</span><b id="wkDur">${fmtElapsed(Date.now() - w.startedAt)}</b></div>
+          <div><span class="micro">Duration</span><b id="wkDur">${w.editingId ? fmtDuration((w.finishedAt || w.startedAt) - w.startedAt) : fmtElapsed(Date.now() - w.startedAt)}</b></div>
           <div><span class="micro">Volume</span><b>${fmtNum(Math.round(vol))} ${esc(unit())}</b></div>
           <div><span class="micro">Sets</span><b>${done.length}</b></div>
         </div>
@@ -2224,12 +2278,12 @@
       return;
     }
     const prs = workoutPRs(w);
-    openSheet('Finish workout', `
+    openSheet(w.editingId ? 'Save changes' : 'Finish workout', `
       <div class="field">
         <label for="wkName">Workout name</label>
         <input id="wkName" type="text" value="${esc(w.name)}">
       </div>
-      <p class="muted" style="margin-bottom:10px">${done.length} sets · ${fmtNum(workoutVolume(w))} ${esc(unit())} total volume · ${fmtDuration(Date.now() - w.startedAt)}</p>
+      <p class="muted" style="margin-bottom:10px">${done.length} sets · ${fmtNum(workoutVolume(w))} ${esc(unit())} total volume${w.editingId ? ' · ' + esc(fmtDate(w.startedAt)) : ' · ' + fmtDuration(Date.now() - w.startedAt)}</p>
       ${prs.length ? `<p style="margin-bottom:10px;font-weight:700">🏆 ${prs.length} new PR${prs.length === 1 ? '' : 's'}: <span class="muted">${prs.map((p) => `${esc(exerciseById(p.exerciseId)?.name ?? '?')} ${fmtNum(p.weight)}×${p.reps}`).join(', ')}</span></p>` : ''}
       <div class="field">
         <label for="wkNote">Workout notes (optional)</label>
@@ -2238,7 +2292,7 @@
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:0.9rem">
         <input type="checkbox" id="saveTpl" style="width:18px;height:18px"> Save as routine
       </label>
-      <button class="btn btn-primary" id="confirmFinish">Save workout</button>
+      <button class="btn btn-primary" id="confirmFinish">${w.editingId ? 'Save changes' : 'Save workout'}</button>
     `, (body) => {
       $('#confirmFinish', body).addEventListener('click', () => {
         w.name = $('#wkName', body).value.trim() || 'Workout';
@@ -2255,12 +2309,19 @@
             exercises: w.exercises.map((ex) => ({ exerciseId: ex.exerciseId, sets: ex.sets.length })),
           });
         }
-        state.workouts.unshift(w);
+        if (w.editingId) {
+          // put it back where it was, keeping its place in history
+          const at = state.workouts.findIndex((x) => x.id === w.editingId);
+          const { editingId, ...clean } = w;
+          if (at >= 0) state.workouts[at] = clean; else state.workouts.unshift(clean);
+        } else {
+          state.workouts.unshift(w);
+        }
         state.activeWorkout = null;
         workoutOpen = false;
         stopRest();
         save(); closeSheet(); closeWkEntry(); render();
-        toast(prs.length ? `Workout saved — ${prs.length} PR${prs.length === 1 ? '' : 's'} 🏆` : 'Workout saved 💪');
+        toast(w.editingId ? 'Changes saved' : prs.length ? `Workout saved — ${prs.length} PR${prs.length === 1 ? '' : 's'} 🏆` : 'Workout saved 💪');
       });
     });
   }
@@ -3838,6 +3899,7 @@
             </tbody>
           </table>
           <div class="btn-row" style="margin-top:12px">
+            <button class="btn btn-quiet" data-edit="${esc(w.id)}">Edit</button>
             <button class="btn btn-quiet" data-repeat="${esc(w.id)}">Repeat</button>
             <button class="btn btn-danger" data-delete="${esc(w.id)}">Delete</button>
           </div>
@@ -3863,6 +3925,28 @@
               save(); render();
             },
           });
+          return;
+        }
+        const ed = e.target.closest('[data-edit]');
+        if (ed) {
+          const w = state.workouts.find((x) => x.id === ed.dataset.edit);
+          if (!w) return;
+          const open = () => {
+            state.activeWorkout = JSON.parse(JSON.stringify({ ...w, editingId: w.id }));
+            workoutOpen = true;
+            openWkEntry();
+            save(); render();
+          };
+          if (state.activeWorkout) {
+            confirmAction({
+              title: 'Replace session',
+              message: 'A workout is in progress. Editing "' + w.name + '" will discard it.',
+              confirm: 'Discard and edit',
+              onConfirm: () => { state.activeWorkout = null; save(); open(); },
+            });
+            return;
+          }
+          open();
           return;
         }
         const rep = e.target.closest('[data-repeat]');
@@ -4053,9 +4137,27 @@
       $('#unitSeg', body).addEventListener('click', (e) => {
         const b = e.target.closest('button[data-u]');
         if (!b) return;
-        state.settings.unit = b.dataset.u;
-        $$('#unitSeg button', body).forEach((x) => x.classList.toggle('on', x === b));
-        save(); render();
+        const from = state.settings.unit, to = b.dataset.u;
+        if (from === to) return;
+        const hasData = state.workouts.length || state.nutrition.weights.length;
+        const apply = () => {
+          convertWeights(from, to);
+          state.settings.unit = to;
+          save(); closeSheetNow(); openSettings(); render();
+          toast('Everything converted to ' + to);
+        };
+        if (!hasData) { state.settings.unit = to; save(); render();
+          $$('#unitSeg button', body).forEach((x) => x.classList.toggle('on', x === b)); return; }
+        closeSheetNow();
+        confirmAction({
+          title: 'Switch to ' + to,
+          message: 'Every logged set, bodyweight and your goal will be converted from ' + from + ' to ' + to +
+            '. Rounded to the nearest ' + (to === 'lb' ? '0.5 lb' : '0.5 kg') + ', so switching back and forth repeatedly can shift a value slightly.',
+          confirm: 'Convert to ' + to,
+          danger: false,
+          onCancel: openSettings,
+          onConfirm: apply,
+        });
       });
       $('#restSecs', body).addEventListener('change', (e) => {
         state.settings.restSeconds = Math.max(15, Number(e.target.value) || 90);

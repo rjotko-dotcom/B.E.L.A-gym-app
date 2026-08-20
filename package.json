@@ -1,0 +1,12 @@
+{
+  "name": "bela-gym",
+  "version": "8.2.0",
+  "private": true,
+  "description": "B.E.L.A Gym — workouts, nutrition and habits in one offline app.",
+  "scripts": {
+    "test": "node tests/run.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  }
+}

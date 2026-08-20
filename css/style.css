@@ -1150,7 +1150,7 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .si-del { width: 30px; height: 30px; border: none; background: none; color: var(--ink-muted); display: grid; place-items: center; cursor: pointer; flex-shrink: 0; }
 .si-del svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .water-card { display: flex; align-items: center; gap: 12px; padding: 13px 14px; }
-.water-dots { display: flex; flex-wrap: wrap; gap: 7px; padding: 0 4px 6px; }
+.water-dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; padding: 10px 4px 6px; }
 .water-dots .wdot { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--baseline); }
 .water-dots .wdot.on { background: var(--ink-1); border-color: var(--ink-1); }
 
@@ -1564,3 +1564,19 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .ph-compare figcaption { color: var(--ink-2); font-size: 0.72rem; text-align: center; margin-top: 7px; }
 .ph-compare figcaption b { display: block; color: var(--ink-1); font-size: 0.86rem; margin-top: 2px; }
 .ph-summary { text-align: center; color: var(--ink-2); font-size: 0.84rem; font-weight: 600; margin: 16px 0 14px; }
+
+/* ---------- rest timer sits with the session stats while logging ----------
+   floating above the nav it covered the set you were about to fill in */
+body.wk-open .rest-bar {
+  position: fixed; z-index: 45;
+  top: calc(env(safe-area-inset-top) + 111px); bottom: auto;
+  left: 10px; right: 10px;
+  border-radius: 16px; padding: 10px 12px 11px;
+  box-shadow: 0 10px 26px rgba(0,0,0,0.4);
+}
+body.wk-open .rest-progress { height: 4px; margin-bottom: 7px; }
+body.wk-open .rest-info { margin-bottom: 8px; }
+body.wk-open .rest-time { font-size: 1.15rem; }
+body.wk-open .rest-actions .chip-btn { min-height: 34px; padding: 0 12px; font-size: 0.8rem; }
+/* the exercise list starts below it so nothing is hidden */
+body.wk-open.is-resting .wk-body { padding-top: 96px; }
