@@ -1505,3 +1505,49 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .how-list b { color: var(--ink-1); }
 .imp-ok { background: var(--surface-2); border-radius: 14px; padding: 12px 14px; margin: 14px 0 12px; font-size: 0.86rem; }
 .imp-err { color: var(--critical); font-size: 0.84rem; margin-top: 14px; }
+
+/* ---------- set row: RPE column and the type picker ---------- */
+.set-grid.has-rpe { grid-template-columns: 34px 46px 1fr 1fr 40px 44px; gap: 6px; }
+.set-rpe {
+  min-height: 40px; border-radius: 11px; cursor: pointer;
+  border: 1px dashed var(--baseline); background: transparent; color: var(--ink-muted);
+  font: inherit; font-size: 0.78rem; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.set-rpe.has { border-style: solid; border-color: var(--border); background: var(--surface-2); color: var(--ink-1); }
+.set-tag {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0;
+  background: var(--surface-2); color: var(--ink-2); font-size: 0.78rem; font-weight: 700;
+}
+.set-tag.t-w { background: transparent; border: 1.5px dashed var(--baseline); color: var(--ink-muted); }
+.set-tag.t-f { color: var(--critical); }
+.set-tag.t-d { background: var(--ink-1); color: var(--page); }
+
+/* settings switches */
+.switch-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.switch-row span { flex: 1; min-width: 0; }
+.switch-row b { display: block; font-size: 0.9rem; font-weight: 600; }
+.switch-row i { display: block; font-style: normal; color: var(--ink-muted); font-size: 0.76rem; margin-top: 3px; line-height: 1.35; }
+.switch-row input { width: 22px; height: 22px; flex-shrink: 0; accent-color: var(--ink-1); }
+/* saved meals + nudges */
+.slot-save { width: 36px; height: 36px; border-radius: 12px; border: 1px solid var(--border); background: transparent; color: var(--ink-2); display: grid; place-items: center; cursor: pointer; flex-shrink: 0; }
+.slot-save svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
+.saved-del { width: 30px; height: 30px; border: none; background: none; color: var(--ink-muted); font-size: 1.1rem; cursor: pointer; }
+.hstat-sub.warn, .gb-empty.warn, .hstat-goal.warn { color: var(--critical); }
+
+/* ---------- progress photos ---------- */
+.photo-strip { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; cursor: pointer; padding: 13px 15px; color: var(--ink-1); }
+.ps-sub { color: var(--ink-muted); font-size: 0.78rem; margin-top: 4px; }
+.ps-thumbs { display: flex; gap: 5px; flex-shrink: 0; }
+.ps-thumbs img { width: 34px; height: 44px; object-fit: cover; border-radius: 8px; }
+.ph-hint { color: var(--ink-muted); font-size: 0.76rem; margin: 14px 0 10px; }
+.ph-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ph-cell { position: relative; border: none; padding: 0; background: none; cursor: pointer; border-radius: 14px; overflow: hidden; }
+.ph-cell img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; }
+.ph-cell span { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 6px 5px; color: #fff; font-size: 0.62rem; font-weight: 600;
+  background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0)); }
+.ph-cell.is-picked { outline: 2.5px solid var(--ink-1); outline-offset: -2.5px; }
+.ph-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ph-compare img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 14px; }
+.ph-compare figcaption { color: var(--ink-2); font-size: 0.72rem; text-align: center; margin-top: 7px; }
+.ph-compare figcaption b { display: block; color: var(--ink-1); font-size: 0.86rem; margin-top: 2px; }
+.ph-summary { text-align: center; color: var(--ink-2); font-size: 0.84rem; font-weight: 600; margin: 16px 0 14px; }

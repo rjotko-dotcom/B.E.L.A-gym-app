@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '7.9';
+  const APP_VERSION = '8.0';
 
   /* ---------------- state ---------------- */
 
@@ -19,6 +19,7 @@
       water: [],        // { date:'YYYY-MM-DD', glasses }
       measurements: [], // { date:'YYYY-MM-DD', key, value }  key: waist|chest|arm|thigh|hips
     },
+    savedMeals: [],   // { id, name, slot, items:[{name,kcal,protein,carbs,fat}] }
     schedule: [null, null, null, null, null, null, null],  // Mon..Sun: template id, 'rest', or null
     habits: [],       // { id, name, icon, type:'check'|'count', target, unit, step }
     habitLog: {},     // { 'YYYY-MM-DD': { habitId: value } }
@@ -95,6 +96,7 @@
   /* Brings a saved (or imported) document up to the current shape: fills in
      anything added since it was written, without touching what it already has. */
   function normalize(parsed, d = defaultState()) {
+    if (!Array.isArray(parsed.savedMeals)) parsed.savedMeals = [];
     if (!Array.isArray(parsed.schedule) || parsed.schedule.length !== 7) parsed.schedule = [null, null, null, null, null, null, null];
     if (!parsed.habits) parsed.habits = starterHabits();
     if (!parsed.habitLog) parsed.habitLog = {};
@@ -318,6 +320,28 @@
     });
   }
 
+
+  /* -------- quiet nudges: the app should notice when something slips -------- */
+  function daysSince(ts) { return Math.floor((Date.now() - ts) / 864e5); }
+  function lastWeighInDays() {
+    const w = latestWeight();
+    if (!w) return null;
+    return daysSince(new Date(w.date + 'T12:00:00').getTime());
+  }
+  function lastSessionDays() {
+    if (!state.workouts.length) return null;
+    return daysSince(state.workouts[0].startedAt);
+  }
+  // a streak worth protecting that hasn't been kept today
+  function streakAtRisk() {
+    let best = null;
+    for (const h of habitsList()) {
+      if (habitDone(h, dateKey())) continue;
+      const st = habitStreak(h);
+      if (st >= 3 && (!best || st > best.streak)) best = { habit: h, streak: st };
+    }
+    return best;
+  }
 
   /* -------- daily score, goal projection, day summary -------- */
 
@@ -625,6 +649,31 @@
     closeSheetNow();
     if (sheetHasEntry) { sheetHasEntry = false; skipPop++; history.back(); }
   }
+
+  /* ---------------- screen wake lock ----------------
+     Phones lock while you rest, and a locked screen freezes the timer. Hold a
+     wake lock for as long as the logger is open. */
+
+  let wakeLock = null;
+  async function holdWakeLock() {
+    if (state.settings.keepAwake === false || !('wakeLock' in navigator) || wakeLock) return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch { wakeLock = null; }
+  }
+  function dropWakeLock() {
+    if (!wakeLock) return;
+    const l = wakeLock; wakeLock = null;
+    l.release().catch(() => {});
+  }
+  function syncWakeLock() {
+    if (state.activeWorkout && workoutOpen) holdWakeLock(); else dropWakeLock();
+  }
+  // the browser drops the lock whenever the page is hidden, so take it again
+  addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') syncWakeLock();
+  });
 
   /* ---------------- rest timer ---------------- */
 
@@ -967,10 +1016,13 @@
     const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
     const weekCount = state.workouts.filter((x) => new Date(x.startedAt) >= monday).length;
     const streak = streakWeeks();
+    const gap = lastSessionDays();
+    const risk = streakAtRisk();
+    const weighDays = lastWeighInDays();
     const sub = [
       today.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
-      weekCount + ' workout' + (weekCount === 1 ? '' : 's'),
-    ].concat(streak >= 2 ? [streak + 'w streak 🔥'] : []).join(' · ');
+      gap != null && gap >= 4 ? gap + ' days since training' : weekCount + ' workout' + (weekCount === 1 ? '' : 's'),
+    ].concat(streak >= 2 && !(gap >= 4) ? [streak + 'w streak 🔥'] : []).join(' · ');
 
     v.innerHTML =
       '<div class="page-head home-head">' +
@@ -1003,7 +1055,8 @@
         '<button class="card hstat" id="hbCard">' +
           '<span class="micro">Habits</span>' +
           '<div class="hstat-val ' + (hbTotal && hbDone === hbTotal ? 'all-done' : '') + '">' + hbDone + '<i>/ ' + hbTotal + '</i></div>' +
-          '<div class="hstat-sub">' + (hbTotal ? (hbDone === hbTotal ? 'All done today' : (hbTotal - hbDone) + ' to go') : 'Add your first') + '</div>' +
+          '<div class="hstat-sub' + (risk ? ' warn' : '') + '">' + (risk ? risk.streak + '-day streak at risk'
+            : hbTotal ? (hbDone === hbTotal ? 'All done today' : (hbTotal - hbDone) + ' to go') : 'Add your first') + '</div>' +
           '<div class="hstat-cells">' + list.slice(0, 5).map((h) => {
             const val = habitValue(h.id, todayKey);
             const pct = Math.round(Math.min(1, val / habitTarget(h)) * 100);
@@ -1078,7 +1131,9 @@
     const goal = state.settings.goalWeight;
     const lw = latestWeight();
     const u = esc(unit());
+    const stale = lastWeighInDays();
     if (!lw) return '<div class="gb-empty">Log your weight to start tracking</div>';
+    if (stale != null && stale >= 7) return '<div class="gb-empty warn">No weigh-in for ' + stale + ' days</div>';
     if (!goal) return '<div class="gb-empty">Set a goal weight</div>';
 
     const all = [...state.nutrition.weights].sort((a, b) => a.date.localeCompare(b.date));
@@ -1265,6 +1320,8 @@
           '<div class="slot-head">' +
             '<span class="slot-ico"><svg viewBox="0 0 24 24" aria-hidden="true">' + icon + '</svg></span>' +
             '<div class="slot-title"><b>' + title + '</b>' + (items.length ? '<span>' + Math.round(kcal) + ' kcal</span>' : '<span>Nothing logged</span>') + '</div>' +
+            (items.length > 1 ? '<button class="slot-save" data-save="' + slot + '" aria-label="Save ' + title + ' as a meal">' +
+              '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 4.5h13v15l-6.5-4-6.5 4Z"/></svg></button>' : '') +
             '<button class="slot-add" data-slot="' + slot + '" aria-label="Add to ' + title + '">' +
               '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button>' +
           '</div>' +
@@ -1313,6 +1370,7 @@
     $('#addMeal').addEventListener('click', () => openMealSheet(key));
     $('#editTargets').addEventListener('click', openTargetsSheet);
     $$('.slot-add', v).forEach((b) => b.addEventListener('click', () => openMealSheet(key, b.dataset.slot)));
+    $$('.slot-save', v).forEach((b) => b.addEventListener('click', () => openSaveMealSheet(b.dataset.save, key)));
     $$('.quick-chip', v).forEach((b) => b.addEventListener('click', () => {
       const src = recentForSlot(b.dataset.quick, key)[Number(b.dataset.i)];
       if (!src) return;
@@ -1375,6 +1433,31 @@
     });
   }
 
+  /* a whole meal saved under one name, logged again in a single tap */
+  function openSaveMealSheet(slot, key) {
+    const items = mealsForDay(key).filter((m) => mealSlot(m) === slot);
+    if (!items.length) return;
+    const kcal = Math.round(items.reduce((t, m) => t + (m.kcal || 0), 0));
+    openSheet('Save this meal', '' +
+      '<p class="confirm-msg">' + items.length + ' item' + (items.length === 1 ? '' : 's') + ' · ' + kcal + ' kcal. Saved meals show up at the top of the log sheet.</p>' +
+      '<div class="field"><label for="smName">Name</label>' +
+        '<input id="smName" type="text" placeholder="e.g. Usual breakfast" value="' + esc(items.map((m) => m.name)[0] || '') + '"></div>' +
+      '<button class="btn btn-primary" id="smSave">Save meal</button>',
+    (body) => {
+      $('#smSave', body).addEventListener('click', () => {
+        const name = $('#smName', body).value.trim();
+        if (!name) { toast('Give it a name'); return; }
+        if (!state.savedMeals) state.savedMeals = [];
+        state.savedMeals.push({
+          id: uid(), name, slot,
+          items: items.map((m) => ({ name: m.name, kcal: m.kcal || 0, protein: m.protein || 0, carbs: m.carbs || 0, fat: m.fat || 0 })),
+        });
+        save(); closeSheet(); render();
+        toast('Saved as "' + name + '"');
+      });
+    });
+  }
+
   function openMealSheet(key = dateKey(), slot = null) {
     if (!slot) slot = slotFromTime(new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' }));
     // recent custom entries (not in the food library), newest first, unique by name
@@ -1394,6 +1477,18 @@
         </div>
         <span class="li-best">+</span>
       </div>`;
+
+    const savedHtml = () => {
+      const mine = (state.savedMeals || []).filter((m) => !m.slot || m.slot === slot);
+      if (!mine.length) return '';
+      return '<div class="lib-group-title">Saved meals</div>' + mine.map((m) => {
+        const kcal = Math.round(m.items.reduce((t, x) => t + (x.kcal || 0), 0));
+        return '<div class="lib-item" data-saved="' + esc(m.id) + '" role="button" tabindex="0">' +
+          '<div><div class="li-name">' + esc(m.name) + '</div>' +
+            '<div class="li-sub">' + m.items.length + ' items · ' + kcal + ' kcal</div></div>' +
+          '<button class="saved-del" data-delsaved="' + esc(m.id) + '" aria-label="Forget this meal">×</button></div>';
+      }).join('');
+    };
 
     const listHtml = (q) => {
       const query = q.trim().toLowerCase();
@@ -1416,6 +1511,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5V6a2 2 0 0 1 2-2h2.5M15.5 4H18a2 2 0 0 1 2 2v2.5M20 15.5V18a2 2 0 0 1-2 2h-2.5M8.5 20H6a2 2 0 0 1-2-2v-2.5M7.5 12h9"/></svg>
         </button>
       </div>
+      <div id="savedList">${savedHtml()}</div>
       <div id="foodList">${listHtml('')}</div>
       <div class="section-title">Custom entry</div>
       <div class="field"><label for="cmName">Name</label><input id="cmName" type="text" placeholder="e.g. Chicken bowl"></div>
@@ -1454,6 +1550,22 @@
       list.addEventListener('click', (e) => {
         const item = e.target.closest('[data-food]');
         if (item) addMeal(JSON.parse(item.dataset.food));
+      });
+      const savedBox = $('#savedList', body);
+      savedBox.addEventListener('click', (e) => {
+        const del = e.target.closest('[data-delsaved]');
+        if (del) {
+          state.savedMeals = state.savedMeals.filter((m) => m.id !== del.dataset.delsaved);
+          save(); savedBox.innerHTML = savedHtml();
+          return;
+        }
+        const pick = e.target.closest('[data-saved]');
+        if (!pick) return;
+        const meal = state.savedMeals.find((m) => m.id === pick.dataset.saved);
+        if (!meal) return;
+        meal.items.forEach((it) => logMeal(it, slot, key));
+        save(); closeSheet(); goTab('meals');
+        toast(meal.name + ' logged');
       });
       $('#cmAdd', body).addEventListener('click', () => {
         const name = $('#cmName', body).value.trim();
@@ -1636,6 +1748,7 @@
     const root = $('#workoutRoot');
     const w = state.activeWorkout;
     document.body.classList.toggle('has-mini', !!w && !workoutOpen);
+    syncWakeLock();
     if (!w) { root.innerHTML = ''; return; }
     if (!workoutOpen) {
       // Hevy-style persistent mini bar while the logger is minimized
@@ -1728,11 +1841,9 @@
       $$('.set-row', block).forEach((row) => {
         const setIdx = Number(row.dataset.set);
         const set = ex.sets[setIdx];
-        $('.set-num', row).addEventListener('click', () => {
-          const order = ['N', 'W', 'D', 'F'];
-          set.type = order[(order.indexOf(set.type || 'N') + 1) % order.length];
-          save(); render();
-        });
+        $('.set-num', row).addEventListener('click', () => openSetSheet(ex, setIdx));
+        const rpeBtn = $('.set-rpe', row);
+        if (rpeBtn) rpeBtn.addEventListener('click', () => openRpeSheet(set));
         $('.in-weight', row).addEventListener('input', (e) => {
           set.weight = e.target.value === '' ? null : Number(e.target.value);
           save();
@@ -1775,6 +1886,58 @@
   }
 
   /* -------- exercise options menu (Hevy-style) -------- */
+
+  const SET_TYPES = [
+    ['N', 'Normal set', 'Counts toward your working sets and records'],
+    ['W', 'Warm-up', 'Ignored in volume, records and set numbering'],
+    ['D', 'Drop set', 'A lighter drop straight after a working set'],
+    ['F', 'To failure', 'Taken to failure — kept out of PR detection'],
+  ];
+
+  function openSetSheet(ex, setIdx) {
+    const set = ex.sets[setIdx];
+    const cur = set.type || 'N';
+    openSheet('Set type', '' +
+      SET_TYPES.map(([code, name, note]) =>
+        '<div class="lib-item ' + (cur === code ? 'is-on' : '') + '" data-type="' + code + '" role="button" tabindex="0">' +
+          '<div><div class="li-name">' + name + '</div><div class="li-sub">' + note + '</div></div>' +
+          '<span class="set-tag t-' + code.toLowerCase() + '">' + code + '</span>' +
+        '</div>').join('') +
+      '<button class="btn btn-danger" id="setDel" style="margin-top:16px">Remove this set</button>',
+    (body) => {
+      body.addEventListener('click', (e) => {
+        const item = e.target.closest('[data-type]');
+        if (!item) return;
+        set.type = item.dataset.type;
+        save(); closeSheet(); render();
+      });
+      $('#setDel', body).addEventListener('click', () => {
+        ex.sets.splice(setIdx, 1);
+        save(); closeSheet(); render();
+      });
+    });
+  }
+
+  /* RPE: how hard the set was, 6 (easy) to 10 (nothing left) */
+  function openRpeSheet(set) {
+    const opts = [10, 9.5, 9, 8.5, 8, 7.5, 7, 6];
+    const notes = { 10: 'Nothing left', 9.5: 'Maybe half a rep', 9: '1 rep left', 8.5: '1–2 reps left', 8: '2 reps left', 7.5: '2–3 reps left', 7: '3 reps left', 6: '4+ reps left' };
+    openSheet('Effort (RPE)', '' +
+      opts.map((v) => '<div class="lib-item ' + (set.rpe === v ? 'is-on' : '') + '" data-rpe="' + v + '" role="button" tabindex="0">' +
+        '<div><div class="li-name">RPE ' + fmtNum(v) + '</div><div class="li-sub">' + notes[v] + '</div></div>' +
+        '<span class="li-best">' + (set.rpe === v ? '✓' : '') + '</span></div>').join('') +
+      (set.rpe ? '<button class="btn btn-quiet" id="rpeClear" style="margin-top:14px">Clear</button>' : ''),
+    (body) => {
+      body.addEventListener('click', (e) => {
+        const item = e.target.closest('[data-rpe]');
+        if (!item) return;
+        set.rpe = Number(item.dataset.rpe);
+        save(); closeSheet(); render();
+      });
+      const clr = $('#rpeClear', body);
+      if (clr) clr.addEventListener('click', () => { delete set.rpe; save(); closeSheet(); render(); });
+    });
+  }
 
   function openExerciseMenu(exIdx) {
     const w = state.activeWorkout;
@@ -1979,10 +2142,10 @@
     const prev = previousSets(ex.exerciseId);
     const cardio = isCardio(ex.exerciseId);
     const u = unit();
-    const typeLabel = (s, i) => {
-      const t = s.type || 'N';
-      return t === 'N' ? String(i + 1) : t;
-    };
+    // only working sets are numbered — a warm-up shouldn't push set 1 to set 2
+    let workingNo = 0;
+    const numbers = ex.sets.map((s) => ((s.type || 'N') === 'N' ? String(++workingNo) : (s.type || 'N')));
+    const rpeOn = state.settings.trackRpe !== false;
     return `
       <div class="card ex-block" data-ex="${exIdx}">
         <div class="ex-head">
@@ -2000,20 +2163,21 @@
           if (!h) return '';
           return `<button class="ex-line ex-hint ${h.allHit ? 'up' : ''}">${h.allHit ? '↑' : '→'} Last ${fmtNum(h.prevWeight)} ${esc(u)} × ${h.prevReps} — try <b>${fmtNum(h.weight)} ${esc(u)} × ${h.reps}</b></button>`;
         })()}
-        <div class="set-grid">
-          <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(u)}</span><span class="hdr">${cardio ? 'min' : 'Reps'}</span><span class="hdr">✓</span>
+        <div class="set-grid${rpeOn && !cardio ? ' has-rpe' : ''}">
+          <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(u)}</span><span class="hdr">${cardio ? 'min' : 'Reps'}</span>${rpeOn && !cardio ? '<span class="hdr">RPE</span>' : ''}<span class="hdr">✓</span>
           ${ex.sets.map((s, i) => {
             const p = prev[i];
             const prevTxt = p ? (cardio ? `${fmtNum(p.weight ?? 0)}·${p.reps}m` : `${fmtNum(p.weight ?? 0)}×${p.reps}`) : '—';
             const t = s.type || 'N';
             return `
             <div class="set-row ${s.done ? 'logged' : ''}" data-set="${i}">
-              <button class="set-num t-${t.toLowerCase()}" title="Tap to change set type" aria-label="Set type: ${t === 'N' ? 'normal' : t === 'W' ? 'warm-up' : t === 'D' ? 'drop set' : 'failure'}">${typeLabel(s, i)}</button>
+              <button class="set-num t-${t.toLowerCase()}" aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>
               <span class="set-prev">${s.pr ? '🏆 ' : ''}${prevTxt}</span>
               <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
                      value="${s.weight ?? ''}" placeholder="${p?.weight ?? ''}" aria-label="${cardio ? 'Distance km' : 'Weight'}, set ${i + 1}">
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
                      value="${s.reps ?? ''}" placeholder="${p?.reps ?? ex.targetReps ?? ''}" aria-label="${cardio ? 'Minutes' : 'Reps'}, set ${i + 1}">
+              ${rpeOn && !cardio ? `<button class="set-rpe ${s.rpe ? 'has' : ''}" aria-label="Effort for set ${numbers[i]}">${s.rpe ? fmtNum(s.rpe) : '–'}</button>` : ''}
               <button class="set-done ${s.done ? 'logged' : ''}" aria-label="${s.done ? 'Undo set' : 'Log set'}" aria-pressed="${s.done}">
                 <svg viewBox="0 0 24 24"><path d="M4.5 12.5 9.5 17.5 19.5 6.5"/></svg>
               </button>
@@ -3196,6 +3360,161 @@
     $$('.rv-day[data-day]', el).forEach((b) => b.addEventListener('click', () => openDaySummary(b.dataset.day)));
   }
 
+
+  /* ================= PROGRESS PHOTOS =================
+     Photos live in IndexedDB, not in the main save: localStorage caps out
+     around 5MB and a handful of pictures would take the whole document with
+     it. They stay on the device and are not part of the JSON backup. */
+
+  const PHOTO_DB = 'bela-photos';
+  let photoDbPromise = null;
+  function photoDb() {
+    if (photoDbPromise) return photoDbPromise;
+    photoDbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(PHOTO_DB, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos', { keyPath: 'date' });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return photoDbPromise;
+  }
+  function photoTx(mode, fn) {
+    return photoDb().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction('photos', mode);
+      const req = fn(tx.objectStore('photos'));
+      tx.oncomplete = () => resolve(req && req.result);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  const photoAll = () => photoTx('readonly', (st) => st.getAll());
+  const photoPut = (rec) => photoTx('readwrite', (st) => st.put(rec));
+  const photoDel = (date) => photoTx('readwrite', (st) => st.delete(date));
+
+  // shrink to something sane before storing — a phone photo is 3–8MB raw
+  function readPhotoFile(file, done) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 1080;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        c.toBlob((blob) => done(blob), 'image/jpeg', 0.82);
+      };
+      img.onerror = () => done(null);
+      img.src = reader.result;
+    };
+    reader.onerror = () => done(null);
+    reader.readAsDataURL(file);
+  }
+
+  let photoUrls = [];
+  function freePhotoUrls() {
+    photoUrls.forEach((u) => URL.revokeObjectURL(u));
+    photoUrls = [];
+  }
+  function photoUrl(blob) {
+    const u = URL.createObjectURL(blob);
+    photoUrls.push(u);
+    return u;
+  }
+
+  function openPhotoGallery(preselect) {
+    photoAll().then((list) => {
+      list.sort((a, b) => b.date.localeCompare(a.date));
+      freePhotoUrls();
+      const picked = [];
+      openSheet('Progress photos', '' +
+        '<p class="confirm-msg">Kept on this phone only — photos are not in the JSON backup.</p>' +
+        '<button class="btn btn-primary" id="phAdd">Add a photo</button>' +
+        '<input id="phFile" type="file" accept="image/*" capture="environment" hidden>' +
+        (list.length
+          ? '<p class="ph-hint" id="phHint">Tap two photos to compare them.</p><div class="ph-grid">' +
+            list.map((r) => '<button class="ph-cell" data-date="' + r.date + '">' +
+              '<img src="' + photoUrl(r.blob) + '" alt="">' +
+              '<span>' + esc(fmtShortDate(new Date(r.date + 'T12:00:00').getTime())) +
+                (r.weight ? ' · ' + fmtNum(r.weight) + ' ' + esc(unit()) : '') + '</span></button>').join('') + '</div>'
+          : '<p class="empty-note">No photos yet. One a month is plenty to see a change.</p>'),
+      (body) => {
+        $('#phAdd', body).addEventListener('click', () => $('#phFile', body).click());
+        $('#phFile', body).addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          toast('Saving photo…');
+          readPhotoFile(file, (blob) => {
+            if (!blob) { toast('Could not read that image'); return; }
+            const lw = latestWeight();
+            photoPut({ date: dateKey(), blob, weight: lw ? lw.value : null })
+              .then(() => { closeSheetNow(); render(); openPhotoGallery(); toast('Photo saved'); })
+              .catch(() => toast('Could not save that photo'));
+          });
+        });
+        const hint = $('#phHint', body);
+        $$('.ph-cell', body).forEach((cell) => cell.addEventListener('click', () => {
+          const d = cell.dataset.date;
+          const at = picked.indexOf(d);
+          if (at >= 0) picked.splice(at, 1); else picked.push(d);
+          if (picked.length > 2) picked.shift();
+          $$('.ph-cell', body).forEach((c) => c.classList.toggle('is-picked', picked.includes(c.dataset.date)));
+          if (hint) hint.textContent = picked.length === 2 ? 'Comparing…' : picked.length === 1 ? 'Pick one more to compare' : 'Tap two photos to compare them.';
+          if (picked.length === 2) {
+            const [a, b] = picked.map((x) => list.find((r) => r.date === x));
+            openPhotoCompare(a, b);
+          }
+        }));
+      });
+      if (preselect) toast('Pick two photos to compare');
+    }).catch(() => toast('Photos are not available on this device'));
+  }
+
+  function openPhotoCompare(a, b) {
+    const [older, newer] = [a, b].sort((x, y) => x.date.localeCompare(y.date));
+    const gap = Math.round((new Date(newer.date) - new Date(older.date)) / 864e5);
+    const dw = older.weight && newer.weight ? Math.round((newer.weight - older.weight) * 10) / 10 : null;
+    openSheet('Compare', '' +
+      '<div class="ph-compare">' +
+        [older, newer].map((r) => '<figure><img src="' + photoUrl(r.blob) + '" alt="">' +
+          '<figcaption>' + esc(fmtShortDate(new Date(r.date + 'T12:00:00').getTime())) +
+          (r.weight ? '<b>' + fmtNum(r.weight) + ' ' + esc(unit()) + '</b>' : '') + '</figcaption></figure>').join('') +
+      '</div>' +
+      '<p class="ph-summary">' + gap + ' days apart' + (dw != null ? ' · ' + (dw > 0 ? '+' : '') + dw.toFixed(1) + ' ' + esc(unit()) : '') + '</p>' +
+      '<button class="btn btn-quiet" id="phBack">Back to photos</button>' +
+      '<button class="btn btn-danger" id="phDel" style="margin-top:10px">Delete the newer photo</button>',
+    (body) => {
+      $('#phBack', body).addEventListener('click', () => { closeSheetNow(); openPhotoGallery(); });
+      $('#phDel', body).addEventListener('click', () => {
+        photoDel(newer.date).then(() => { closeSheetNow(); render(); openPhotoGallery(); toast('Photo deleted'); });
+      });
+    });
+  }
+
+  // a small strip at the top of Trends
+  function photoStripHTML() {
+    return '<button class="card photo-strip" id="photoStrip">' +
+      '<div><span class="micro">Progress photos</span>' +
+        '<div class="ps-sub" id="psSub">Tap to add or compare</div></div>' +
+      '<div class="ps-thumbs" id="psThumbs"></div>' +
+    '</button>';
+  }
+  function fillPhotoStrip(el) {
+    const strip = $('#photoStrip', el);
+    if (!strip) return;
+    strip.addEventListener('click', () => openPhotoGallery());
+    photoAll().then((list) => {
+      if (!list.length) return;
+      list.sort((a, b) => b.date.localeCompare(a.date));
+      const sub = $('#psSub', el), thumbs = $('#psThumbs', el);
+      if (sub) sub.textContent = list.length + ' photo' + (list.length === 1 ? '' : 's') + ' · newest ' + fmtShortDate(new Date(list[0].date + 'T12:00:00').getTime());
+      if (thumbs) thumbs.innerHTML = list.slice(0, 3).map((r) => '<img src="' + photoUrl(r.blob) + '" alt="">').join('');
+    }).catch(() => {});
+  }
+
   function renderTrends(v) {
     const options = exercisesWithHistory();
     const u = unit();
@@ -3223,6 +3542,7 @@
     const bodyUnit = bodyMetric === 'weight' ? u : 'cm';
 
     v.innerHTML = `
+      ${photoStripHTML()}
       <div class="tile-row">
         <div class="tile"><span class="micro">Workouts</span><div class="t-value">${totalWorkouts}</div></div>
         <div class="tile"><span class="micro">Volume</span><div class="t-value">${totalVolume >= 10000 ? (totalVolume / 1000).toFixed(1) + 'k' : fmtNum(Math.round(totalVolume))}<span class="t-unit"> ${esc(u)}</span></div></div>
@@ -3292,6 +3612,7 @@
       render();
     });
     $('#addMeasure')?.addEventListener('click', openMeasureSheet);
+    fillPhotoStrip(v);
 
     attachLineHover($('#strengthChart'), series, u);
     attachBarHover($('#volumeChart'), weeks, u);
@@ -3652,6 +3973,14 @@
           <button data-u="lb" class="${s.unit === 'lb' ? 'on' : ''}">lb</button>
         </div>
       </div>
+      <label class="switch-row">
+        <span><b>Keep the screen on while logging</b><i>Stops the phone locking mid-set and freezing the rest timer</i></span>
+        <input type="checkbox" id="keepAwake" ${s.keepAwake === false ? '' : 'checked'}>
+      </label>
+      <label class="switch-row">
+        <span><b>Track effort (RPE)</b><i>An extra column on every set</i></span>
+        <input type="checkbox" id="trackRpe" ${s.trackRpe === false ? '' : 'checked'}>
+      </label>
       <div class="field">
         <label for="restSecs">Default rest timer (seconds)</label>
         <input id="restSecs" type="number" inputmode="numeric" min="15" step="15" value="${s.restSeconds}">
@@ -3678,9 +4007,10 @@
         <input id="tWater" type="number" inputmode="numeric" min="1" value="${s.waterTarget}">
       </div>
       <div class="btn-row" style="margin-top:8px">
-        <button class="btn btn-quiet" id="exportBtn">Export data</button>
-        <button class="btn btn-quiet" id="importBtn">Import data</button>
+        <button class="btn btn-quiet" id="exportBtn">Save backup</button>
+        <button class="btn btn-quiet" id="shareBtn">Share backup</button>
       </div>
+      <button class="btn btn-quiet" id="importBtn" style="margin-top:10px">Import a backup</button>
       <input id="importFile" type="file" accept="application/json" hidden>
       <button class="btn btn-danger" id="wipeBtn" style="margin-top:12px">Erase all data</button>
       <button class="btn btn-quiet" id="forceUpdate" style="margin-top:12px">Force update now</button>
@@ -3762,6 +4092,27 @@
         state.settings.lastExport = Date.now();
         save();
         toast('Backup saved');
+      });
+      $('#keepAwake', body).addEventListener('change', (e) => {
+        state.settings.keepAwake = e.target.checked;
+        save(); syncWakeLock();
+      });
+      $('#trackRpe', body).addEventListener('change', (e) => {
+        state.settings.trackRpe = e.target.checked;
+        save(); render();
+      });
+      $('#shareBtn', body).addEventListener('click', async () => {
+        // a copy on the same phone is not really a backup — hand it to Drive,
+        // mail or a chat instead
+        const file = new File([JSON.stringify(state, null, 2)], 'bela-gym-backup-' + dateKey() + '.json', { type: 'application/json' });
+        try {
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: 'B.E.L.A Gym backup' });
+            state.settings.lastExport = Date.now(); save();
+            return;
+          }
+        } catch { return; }   // the user dismissed the share sheet
+        toast('Sharing is not available here — use Save backup');
       });
       $('#importBtn', body).addEventListener('click', () => $('#importFile', body).click());
       $('#importFile', body).addEventListener('change', (e) => {
