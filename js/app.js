@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '8.5';
+  const APP_VERSION = '8.6';
 
   /* ---------------- state ---------------- */
 
@@ -44,6 +44,7 @@
   let scanHasEntry = false;
 
   function goTab(tab) {
+    if (tab !== 'habits') habitReorder = false;
     currentTab = tab;
     if (tab === 'home') {
       if (tabHasEntry) { tabHasEntry = false; skipPop++; history.back(); }
@@ -2692,6 +2693,20 @@
   const habitIcon = (key) => '<svg viewBox="0 0 24 24" aria-hidden="true">' + (HABIT_ICONS[key] || HABIT_ICONS.check) + '</svg>';
 
   let habitMonthOffset = 0;   // 0 = this month
+  let habitReorder = false;   // rows show move handles instead of their action
+
+  /* Swap a habit with its neighbour. habitsList() hides archived ones, so the
+     move works on the visible order and writes back to the real array. */
+  function moveHabit(id, dir) {
+    const visible = habitsList();
+    const at = visible.findIndex((h) => h.id === id);
+    const to = at + dir;
+    if (at < 0 || to < 0 || to >= visible.length) return;
+    const a = state.habits.indexOf(visible[at]);
+    const b = state.habits.indexOf(visible[to]);
+    [state.habits[a], state.habits[b]] = [state.habits[b], state.habits[a]];
+    save(); render();
+  }
 
   /* a habit can fill itself in from what the app already knows — a workout you
      finished, water you logged, protein you hit — instead of a manual tick */
@@ -2856,9 +2871,12 @@
 
       (list.length ? (
       '<div class="card hb-today-card">' +
-        '<div class="hb-th"><span class="micro">Today</span><span class="hb-th-date">' +
-          today.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + '</span></div>' +
-        list.map((h) => {
+        '<div class="hb-th"><span class="micro">' + (habitReorder ? 'Reorder' : 'Today') + '</span>' +
+          (list.length > 1
+            ? '<button class="hb-reorder" id="hbReorder">' + (habitReorder ? 'Done' : '⇅ Reorder') + '</button>'
+            : '<span class="hb-th-date">' + today.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + '</span>') +
+        '</div>' +
+        list.map((h, i) => {
           const val = habitValue(h.id, todayKey);
           const ok = val >= habitTarget(h);
           const streak = habitStreak(h);
@@ -2871,8 +2889,15 @@
           return '<div class="hb-row ' + (ok ? 'is-done' : '') + (h.source ? ' is-auto' : '') + (off ? ' is-off' : '') + '" data-habit="' + esc(h.id) + '" role="button" tabindex="0">' +
             '<span class="hb-ico">' + habitIcon(h.icon) + '</span>' +
             '<div class="hb-body"><div class="hb-name">' + esc(h.name) + '</div><div class="hb-sub">' + sub + '</div></div>' +
-            (h.source ? '<span class="hb-auto" title="Fills in automatically"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 5.5 13.5H11l-1 7.5L18.5 10H13Z"/></svg></span>' : '') +
-            (habitType(h) === 'check'
+            (habitReorder ? '' : h.source ? '<span class="hb-auto" title="Fills in automatically"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 5.5 13.5H11l-1 7.5L18.5 10H13Z"/></svg></span>' : '') +
+            (habitReorder
+              ? '<span class="hb-moves">' +
+                  '<button class="hb-move" data-move="-1" data-habit="' + esc(h.id) + '" aria-label="Move ' + esc(h.name) + ' up"' + (i === 0 ? ' disabled' : '') + '>' +
+                    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6-6 6 6"/></svg></button>' +
+                  '<button class="hb-move" data-move="1" data-habit="' + esc(h.id) + '" aria-label="Move ' + esc(h.name) + ' down"' + (i === list.length - 1 ? ' disabled' : '') + '>' +
+                    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6 6 6-6"/></svg></button>' +
+                '</span>'
+              : habitType(h) === 'check'
               ? '<span class="hb-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.6 10 17.6 19 6.8"/></svg></span>'
               : '<span class="hb-mini">' + habitRing(h, todayKey) + '</span>' +
                 (h.source ? '' : '<button class="hb-plus" data-step="' + esc(h.id) + '" aria-label="Add ' + (h.step || 1) + ' ' + esc(habitUnit(h)) + '">+</button>')) +
@@ -2902,8 +2927,16 @@
     const prev = $('#hbPrev'); if (prev) prev.addEventListener('click', () => { habitMonthOffset -= 1; render(); });
     const next = $('#hbNext'); if (next) next.addEventListener('click', () => { if (habitMonthOffset < 0) { habitMonthOffset += 1; render(); } });
 
+    const reorderBtn = $('#hbReorder');
+    if (reorderBtn) reorderBtn.addEventListener('click', () => { habitReorder = !habitReorder; render(); });
+    $$('.hb-move', v).forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      moveHabit(b.dataset.habit, Number(b.dataset.move));
+    }));
+
     $$('.hb-row', v).forEach((row) => {
       row.addEventListener('click', (e) => {
+        if (habitReorder) return;
         const h = habitById(row.dataset.habit);
         if (!h) return;
         if (h.source) { goHabitSource(h); return; }

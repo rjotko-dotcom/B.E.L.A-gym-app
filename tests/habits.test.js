@@ -76,6 +76,38 @@ module.exports = async (t) => {
   await page.waitForTimeout(450);
   t.check('a calendar day opens its habits', await page.evaluate(() => document.querySelectorAll('.hb-row').length > 0));
 
+  // ---- reordering ----
+  await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
+  await page.waitForTimeout(400);
+  const habitNames = () => page.evaluate(() => [...document.querySelectorAll('.hb-row .hb-name')].map((n) => n.textContent));
+  const originalOrder = await habitNames();
+  await page.click('#hbReorder');
+  await page.waitForTimeout(400);
+  t.equal('reorder mode shows a handle pair per habit',
+    await page.evaluate(() => document.querySelectorAll('.hb-move').length), originalOrder.length * 2);
+  t.check('the first habit cannot move up',
+    await page.evaluate(() => document.querySelector('.hb-move[data-move="-1"]').disabled));
+  await page.evaluate(() => document.querySelectorAll('.hb-row')[2].querySelector('[data-move="-1"]').click());
+  await page.waitForTimeout(350);
+  const moved = await habitNames();
+  t.equal('a habit moves up one place', moved[1], originalOrder[2]);
+  t.equal('the order is saved', (await readState(page)).habits[1].name, originalOrder[2]);
+  const logBefore = JSON.stringify((await readState(page)).habitLog);
+  await page.click('.hb-row');
+  await page.waitForTimeout(300);
+  t.equal('tapping a row while reordering does not log anything',
+    JSON.stringify((await readState(page)).habitLog), logBefore);
+  await page.click('#hbReorder');
+  await page.waitForTimeout(400);
+  t.equal('leaving reorder mode restores the actions',
+    await page.evaluate(() => document.querySelectorAll('.hb-move').length), 0);
+  await page.click('.tab[data-tab="home"]');
+  await page.waitForTimeout(400);
+  t.equal('home follows the new order',
+    await page.evaluate(() => document.querySelector('.hs-cell').getAttribute('aria-label')), moved[0]);
+  await page.click('.tab[data-tab="habits"]');
+  await page.waitForTimeout(400);
+
   // ---- rest days: a habit that is not due today must not count as missed ----
   await page.evaluate(() => {
     const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
