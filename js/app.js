@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '7.6';
+  const APP_VERSION = '7.7';
 
   /* ---------------- state ---------------- */
 
@@ -912,15 +912,20 @@
     const workoutDays = new Set(state.workouts.map((w) => dateKey(new Date(w.startedAt))));
     const mealDays = new Set(state.nutrition.meals.map((m) => m.date));
     const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const hasPlan = (state.schedule || []).some(Boolean);
     const strip = dayNames.map((L, i) => {
       const d = new Date(monday); d.setDate(d.getDate() + i);
       const key = dateKey(d);
       const isToday = key === todayKey;
       const logged = workoutDays.has(key) || mealDays.has(key);
+      const trained = workoutDays.has(key);
+      const plan = plannedFor(i);
       return '<button class="wd ' + (isToday ? 'is-today' : key < todayKey ? 'is-past' : '') + '" data-day="' + key + '"' +
         (key > todayKey ? ' disabled' : '') + '>' +
         '<span class="wd-letter">' + L.slice(0, 1) + '</span>' +
         '<span class="wd-num">' + d.getDate() + '</span>' +
+        (hasPlan ? '<span class="wd-plan' + (trained ? ' done' : '') + '">' +
+          (plan ? esc(planShort(plan)) : '·') + '</span>' : '') +
         '<span class="wd-mark ' + (logged ? 'on' : '') + '"></span></button>';
     }).join('');
 
@@ -988,8 +993,10 @@
           '<div class="hstat-cells">' + list.slice(0, 5).map((h) => {
             const val = habitValue(h.id, todayKey);
             const pct = Math.round(Math.min(1, val / habitTarget(h)) * 100);
-            return '<span class="hc-day hs-cell ' + (pct === 100 ? 'is-full' : pct ? 'is-part' : '') + '" data-h="' + esc(h.id) + '" title="' + esc(h.name) + '">' +
-              (pct && pct < 100 ? '<i class="hc-fill" style="height:' + pct + '%"></i>' : '') +
+            // a span, not a button: this sits inside the card button and nested
+            // buttons get hoisted out of it by the parser
+            return '<span class="hs-cell ' + (pct === 100 ? 'is-full' : pct ? 'is-part' : '') + '" data-h="' + esc(h.id) + '" role="button" tabindex="0" aria-label="' + esc(h.name) + '">' +
+              '<i class="hs-fill" style="height:' + (pct === 100 ? 100 : pct) + '%"></i>' +
               '<span>' + habitIcon(h.icon) + '</span></span>';
           }).join('') + '</div>' +
         '</button>' +
