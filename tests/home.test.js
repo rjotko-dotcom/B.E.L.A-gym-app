@@ -49,6 +49,24 @@ module.exports = async (t) => {
   await page.click('.wd[data-day]:not([disabled])');
   await page.waitForTimeout(400);
   t.check('tapping a day opens its summary', await page.evaluate(() => !!document.querySelector('.ds-score')));
+  // a refresh (pull-to-refresh included) comes back where you were
+  await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
+  await page.waitForTimeout(350);
+  await page.click('.tab[data-tab="habits"]');
+  await page.waitForTimeout(400);
+  await page.reload();
+  await page.waitForTimeout(600);
+  t.equal('a refresh stays on the tab you were on',
+    await page.evaluate(() => document.querySelector('.tab.active')?.dataset.tab), 'habits');
+  await page.goBack();
+  await page.waitForTimeout(450);
+  t.equal('back still walks out to home',
+    await page.evaluate(() => document.querySelector('.tab.active')?.dataset.tab), 'home');
+  await page.reload();
+  await page.waitForTimeout(600);
+  t.equal('refreshing on home stays on home',
+    await page.evaluate(() => document.querySelector('.tab.active')?.dataset.tab), 'home');
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

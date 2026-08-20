@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '8.9';
+  const APP_VERSION = '9.0';
 
   /* ---------------- state ---------------- */
 
@@ -32,6 +32,12 @@
 
   let state = load();
   let currentTab = 'home';
+  /* Pull-to-refresh reloads the page, and the app used to come back on Home.
+     The tab is parked in sessionStorage instead: a refresh returns to the page
+     you were on, while opening the app fresh still starts at Home. */
+  const TAB_KEY = 'bela-gym-tab';
+  const rememberTab = (tab) => { try { sessionStorage.setItem(TAB_KEY, tab); } catch (e) { /* private mode */ } };
+  const lastTab = (() => { try { return sessionStorage.getItem(TAB_KEY); } catch (e) { return null; } })();
   let workoutOpen = !!state.activeWorkout;   // full-screen logger visible?
 
   /* ---------------- hardware back-button navigation ----------------
@@ -47,6 +53,7 @@
   function goTab(tab) {
     if (tab !== 'habits') habitReorder = false;
     currentTab = tab;
+    rememberTab(tab);
     if (tab === 'home') {
       if (tabHasEntry) { tabHasEntry = false; skipPop++; history.back(); }
     } else if (!tabHasEntry) {
@@ -66,7 +73,7 @@
     if (scanOpen) { scanHasEntry = false; closeScanner(false); return; }
     if ($('#sheetRoot').children.length) { sheetHasEntry = false; closeSheetNow(); return; }
     if (workoutOpen) { wkHasEntry = false; workoutOpen = false; render(); return; }
-    if (currentTab !== 'home') { tabHasEntry = false; currentTab = 'home'; render(); return; }
+    if (currentTab !== 'home') { tabHasEntry = false; currentTab = 'home'; rememberTab('home'); render(); return; }
     // nothing left to close — the next back press exits normally
   });
   let progressSeg = 'trends';      // trends | history | library
@@ -4680,7 +4687,8 @@
     goTab(t.dataset.tab);
   }));
 
-  render();
+  if (lastTab && lastTab !== 'home' && TAB_ORDER.includes(lastTab)) goTab(lastTab);
+  else render();
   checkSharedImport();
   armFullBleed();
 })();
