@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '9.6';
+  const APP_VERSION = '9.7';
 
   /* ---------------- state ---------------- */
 
@@ -52,7 +52,6 @@
 
   function goTab(tab) {
     if (tab !== 'habits') habitReorder = false;
-    if (tab !== 'home') homeWeekOffset = 0;
     if (tab !== 'workout') planWeekOffset = 0;
     currentTab = tab;
     rememberTab(tab);
@@ -83,7 +82,6 @@
   let progressExerciseId = null;
   let librarySearch = '';
   let mealDayOffset = 0;           // 0 = today, -1 = yesterday…
-  let homeWeekOffset = 0;          // 0 = this week; the home strip can be dragged through weeks
   let planWeekOffset = 0;          // the same, for the weekly plan card on workouts
 
   function load() {
@@ -1200,21 +1198,12 @@
 
     const dow = (today.getDay() + 6) % 7;
     const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow);
-    // the strip can be dragged back and forth through the weeks; everything
-    // else on the page stays about today, so it keeps its own Monday
-    const stripMonday = new Date(monday);
-    stripMonday.setDate(stripMonday.getDate() + homeWeekOffset * 7);
-    // the week is named after the month holding its Thursday, the way weeks
-    // that straddle two months are normally counted
-    const stripThu = new Date(stripMonday); stripThu.setDate(stripThu.getDate() + 3);
-    const weekNo = Math.floor((stripThu.getDate() - 1) / 7) + 1;
-    const weekLabel = 'Week ' + weekNo + ' · ' + stripThu.toLocaleDateString(undefined, { month: 'long' });
     const workoutDays = new Set(state.workouts.map((w) => dateKey(new Date(w.startedAt))));
     const mealDays = new Set(state.nutrition.meals.map((m) => m.date));
     const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const hasPlan = (state.schedule || []).some(Boolean);
     const strip = dayNames.map((L, i) => {
-      const d = new Date(stripMonday); d.setDate(d.getDate() + i);
+      const d = new Date(monday); d.setDate(d.getDate() + i);
       const key = dateKey(d);
       const isToday = key === todayKey;
       const logged = workoutDays.has(key) || mealDays.has(key);
@@ -1276,15 +1265,7 @@
         '</button>' +
       '</div>' +
 
-      '<div class="week-wrap">' +
-        '<div class="ws-head">' +
-          '<button class="ws-nav" id="wkPrev" aria-label="Earlier week">‹</button>' +
-          '<button class="ws-label' + (homeWeekOffset ? ' is-off' : '') + '" id="wkLabel">' + weekLabel +
-            (homeWeekOffset ? '<i>back to this week</i>' : '') + '</button>' +
-          '<button class="ws-nav" id="wkNext" aria-label="Later week"' + (homeWeekOffset >= 4 ? ' disabled' : '') + '>›</button>' +
-        '</div>' +
-        '<div class="week-strip">' + strip + '</div>' +
-      '</div>' +
+      '<div class="week-strip">' + strip + '</div>' +
 
       '<div class="home-pair">' +
         '<button class="card hstat" id="bwCard">' +
@@ -1352,12 +1333,6 @@
 
     $('#homeAvatar').addEventListener('click', () => goTab('profile'));
     $$('.wd[data-day]', v).forEach((b) => b.addEventListener('click', () => openDaySummary(b.dataset.day)));
-    const showWeek = (off) => { homeWeekOffset = Math.max(-52, Math.min(4, off)); render(); };
-    $('#wkPrev', v).addEventListener('click', () => showWeek(homeWeekOffset - 1));
-    $('#wkNext', v).addEventListener('click', () => showWeek(homeWeekOffset + 1));
-    $('#wkLabel', v).addEventListener('click', () => showWeek(0));
-    // no drag here: a sideways swipe across home belongs to the tabs, so the
-    // week moves by its arrows (the plan card on workouts is the one you drag)
     $('#kcalCard').addEventListener('click', () => { mealDayOffset = 0; goTab('meals'); });
     $('#bwCard').addEventListener('click', openWeightSheet);
     $('#hbCard').addEventListener('click', (e) => {

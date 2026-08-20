@@ -49,35 +49,25 @@ module.exports = async (t) => {
   await page.click('.wd[data-day]:not([disabled])');
   await page.waitForTimeout(400);
   t.check('tapping a day opens its summary', await page.evaluate(() => !!document.querySelector('.ds-score')));
-  // the week strip is browsable, and names the week of the month
+  // home shows this week only — a sideways swipe there belongs to the tabs
   await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
   await page.waitForTimeout(350);
-  const wk0 = await page.textContent('#wkLabel');
-  t.check('the strip names the week of the month', /^Week [1-5] · \w+/.test(wk0.trim()), wk0.trim());
-  const firstDay = () => page.evaluate(() => document.querySelector('.wd .wd-num').textContent);
-  const day0 = await firstDay();
-  await page.click('#wkPrev');
-  await page.waitForTimeout(400);
-  const day1 = await firstDay();
-  t.equal('stepping back moves the strip a week', Number(day1), Number(day0) - 7 > 0 ? Number(day0) - 7 : Number(day1));
-  t.check('and the label follows', (await page.textContent('#wkLabel')) !== wk0);
-  await page.click('#wkLabel');
-  await page.waitForTimeout(400);
-  t.equal('tapping the label returns to this week', (await page.textContent('#wkLabel')).trim(), wk0.trim());
-
-  // a sideways swipe across home belongs to the tabs, not to the strip
+  t.check('the home strip carries no week header', await page.evaluate(() => !document.querySelector('#wkLabel')));
   await page.evaluate(() => {
-    const w = document.querySelector('.week-wrap');
+    const w = document.querySelector('.week-strip');
     const r = w.getBoundingClientRect(), y = r.top + r.height / 2;
     const t = (x) => new Touch({ identifier: 1, target: w, clientX: x, clientY: y });
     w.dispatchEvent(new TouchEvent('touchstart', { touches: [t(300)], changedTouches: [t(300)], bubbles: true }));
     w.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [t(120)], bubbles: true }));
   });
   await page.waitForTimeout(400);
-  t.equal('swiping the home strip changes tab instead', await page.evaluate(() => document.querySelector('.tab.active')?.dataset.tab), 'workout');
+  t.equal('swiping the strip changes tab', await page.evaluate(() => document.querySelector('.tab.active')?.dataset.tab), 'workout');
   await page.click('.tab[data-tab="home"]');
   await page.waitForTimeout(400);
-  t.equal('and the week is untouched', (await page.textContent('#wkLabel')).trim(), wk0.trim());
+  t.check('and the strip still shows this week', await page.evaluate(() => {
+    const today = String(new Date().getDate());
+    return [...document.querySelectorAll('.wd .wd-num')].some((n) => n.textContent.trim() === today);
+  }));
 
   // the calories card is a way into nutrition
   await page.click('#kcalCard');
