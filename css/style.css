@@ -1586,11 +1586,15 @@ body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
 
 /* ---------- record marker ---------- */
 .pr-mark { display: inline-grid; place-items: center; vertical-align: -2px; }
-.pr-mark svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+/* filled, not outlined: at 13px in a set row a hollow shape turns to mush,
+   and the only solid mark in the app reads as a highlight */
+.pr-mark svg { width: 15px; height: 15px; fill: currentColor; stroke: currentColor; stroke-width: 1.1; stroke-linejoin: round; }
 .pr-inline svg { width: 13px; height: 13px; }
 .pr-tile svg { width: 17px; height: 17px; margin-left: 5px; }
-.finish-prs { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-weight: 700; }
-.finish-prs .pr-mark svg { width: 18px; height: 18px; }
+/* one flowing line — as a flex row the label wrapped mid-phrase */
+.finish-prs { margin-bottom: 10px; font-weight: 700; line-height: 1.5; }
+.finish-prs .pr-mark { margin-right: 6px; }
+.finish-prs .pr-mark svg { width: 17px; height: 17px; }
 .pr-count { display: inline-flex; align-items: center; gap: 2px; color: var(--ink-2); font-size: 0.8rem; }
 .toast-rich { display: flex; align-items: center; gap: 9px; }
 .toast-pr svg { width: 17px; height: 17px; }

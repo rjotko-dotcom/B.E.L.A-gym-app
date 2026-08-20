@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '8.3';
+  const APP_VERSION = '8.4';
 
   /* ---------------- state ---------------- */
 
@@ -638,9 +638,7 @@
   const prIcon = (cls = 'pr-mark') =>
     '<span class="' + cls + '" aria-label="Personal record">' +
       '<svg viewBox="0 0 24 24" aria-hidden="true">' +
-        '<path d="M8.2 3.5h7.6l-1.3 5.2H9.5Z"/>' +
-        '<circle cx="12" cy="15.2" r="5.3"/>' +
-        '<path d="m12 12.4 1 2 2.2.3-1.6 1.5.4 2.2-2-1-2 1 .4-2.2-1.6-1.5 2.2-.3Z"/>' +
+        '<path d="M3.2 8.4l4.4 3.1L12 4.6l4.4 6.9 4.4-3.1-1.9 10.1H5.1Z"/>' +
       '</svg></span>';
 
   function toast(msg, html = false) {
