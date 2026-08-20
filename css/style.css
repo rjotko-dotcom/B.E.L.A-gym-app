@@ -84,6 +84,19 @@
 }
 
 html { -webkit-text-size-adjust: 100%; }
+
+/* Chrome paints a translucent blue box behind whatever you tap, and a focus
+   ring afterwards, and a long press can select the label text — three
+   different blue rectangles. None of them belong in an app. */
+* { -webkit-tap-highlight-color: transparent; }
+button, [role="button"], label, .tab, .seg, .micro, .hdr, .wd, .hc-day, .hs-cell, .plan-day, .set-num, .set-rpe, .set-done {
+  -webkit-user-select: none; user-select: none;
+}
+button:focus, [role="button"]:focus, .tab:focus { outline: none; }
+/* keyboard users still get a ring */
+button:focus-visible, [role="button"]:focus-visible, .tab:focus-visible {
+  outline: 2px solid var(--ink-1); outline-offset: 2px; border-radius: 12px;
+}
 /* the app never shows scrollbars — swiping between tabs was flashing them
    on the right/bottom edge (the slide animation nudges content sideways) */
 /* overflow-x: clip, NOT hidden — hidden turns <body> into a scroll container,
