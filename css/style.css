@@ -1355,3 +1355,92 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .home-compact .hstat-spark { height: 28px; padding-top: 7px; }
 .home-tight .hstat-spark, .home-tight .hstat-sub { display: none; }
 .home-tight .hstat-cells { padding-top: 8px; }
+
+/* ---------- weekly plan ---------- */
+.wk-plan { padding: 14px 12px 13px; }
+.plan-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.plan-day {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 8px 2px 9px; border-radius: 12px; cursor: pointer;
+  border: 1px solid transparent; background: var(--surface-2); color: var(--ink-2);
+}
+.plan-day span { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; color: var(--ink-muted); }
+.plan-day b { font-size: 0.66rem; font-weight: 600; color: var(--ink-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-day.is-set b { color: var(--ink-1); }
+.plan-day.is-rest { background: transparent; border-color: var(--border); }
+.plan-day.is-today { border-color: var(--ink-2); }
+.plan-day.is-today span { color: var(--ink-1); }
+.lib-item.is-on { background: var(--surface-2); }
+
+/* ---------- one-tap meals ---------- */
+.slot-quick { display: flex; gap: 6px; margin-top: 10px; overflow-x: auto; }
+.quick-chip {
+  display: flex; align-items: center; gap: 7px; flex-shrink: 0; cursor: pointer;
+  min-height: 34px; padding: 0 11px; border-radius: 11px;
+  border: 1px dashed var(--baseline); background: transparent; color: var(--ink-2);
+  font-size: 0.76rem; font-weight: 500;
+}
+.quick-chip i { font-style: normal; color: var(--ink-muted); font-size: 0.7rem; font-variant-numeric: tabular-nums; }
+.quick-chip:active { background: var(--surface-2); }
+.copy-yday { display: flex; align-items: center; justify-content: center; gap: 9px; margin-bottom: 10px; }
+.copy-yday svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
+
+/* ---------- daily score ring around the avatar ---------- */
+.hh-score { position: relative; display: grid; place-items: center; width: 52px; height: 52px; }
+.hh-score svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hh-score .hh-initial { width: 42px; height: 42px; border: none; font-size: 0.98rem; }
+.hh-score .hh-initial img { width: 100%; height: 100%; }
+
+/* week strip days are buttons now */
+.week-strip .wd { border: none; background: none; padding: 0; cursor: pointer; }
+.week-strip .wd[disabled] { cursor: default; }
+
+/* goal line on the bodyweight card */
+.hstat-goal { color: var(--ink-2); font-size: 0.72rem; margin-top: 3px; }
+.home-tight .hstat-goal { display: none; }
+
+/* ---------- day summary sheet ---------- */
+.ds-score { background: var(--surface-2); border-radius: 18px; padding: 14px 16px 15px; margin-bottom: 6px; }
+.ds-num { font-size: 2.3rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.ds-num i { font-style: normal; font-size: 0.9rem; font-weight: 600; color: var(--ink-2); margin-left: 4px; }
+.ds-bar { height: 5px; border-radius: 999px; background: var(--baseline); overflow: hidden; margin: 12px 0 11px; }
+.ds-bar div { height: 100%; border-radius: 999px; background: var(--ink-1); }
+.ds-parts { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--ink-2); font-size: 0.72rem; font-weight: 600; }
+.ds-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 9px 2px; border-bottom: 1px solid var(--border); }
+.ds-line:last-child { border-bottom: none; }
+.ds-line span { color: var(--ink-2); font-size: 0.84rem; }
+.ds-line b { font-size: 0.86rem; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.ds-meals { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 0 2px; }
+.ds-meals span { padding: 5px 10px; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); font-size: 0.72rem; }
+
+/* ---------- weekly review ---------- */
+.rv-nav { margin-bottom: 10px; }
+.rv-score { padding: 15px 16px 14px; }
+.rv-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+.rv-big { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.rv-big i { font-style: normal; font-size: 0.85rem; font-weight: 600; color: var(--ink-2); margin-left: 3px; }
+.rv-big.all-done { color: var(--done); }
+.rv-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; height: 96px; }
+.rv-day {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 7px;
+  border: none; background: none; padding: 0; cursor: pointer;
+}
+.rv-day i { display: block; width: 100%; border-radius: 7px; background: var(--surface-2); min-height: 4px; }
+.rv-day.is-today i { background: var(--ink-1); }
+.rv-day:not(.is-today) i { background: var(--baseline); }
+.rv-day.is-future i { background: var(--surface-2); }
+.rv-day span { color: var(--ink-muted); font-size: 0.66rem; font-weight: 700; }
+.rv-day.is-today span { color: var(--ink-1); }
+.rv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.rv-stat { background: var(--surface-1); border: 1px solid var(--border); border-radius: 18px; padding: 13px 14px 14px; }
+.rv-stat b { display: block; font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.rv-stat i { display: block; font-style: normal; color: var(--ink-muted); font-size: 0.72rem; margin-top: 3px; }
+
+/* ---------- backup nudge ---------- */
+.backup-nudge {
+  display: flex; align-items: center; gap: 13px; width: 100%; text-align: left; cursor: pointer;
+  padding: 13px 15px; margin: 4px 0 12px; color: var(--ink-1);
+}
+.backup-nudge svg { width: 22px; height: 22px; flex-shrink: 0; fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.backup-nudge b { display: block; font-size: 0.9rem; margin-bottom: 2px; }
+.backup-nudge span { color: var(--ink-muted); font-size: 0.76rem; line-height: 1.35; }

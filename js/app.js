@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '7.4';
+  const APP_VERSION = '7.5';
 
   /* ---------------- state ---------------- */
 
@@ -19,6 +19,7 @@
       water: [],        // { date:'YYYY-MM-DD', glasses }
       measurements: [], // { date:'YYYY-MM-DD', key, value }  key: waist|chest|arm|thigh|hips
     },
+    schedule: [null, null, null, null, null, null, null],  // Mon..Sun: template id, 'rest', or null
     habits: [],       // { id, name, icon, type:'check'|'count', target, unit, step }
     habitLog: {},     // { 'YYYY-MM-DD': { habitId: value } }
     customExercises: [],
@@ -94,6 +95,7 @@
   /* Brings a saved (or imported) document up to the current shape: fills in
      anything added since it was written, without touching what it already has. */
   function normalize(parsed, d = defaultState()) {
+    if (!Array.isArray(parsed.schedule) || parsed.schedule.length !== 7) parsed.schedule = [null, null, null, null, null, null, null];
     if (!parsed.habits) parsed.habits = starterHabits();
     if (!parsed.habitLog) parsed.habitLog = {};
     (parsed.nutrition?.meals || []).forEach((m) => { if (!m.slot) m.slot = slotFromTime(m.time); });
@@ -268,6 +270,152 @@
       weight: allHit ? Math.round((top.weight + inc) * 2) / 2 : top.weight,
       reps: allHit ? goal : Math.min(goal, (top.reps || 0) + 1),
     };
+  }
+
+  /* -------- weekly plan -------- */
+
+  const DOW_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  function todayIndex() { return (new Date().getDay() + 6) % 7; }   // 0 = Monday
+  function allTemplates() { return [...BUILTIN_TEMPLATES, ...state.templates]; }
+  function plannedFor(i) {
+    const id = (state.schedule || [])[i];
+    if (!id) return null;
+    if (id === 'rest') return { rest: true, name: 'Rest' };
+    return allTemplates().find((t) => t.id === id) || null;
+  }
+  // a short label that survives a 48px column
+  function planShort(t) {
+    if (!t) return '—';
+    if (t.rest) return 'Rest';
+    const w = t.name.split(' ')[0];
+    return w.length > 6 ? w.slice(0, 5) + '…' : w;
+  }
+
+  function openPlanPicker(dayIdx) {
+    const current = (state.schedule || [])[dayIdx] || null;
+    const rowFor = (id, name, sub) =>
+      '<div class="lib-item ' + (current === id ? 'is-on' : '') + '" data-pick="' + esc(id) + '" role="button" tabindex="0">' +
+        '<div><div class="li-name">' + esc(name) + '</div>' + (sub ? '<div class="li-sub">' + esc(sub) + '</div>' : '') + '</div>' +
+        '<span class="li-best">' + (current === id ? '✓' : '') + '</span>' +
+      '</div>';
+    openSheet(DOW_LABELS[dayIdx], '' +
+      '<div class="lib-group-title">Routine</div>' +
+      allTemplates().map((t) => rowFor(t.id, t.name, t.exercises.length + ' exercises')).join('') +
+      '<div class="lib-group-title">Other</div>' +
+      rowFor('rest', 'Rest day', 'No session planned') +
+      '<button class="btn btn-quiet" id="planClear" style="margin-top:14px">Leave empty</button>',
+    (body) => {
+      const set = (val) => {
+        if (!Array.isArray(state.schedule)) state.schedule = [null, null, null, null, null, null, null];
+        state.schedule[dayIdx] = val;
+        save(); closeSheet(); render();
+      };
+      body.addEventListener('click', (e) => {
+        const item = e.target.closest('[data-pick]');
+        if (item) set(item.dataset.pick);
+      });
+      $('#planClear', body).addEventListener('click', () => set(null));
+    });
+  }
+
+
+  /* -------- daily score, goal projection, day summary -------- */
+
+  /* One number for a day: training 30, nutrition 30, habits 30, weigh-in 10.
+     A planned rest day counts as training done — resting is part of the plan. */
+  function dayScore(key) {
+    const d = new Date(key + 'T12:00:00');
+    const idx = (d.getDay() + 6) % 7;
+    const planned = plannedFor(idx);
+    const trained = state.workouts.some((w) => dateKey(new Date(w.startedAt)) === key);
+    const t = state.nutrition.targets;
+    const tot = dayTotals(key);
+    const list = habitsList();
+    const parts = {
+      training: trained ? 30 : (planned && planned.rest ? 30 : 0),
+      nutrition: 0,
+      habits: list.length ? Math.round((list.filter((h) => habitDone(h, key)).length / list.length) * 30) : 0,
+      weight: weightOn(key) ? 10 : 0,
+    };
+    if (t.kcal && tot.kcal) {
+      const ratio = tot.kcal / t.kcal;
+      parts.nutrition += ratio >= 0.9 && ratio <= 1.1 ? 20 : ratio >= 0.75 && ratio <= 1.25 ? 10 : 0;
+    }
+    if (t.protein && tot.protein >= t.protein * 0.9) parts.nutrition += 10;
+    const total = parts.training + parts.nutrition + parts.habits + parts.weight;
+    return { total, parts, trained, planned };
+  }
+
+  /* where the goal weight lands at the current rate */
+  function goalProjection() {
+    const goal = state.settings.goalWeight;
+    const lw = latestWeight();
+    if (!goal || !lw) return null;
+    const cutoff = dateKey(dayWithOffset(-30));
+    const recent = state.nutrition.weights.filter((w) => w.date >= cutoff).sort((a, b) => a.date.localeCompare(b.date));
+    const togo = Math.round((lw.value - goal) * 10) / 10;
+    if (recent.length < 2) return { togo, rate: null };
+    const first = recent[0], last = recent[recent.length - 1];
+    const days = Math.max(1, (new Date(last.date) - new Date(first.date)) / 864e5);
+    const rate = ((last.value - first.value) / days) * 7;         // kg per week
+    const closing = (togo > 0 && rate < 0) || (togo < 0 && rate > 0);
+    let eta = null;
+    if (closing && Math.abs(rate) > 0.02) {
+      const weeks = Math.abs(togo / rate);
+      if (weeks < 130) {
+        const d = new Date();
+        d.setDate(d.getDate() + Math.round(weeks * 7));
+        eta = d;
+      }
+    }
+    return { togo, rate: Math.round(rate * 100) / 100, closing, eta };
+  }
+
+  /* everything that happened on one date */
+  function openDaySummary(key) {
+    const d = new Date(key + 'T12:00:00');
+    const isToday = key === dateKey();
+    const sc = dayScore(key);
+    const sessions = state.workouts.filter((w) => dateKey(new Date(w.startedAt)) === key);
+    const meals = mealsForDay(key);
+    const tot = dayTotals(key);
+    const t = state.nutrition.targets;
+    const list = habitsList();
+    const wt = weightOn(key);
+    const glasses = waterFor(key);
+    const line = (label, value) => '<div class="ds-line"><span>' + label + '</span><b>' + value + '</b></div>';
+
+    openSheet(isToday ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }), '' +
+      '<div class="ds-score"><div class="ds-num">' + sc.total + '<i>/100</i></div>' +
+        '<div class="ds-bar"><div style="width:' + sc.total + '%"></div></div>' +
+        '<div class="ds-parts">' +
+          '<span>Training ' + sc.parts.training + '/30</span>' +
+          '<span>Nutrition ' + sc.parts.nutrition + '/30</span>' +
+          '<span>Habits ' + sc.parts.habits + '/30</span>' +
+          '<span>Weigh-in ' + sc.parts.weight + '/10</span>' +
+        '</div></div>' +
+
+      '<div class="section-title">Training</div>' +
+      (sessions.length
+        ? sessions.map((w) => line(esc(w.name), loggedSets(w).length + ' sets · ' + Math.round(workoutVolume(w)).toLocaleString() + ' ' + esc(unit()))).join('')
+        : '<p class="empty-note">' + (sc.planned && sc.planned.rest ? 'Planned rest day.' : sc.planned ? esc(sc.planned.name) + ' was planned.' : 'Nothing logged.') + '</p>') +
+
+      '<div class="section-title">Nutrition</div>' +
+      (meals.length
+        ? line('Calories', Math.round(tot.kcal).toLocaleString() + ' / ' + t.kcal.toLocaleString()) +
+          line('Protein', Math.round(tot.protein) + ' / ' + t.protein + ' g') +
+          line('Carbs · Fat', Math.round(tot.carbs) + ' g · ' + Math.round(tot.fat) + ' g') +
+          '<div class="ds-meals">' + meals.map((m) => '<span>' + esc(m.name) + '</span>').join('') + '</div>'
+        : '<p class="empty-note">Nothing logged.</p>') +
+      (glasses ? line('Water', glasses + ' glasses') : '') +
+
+      '<div class="section-title">Habits</div>' +
+      (list.length
+        ? list.map((h) => line(esc(h.name), habitDone(h, key) ? '✓' :
+            (habitType(h) === 'check' ? '—' : habitShort(habitValue(h.id, key)) + ' / ' + habitShort(habitTarget(h))))).join('')
+        : '<p class="empty-note">No habits yet.</p>') +
+
+      (wt ? '<div class="section-title">Bodyweight</div>' + line('Logged', fmtNum(wt.value) + ' ' + esc(unit())) : ''));
   }
 
   /* -------- nutrition helpers -------- */
@@ -769,10 +917,11 @@
       const key = dateKey(d);
       const isToday = key === todayKey;
       const logged = workoutDays.has(key) || mealDays.has(key);
-      return '<div class="wd ' + (isToday ? 'is-today' : key < todayKey ? 'is-past' : '') + '">' +
+      return '<button class="wd ' + (isToday ? 'is-today' : key < todayKey ? 'is-past' : '') + '" data-day="' + key + '"' +
+        (key > todayKey ? ' disabled' : '') + '>' +
         '<span class="wd-letter">' + L.slice(0, 1) + '</span>' +
         '<span class="wd-num">' + d.getDate() + '</span>' +
-        '<span class="wd-mark ' + (logged ? 'on' : '') + '"></span></div>';
+        '<span class="wd-mark ' + (logged ? 'on' : '') + '"></span></button>';
     }).join('');
 
     const lw = latestWeight();
@@ -784,6 +933,15 @@
     const list = habitsList();
     const { done: hbDone, total: hbTotal } = habitsDone(todayKey);
     const active = state.activeWorkout;
+    const score = dayScore(todayKey);
+    const SCORE_C = 2 * Math.PI * 26;
+    const proj = goalProjection();
+    const planned = plannedFor(todayIndex());
+    const trainedToday = state.workouts.some((w) => dateKey(new Date(w.startedAt)) === todayKey);
+    const startLabel = active ? 'Resume workout'
+      : planned && planned.rest ? 'Rest day'
+      : planned ? 'Start ' + planned.name
+      : 'Start workout';
     const hour = today.getHours();
     const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
     const weekCount = state.workouts.filter((x) => new Date(x.startedAt) >= monday).length;
@@ -800,7 +958,14 @@
           '<h2 class="hh-name">' + esc(state.settings.name || 'Athlete') + '<span class="hh-dot">.</span></h2>' +
           '<p class="hh-sub">' + esc(sub) + '</p>' +
         '</div>' +
-        '<button class="hh-avatar" id="homeAvatar" aria-label="Open profile">' + avatarHTML('hh-initial') + '</button>' +
+        '<button class="hh-avatar" id="homeAvatar" aria-label="Open profile">' +
+          '<span class="hh-score" data-score="' + score.total + '">' +
+            '<svg viewBox="0 0 56 56" aria-hidden="true">' +
+              '<circle cx="28" cy="28" r="26" fill="none" stroke="var(--surface-2)" stroke-width="2.4"/>' +
+              '<circle cx="28" cy="28" r="26" fill="none" stroke="' + (score.total >= 100 ? 'var(--done)' : 'var(--ink-1)') + '" stroke-width="2.4" stroke-linecap="round"' +
+              ' stroke-dasharray="' + SCORE_C.toFixed(1) + '" stroke-dashoffset="' + (SCORE_C * (1 - score.total / 100)).toFixed(1) + '" transform="rotate(-90 28 28)"/>' +
+            '</svg>' + avatarHTML('hh-initial') + '</span>' +
+        '</button>' +
       '</div>' +
 
       '<div class="week-strip">' + strip + '</div>' +
@@ -812,6 +977,8 @@
           '<div class="hstat-sub">' + (st && st.week != null
             ? (st.week > 0 ? '↑' : st.week < 0 ? '↓' : '→') + ' ' + Math.abs(st.week).toFixed(1) + ' ' + esc(unit()) + ' this week'
             : 'Tap to log today') + '</div>' +
+          (proj ? '<div class="hstat-goal">' + (Math.abs(proj.togo) < 0.05 ? 'Goal reached' :
+            Math.abs(proj.togo).toFixed(1) + ' ' + esc(unit()) + ' to ' + (proj.togo > 0 ? 'go' : 'gain')) + '</div>' : '') +
           '<div class="hstat-spark">' + weightSpark(week) + '</div>' +
         '</button>' +
         '<button class="card hstat" id="hbCard">' +
@@ -860,13 +1027,14 @@
       '<div class="home-actions">' +
         '<button class="ha-btn ha-primary" id="homeStart">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg>' +
-          (active ? 'Resume workout' : 'Start workout') + '</button>' +
+          esc(startLabel) + '</button>' +
         '<button class="ha-btn" id="homeLog">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg>' +
           'Log meal</button>' +
       '</div>';
 
     $('#homeAvatar').addEventListener('click', () => goTab('profile'));
+    $$('.wd[data-day]', v).forEach((b) => b.addEventListener('click', () => openDaySummary(b.dataset.day)));
     $('#bwCard').addEventListener('click', openWeightSheet);
     $('#hbCard').addEventListener('click', (e) => {
       const cell = e.target.closest('[data-h]');
@@ -877,7 +1045,9 @@
       else openHabitPad(h, todayKey);
     });
     $('#homeStart').addEventListener('click', () => {
-      if (state.activeWorkout) { workoutOpen = true; openWkEntry(); }
+      if (state.activeWorkout) { workoutOpen = true; openWkEntry(); goTab('workout'); return; }
+      // a planned session starts straight from home; anything else goes to the tab
+      if (planned && !planned.rest && !trainedToday) { startWorkout(planned.id); return; }
       goTab('workout');
     });
     $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
@@ -964,6 +1134,25 @@
     ['snack', 'Snacks', '<path d="M12.5 7.2c-2.6-1.6-6.6-.6-7.8 2.4-1.3 3.2 1.3 8.9 4.2 9.9 1.3.5 2.2-.3 3.6-.3s2.3.8 3.6.3c2.9-1 5.5-6.7 4.2-9.9-1.2-3-5.2-4-7.8-2.4Z"/><path d="M12.5 7.2c.2-1.6 1.3-2.9 3-3.2"/>'],
   ];
   const mealSlot = (m) => m.slot || slotFromTime(m.time);
+  // what you actually eat for this meal, newest first — one tap to log again
+  function recentForSlot(slot, exceptKey, limit = 3) {
+    const out = [];
+    for (let i = state.nutrition.meals.length - 1; i >= 0; i--) {
+      const m = state.nutrition.meals[i];
+      if (mealSlot(m) !== slot || m.date === exceptKey) continue;
+      if (out.some((x) => x.name === m.name)) continue;
+      out.push(m);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+  function logMeal(src, slot, key) {
+    state.nutrition.meals.push({
+      id: uid(), date: key, slot,
+      time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+      name: src.name, kcal: src.kcal || 0, protein: src.protein || 0, carbs: src.carbs || 0, fat: src.fat || 0,
+    });
+  }
 
   function macroRing(label, val, target, size) {
     const frac = target ? Math.min(1, val / target) : 0;
@@ -1045,6 +1234,14 @@
             '<button class="slot-add" data-slot="' + slot + '" aria-label="Add to ' + title + '">' +
               '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button>' +
           '</div>' +
+          (() => {
+            const recents = recentForSlot(slot, key);
+            if (!recents.length) return '';
+            return '<div class="slot-quick">' + recents.map((m, i) =>
+              '<button class="quick-chip" data-quick="' + slot + '" data-i="' + i + '">' +
+                '<span>' + esc(m.name.length > 18 ? m.name.slice(0, 17) + '…' : m.name) + '</span>' +
+                '<i>' + Math.round(m.kcal) + '</i></button>').join('') + '</div>';
+          })() +
           (items.length ? '<div class="slot-items">' + items.map((m) =>
             '<div class="slot-item">' +
               '<div class="si-main"><div class="si-name">' + esc(m.name) + '</div>' +
@@ -1055,6 +1252,14 @@
             '</div>').join('') + '</div>' : '') +
         '</div>';
       }).join('') +
+
+      (() => {
+        const prev = mealsForDay(dateKey(dayWithOffset(mealDayOffset - 1)));
+        if (meals.length || !prev.length) return '';
+        return '<button class="btn btn-quiet copy-yday" id="copyYday">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 9h9.5v11.5H9Z"/><path d="M15 9V3.5H5.5V15H9"/></svg>' +
+          'Copy ' + (mealDayOffset === 0 ? 'yesterday' : 'the day before') + ' (' + prev.length + ' meals)</button>';
+      })() +
 
       '<div class="card water-card">' +
         '<span class="slot-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6c3.1 3.6 5.3 6.1 5.3 8.8a5.3 5.3 0 1 1-10.6 0c0-2.7 2.2-5.2 5.3-8.8Z"/></svg></span>' +
@@ -1074,6 +1279,20 @@
     $('#addMeal').addEventListener('click', () => openMealSheet(key));
     $('#editTargets').addEventListener('click', openTargetsSheet);
     $$('.slot-add', v).forEach((b) => b.addEventListener('click', () => openMealSheet(key, b.dataset.slot)));
+    $$('.quick-chip', v).forEach((b) => b.addEventListener('click', () => {
+      const src = recentForSlot(b.dataset.quick, key)[Number(b.dataset.i)];
+      if (!src) return;
+      logMeal(src, b.dataset.quick, key);
+      save(); render();
+      toast(src.name + ' logged');
+    }));
+    const copyBtn = $('#copyYday');
+    if (copyBtn) copyBtn.addEventListener('click', () => {
+      const prev = mealsForDay(dateKey(dayWithOffset(mealDayOffset - 1)));
+      prev.forEach((m) => state.nutrition.meals.push({ ...m, id: uid(), date: key }));
+      save(); render();
+      toast(prev.length + ' meals copied');
+    });
     $$('.si-del', v).forEach((b) => b.addEventListener('click', () => {
       state.nutrition.meals = state.nutrition.meals.filter((m) => m.id !== b.dataset.del);
       save(); render();
@@ -1297,6 +1516,17 @@
       '</div>' +
 
       '<button class="btn btn-primary" id="startEmpty">Start empty workout</button>' +
+      '<div class="card wk-plan">' +
+        '<div class="wc-head"><span class="micro">Weekly plan</span><span class="wc-note">Tap a day to set it</span></div>' +
+        '<div class="plan-row">' +
+          DOW_LABELS.map((L, i) => {
+            const t = plannedFor(i);
+            return '<button class="plan-day ' + (i === todayIndex() ? 'is-today' : '') + (t && t.rest ? ' is-rest' : t ? ' is-set' : '') +
+              '" data-plan="' + i + '"><span>' + L.slice(0, 1) + '</span><b>' + esc(planShort(t)) + '</b></button>';
+          }).join('') +
+        '</div>' +
+      '</div>' +
+
       '<div class="section-title">Routines</div>' +
       '<div class="tpl-list">' +
         templates.map((t) =>
@@ -1322,6 +1552,7 @@
     $('#newRoutine').addEventListener('click', () => openRoutineBuilder());
     $('#newRoutine2').addEventListener('click', () => openRoutineBuilder());
     $('#wkWeight').addEventListener('click', openWeightSheet);
+    $$('.plan-day', v).forEach((b) => b.addEventListener('click', () => openPlanPicker(Number(b.dataset.plan))));
     $('#wkLast').addEventListener('click', () => { if (last) { progressSeg = 'history'; goTab('profile'); } });
     $$('.tpl-item', v).forEach((el) => {
       el.addEventListener('click', (e) => {
@@ -2539,6 +2770,13 @@
 
   /* ================= PROFILE TAB (trends / history / library / settings) ================= */
 
+  // localStorage is the only copy of all this — nudge for a backup now and then
+  function backupOverdue() {
+    const last = state.settings.lastExport || 0;
+    const hasData = state.workouts.length > 3 || state.nutrition.meals.length > 10;
+    return hasData && Date.now() - last > 30 * 864e5;
+  }
+
   function renderProfile() {
     const v = $('#view');
     v.innerHTML = `
@@ -2549,7 +2787,13 @@
         </button>
       </div>
       <p class="subtitle">Your training at a glance</p>
+      ${backupOverdue() ? `
+      <button class="card backup-nudge" id="backupNudge">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5V4.5M8 8.5 12 4.5l4 4M4.5 15.5v3a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-3"/></svg>
+        <span><b>Back up your data</b>${state.settings.lastExport ? 'Last export ' + fmtShortDate(state.settings.lastExport) : 'Never exported'} — everything lives only on this phone.</span>
+      </button>` : ''}
       <div class="seg" id="progSeg">
+        <button data-seg="week" class="${progressSeg === 'week' ? 'on' : ''}">Week</button>
         <button data-seg="trends" class="${progressSeg === 'trends' ? 'on' : ''}">Trends</button>
         <button data-seg="history" class="${progressSeg === 'history' ? 'on' : ''}">History</button>
         <button data-seg="library" class="${progressSeg === 'library' ? 'on' : ''}">Exercises</button>
@@ -2557,6 +2801,8 @@
       <div id="segBody"></div>`;
 
     $('#profileSettings').addEventListener('click', openSettings);
+    const nudge = $('#backupNudge');
+    if (nudge) nudge.addEventListener('click', openSettings);
     $('#progSeg').addEventListener('click', (e) => {
       const b = e.target.closest('button[data-seg]');
       if (!b) return;
@@ -2565,7 +2811,8 @@
     });
 
     const body = $('#segBody');
-    if (progressSeg === 'trends') renderTrends(body);
+    if (progressSeg === 'week') renderWeekReview(body);
+    else if (progressSeg === 'trends') renderTrends(body);
     else if (progressSeg === 'history') renderHistory(body);
     else renderExerciseLibrary(body);
   }
@@ -2652,6 +2899,80 @@
         toast(`${MEASURE_LABELS[key]} logged`);
       });
     });
+  }
+
+
+  /* ---- weekly review: the week in one screen ---- */
+  let reviewOffset = 0;   // 0 = this week, -1 = last week…
+
+  function renderWeekReview(el) {
+    const today = new Date();
+    const dow = (today.getDay() + 6) % 7;
+    const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow + reviewOffset * 7);
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday); d.setDate(d.getDate() + i);
+      return dateKey(d);
+    });
+    const todayKey = dateKey();
+    const past = days.filter((k) => k <= todayKey);
+    const t = state.nutrition.targets;
+    const list = habitsList();
+
+    const scores = past.map((k) => dayScore(k).total);
+    const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    const sessions = state.workouts.filter((w) => days.includes(dateKey(new Date(w.startedAt))));
+    const volume = sessions.reduce((sum, w) => sum + workoutVolume(w), 0);
+    const daysWithMeals = past.filter((k) => mealsForDay(k).length);
+    const avgKcal = daysWithMeals.length
+      ? Math.round(daysWithMeals.reduce((sum, k) => sum + dayTotals(k).kcal, 0) / daysWithMeals.length) : 0;
+    const avgProtein = daysWithMeals.length
+      ? Math.round(daysWithMeals.reduce((sum, k) => sum + dayTotals(k).protein, 0) / daysWithMeals.length) : 0;
+    const habitSlots = list.length * past.length;
+    const habitHits = list.reduce((sum, h) => sum + past.filter((k) => habitDone(h, k)).length, 0);
+    const habitPct = habitSlots ? Math.round((habitHits / habitSlots) * 100) : 0;
+    const wStart = past.map((k) => weightOn(k)).find(Boolean);
+    const wEndArr = past.map((k) => weightOn(k)).filter(Boolean);
+    const wEnd = wEndArr[wEndArr.length - 1];
+    const wDelta = wStart && wEnd && wStart !== wEnd ? wEnd.value - wStart.value : null;
+    const label = reviewOffset === 0 ? 'This week' : reviewOffset === -1 ? 'Last week'
+      : monday.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+    const stat = (label2, value, sub) =>
+      '<div class="rv-stat"><span class="micro">' + label2 + '</span><b>' + value + '</b>' +
+        (sub ? '<i>' + sub + '</i>' : '') + '</div>';
+
+    el.innerHTML =
+      '<div class="day-nav rv-nav">' +
+        '<button id="rvPrev" aria-label="Previous week">‹</button>' +
+        '<span class="dn-label">' + esc(label) + '</span>' +
+        '<button id="rvNext" aria-label="Next week" ' + (reviewOffset >= 0 ? 'disabled style="opacity:0.35"' : '') + '>›</button>' +
+      '</div>' +
+
+      '<div class="card rv-score">' +
+        '<div class="rv-head"><span class="micro">Average score</span><span class="rv-big ' + (avgScore >= 80 ? 'all-done' : '') + '">' + avgScore + '<i>/100</i></span></div>' +
+        '<div class="rv-days">' + days.map((k, i) => {
+          const future = k > todayKey;
+          const sc = future ? 0 : dayScore(k).total;
+          return '<button class="rv-day' + (k === todayKey ? ' is-today' : '') + (future ? ' is-future' : '') + '" data-day="' + k + '"' + (future ? ' disabled' : '') + '>' +
+            '<i style="height:' + (future ? 0 : Math.max(4, sc)) + '%"></i>' +
+            '<span>' + ['M', 'T', 'W', 'T', 'F', 'S', 'S'][i] + '</span></button>';
+        }).join('') + '</div>' +
+      '</div>' +
+
+      '<div class="rv-grid">' +
+        stat('Sessions', sessions.length, sessions.length ? Math.round(volume).toLocaleString() + ' ' + esc(unit()) + ' lifted' : 'None yet') +
+        stat('Habits', habitPct + '%', habitHits + ' of ' + habitSlots) +
+        stat('Avg calories', avgKcal ? avgKcal.toLocaleString() : '—', t.kcal ? 'target ' + t.kcal.toLocaleString() : '') +
+        stat('Avg protein', avgProtein ? avgProtein + 'g' : '—', t.protein ? 'target ' + t.protein + 'g' : '') +
+        stat('Bodyweight', wEnd ? fmtNum(wEnd.value) + ' ' + esc(unit()) : '—',
+          wDelta != null ? (wDelta > 0 ? '+' : '') + wDelta.toFixed(1) + ' ' + esc(unit()) + ' this week' : 'Log twice to compare') +
+        stat('Days logged', past.filter((k) => mealsForDay(k).length || weightOn(k) ||
+          state.workouts.some((w) => dateKey(new Date(w.startedAt)) === k)).length + ' / ' + past.length, 'so far') +
+      '</div>';
+
+    $('#rvPrev', el).addEventListener('click', () => { reviewOffset -= 1; render(); });
+    $('#rvNext', el).addEventListener('click', () => { if (reviewOffset < 0) { reviewOffset += 1; render(); } });
+    $$('.rv-day[data-day]', el).forEach((b) => b.addEventListener('click', () => openDaySummary(b.dataset.day)));
   }
 
   function renderTrends(v) {
@@ -3199,6 +3520,9 @@
         a.download = `bela-gym-backup-${dateKey()}.json`;
         a.click();
         URL.revokeObjectURL(a.href);
+        state.settings.lastExport = Date.now();
+        save();
+        toast('Backup saved');
       });
       $('#importBtn', body).addEventListener('click', () => $('#importFile', body).click());
       $('#importFile', body).addEventListener('change', (e) => {
