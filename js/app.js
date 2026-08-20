@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '9.2';
+  const APP_VERSION = '9.3';
 
   /* ---------------- state ---------------- */
 
@@ -878,7 +878,7 @@
     ];
     return rows.map(([label, val, target]) => {
       const pct = target ? Math.min(100, (val / target) * 100) : 0;
-      const st = goalState(val, target);
+      const st = goalState(val, target, macroKind(label));
       return `
       <div class="macro-row">
         <div class="m-head">
@@ -1018,7 +1018,7 @@
         <div class="kl-macros">
           ${macros.map(([label, val, target]) => {
             const pct = target ? Math.min(100, (val / target) * 100) : 0;
-            const mSt = goalState(val, target);
+            const mSt = goalState(val, target, macroKind(label));
             return `
             <div class="klm">
               <div class="klm-head"><span class="klm-name">${label}</span><span class="klm-val ${mSt}">${Math.round(val)}<i>/${target}g</i></span></div>
@@ -1223,7 +1223,7 @@
         '<div class="kl-macros">' +
           [['Protein', totals.protein, targets.protein], ['Carbs', totals.carbs, targets.carbs], ['Fat', totals.fat, targets.fat]].map(([label, val, target]) => {
             const pct = target ? Math.min(100, (val / target) * 100) : 0;
-            const mSt = goalState(val, target);
+            const mSt = goalState(val, target, macroKind(label));
             return '<div class="klm">' +
               '<div class="klm-head"><span class="klm-name">' + label + '</span>' +
                 '<span class="klm-val ' + mSt + '">' + Math.round(val) + '<i>/' + target + 'g</i></span></div>' +
@@ -1404,16 +1404,20 @@
      it reads as done rather than a warning — 181 g against a 180 g protein
      goal is a goal met, not a mistake, and no portion can land on it exactly.
      Only calories clearly past the goal (10% over) are still worth flagging. */
-  const OVER_SLACK = 1.1;
+  const OVER_SLACK = 1.1;        // calories: 10% past the goal is still fine
+  const FAT_SLACK = 10;          // fat: 10 g past it is not
   function goalState(val, target, kind) {
     if (!target || val < target) return '';
-    return (kind === 'kcal' && val > target * OVER_SLACK) ? 'over' : 'done';
+    if (kind === 'kcal' && val > target * OVER_SLACK) return 'over';
+    if (kind === 'fat' && val > target + FAT_SLACK) return 'over';
+    return 'done';               // protein and carbs are never a problem to pass
   }
+  const macroKind = (label) => (String(label).toLowerCase() === 'fat' ? 'fat' : '');
   const goalStroke = (st) => (st === 'over' ? 'var(--critical)' : st === 'done' ? 'var(--done)' : 'var(--ink-1)');
 
   function macroRing(label, val, target, size) {
     const frac = target ? Math.min(1, val / target) : 0;
-    const st = goalState(val, target);
+    const st = goalState(val, target, macroKind(label));
     const r = 15.5, C = 2 * Math.PI * r;
     const left = Math.max(0, Math.round(target - val));
     return '' +
@@ -1426,7 +1430,7 @@
           '</svg>' +
         '</div>' +
         '<div class="nm-text"><span class="nm-name">' + label + '</span>' +
-          '<b class="nm-left ' + st + '">' + (st ? 'goal hit' : left + 'g left') + '</b></div>' +
+          '<b class="nm-left ' + st + '">' + (st === 'over' ? Math.round(val - target) + 'g over' : st ? 'goal hit' : left + 'g left') + '</b></div>' +
       '</div>';
   }
 

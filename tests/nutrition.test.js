@@ -169,6 +169,31 @@ module.exports = async (t) => {
   t.check('and says how far over', /over your goal/.test(blown.text), blown.text);
   t.check('but protein stays done', /done/.test(blown.protein), blown.protein);
 
+  // fat is the one macro worth flagging: 10 g of slack, then red
+  const macroStates = async (fat) => {
+    await page.evaluate((f) => {
+      const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+      st.nutrition.meals[0] = { ...st.nutrition.meals[0], kcal: 2400, protein: 181, carbs: 320, fat: f };
+      localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+    }, fat);
+    await page.reload();
+    await page.waitForTimeout(550);
+    return page.evaluate(() => {
+      const out = {};
+      document.querySelectorAll('.nm-card').forEach((c) => {
+        out[c.querySelector('.nm-name').textContent.toLowerCase()] = c.querySelector('.nm-left').className.replace('nm-left', '').trim();
+      });
+      return out;
+    });
+  };
+  const fatOk = await macroStates(80);      // 10 g over a 70 g goal
+  t.equal('10 g past the fat goal is still done', fatOk.fat, 'done');
+  t.equal('carbs past their goal stay done', fatOk.carbs, 'done');
+  const fatBad = await macroStates(88);     // 18 g over
+  t.equal('well past the fat goal turns red', fatBad.fat, 'over');
+  t.equal('while carbs are still done', fatBad.carbs, 'done');
+  t.equal('and protein too', fatBad.protein, 'done');
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();
