@@ -104,6 +104,33 @@ module.exports = async (t) => {
   t.equal('refreshing on home stays on home',
     await page.evaluate(() => document.querySelector('.tab.active')?.dataset.tab), 'home');
 
+  // the weekly plan card walks weeks the same way, and carries its dates
+  await page.click('.tab[data-tab="workout"]');
+  await page.waitForTimeout(450);
+  const pl0 = (await page.textContent('#plLabel')).trim();
+  t.check('the plan card names its week', /^Week [1-5] · \w+/.test(pl0), pl0);
+  const planDay = () => page.evaluate(() => document.querySelector('.plan-day span').textContent.trim());
+  const pd0 = await planDay();
+  t.check('the plan days carry dates', /\d/.test(pd0), pd0);
+  await page.click('#plPrev');
+  await page.waitForTimeout(400);
+  t.check('stepping back moves the plan week', (await planDay()) !== pd0, await planDay());
+  await page.evaluate(() => {
+    const w = document.querySelector('.wk-plan');
+    const r = w.getBoundingClientRect(), y = r.top + r.height / 2;
+    const t = (x) => new Touch({ identifier: 1, target: w, clientX: x, clientY: y });
+    w.dispatchEvent(new TouchEvent('touchstart', { touches: [t(300)], changedTouches: [t(300)], bubbles: true }));
+    w.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [t(120)], bubbles: true }));
+  });
+  await page.waitForTimeout(400);
+  t.equal('dragging it comes back to this week', (await page.textContent('#plLabel')).trim(), pl0);
+  t.equal('and never changes tab', await page.evaluate(() => document.querySelector('.tab.active')?.dataset.tab), 'workout');
+  await page.click('.plan-day');
+  await page.waitForTimeout(400);
+  t.check('tapping a day still sets the plan', await page.evaluate(() => !!document.querySelector('#sheetRoot .sheet')));
+  await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
+  await page.waitForTimeout(350);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

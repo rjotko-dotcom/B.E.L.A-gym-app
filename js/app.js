@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '9.1';
+  const APP_VERSION = '9.2';
 
   /* ---------------- state ---------------- */
 
@@ -53,6 +53,7 @@
   function goTab(tab) {
     if (tab !== 'habits') habitReorder = false;
     if (tab !== 'home') homeWeekOffset = 0;
+    if (tab !== 'workout') planWeekOffset = 0;
     currentTab = tab;
     rememberTab(tab);
     if (tab === 'home') {
@@ -83,6 +84,7 @@
   let librarySearch = '';
   let mealDayOffset = 0;           // 0 = today, -1 = yesterday…
   let homeWeekOffset = 0;          // 0 = this week; the home strip can be dragged through weeks
+  let planWeekOffset = 0;          // the same, for the weekly plan card on workouts
 
   function load() {
     try {
@@ -1950,6 +1952,12 @@
     const lw = latestWeight();
     const workoutDays = new Set(state.workouts.map((w) => dateKey(new Date(w.startedAt))));
     const now = new Date();
+    // the plan card carries dates, and can be dragged back and forth a week
+    // at a time — the plan itself repeats, what changes is which days it hit
+    const planMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) + planWeekOffset * 7);
+    const planThu = new Date(planMonday); planThu.setDate(planThu.getDate() + 3);
+    const planWeekLabel = 'Week ' + (Math.floor((planThu.getDate() - 1) / 7) + 1) + ' · ' +
+      planThu.toLocaleDateString(undefined, { month: 'long' });
     const weekAgo = Date.now() - 7 * 864e5;
     const vol7 = state.workouts.filter((w) => w.startedAt >= weekAgo).reduce((t, w) => t + workoutVolume(w), 0);
     const count7 = state.workouts.filter((w) => w.startedAt >= weekAgo).length;
@@ -2005,13 +2013,23 @@
         '<div class="wv-num">' + Math.round(vol7).toLocaleString() + '<i>' + esc(unit()) + '</i></div>' +
       '</div>' +
 
-      '<div class="card wk-plan">' +
+      '<div class="card wk-plan week-wrap">' +
         '<div class="wc-head"><span class="micro">Weekly plan</span><span class="wc-note">Tap a day to set it</span></div>' +
+        '<div class="ws-head">' +
+          '<button class="ws-nav" id="plPrev" aria-label="Earlier week">‹</button>' +
+          '<button class="ws-label' + (planWeekOffset ? ' is-off' : '') + '" id="plLabel">' + planWeekLabel +
+            (planWeekOffset ? '<i>back to this week</i>' : '') + '</button>' +
+          '<button class="ws-nav" id="plNext" aria-label="Later week"' + (planWeekOffset >= 4 ? ' disabled' : '') + '>›</button>' +
+        '</div>' +
         '<div class="plan-row">' +
           DOW_LABELS.map((L, i) => {
             const t = plannedFor(i);
-            return '<button class="plan-day ' + (i === todayIndex() ? 'is-today' : '') + (t && t.rest ? ' is-rest' : t ? ' is-set' : '') +
-              '" data-plan="' + i + '"><span>' + L.slice(0, 1) + '</span><b>' + esc(planShort(t)) + '</b></button>';
+            const d = new Date(planMonday); d.setDate(d.getDate() + i);
+            const key = dateKey(d);
+            const trained = workoutDays.has(key);
+            return '<button class="plan-day ' + (key === dateKey() ? 'is-today' : '') + (t && t.rest ? ' is-rest' : t ? ' is-set' : '') +
+              (trained ? ' is-done' : '') + '" data-plan="' + i + '">' +
+              '<span>' + L.slice(0, 1) + ' ' + d.getDate() + '</span><b>' + esc(planShort(t)) + '</b></button>';
           }).join('') +
         '</div>' +
       '</div>' +
@@ -2044,6 +2062,24 @@
     $('#newRoutine2').addEventListener('click', () => openRoutineBuilder());
     $('#wkWeight').addEventListener('click', openWeightSheet);
     $$('.plan-day', v).forEach((b) => b.addEventListener('click', () => openPlanPicker(Number(b.dataset.plan))));
+    const showPlanWeek = (off) => { planWeekOffset = Math.max(-52, Math.min(4, off)); render(); };
+    $('#plPrev', v).addEventListener('click', () => showPlanWeek(planWeekOffset - 1));
+    $('#plNext', v).addEventListener('click', () => showPlanWeek(planWeekOffset + 1));
+    $('#plLabel', v).addEventListener('click', () => showPlanWeek(0));
+    const planCard = $('.wk-plan', v);
+    let planTouch = null;
+    planCard.addEventListener('touchstart', (e) => {
+      planTouch = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null;
+    }, { passive: true });
+    planCard.addEventListener('touchend', (e) => {
+      if (!planTouch) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - planTouch.x, dy = t.clientY - planTouch.y;
+      const quick = Date.now() - planTouch.at < 700;
+      planTouch = null;
+      if (!quick || Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      showPlanWeek(planWeekOffset + (dx < 0 ? 1 : -1));
+    }, { passive: true });
     $('#wkLast').addEventListener('click', () => { if (last) { progressSeg = 'history'; goTab('profile'); } });
     $$('.tpl-item', v).forEach((el) => {
       el.addEventListener('click', (e) => {
@@ -3029,11 +3065,15 @@
   function habitRing(h, key) {
     const frac = Math.min(1, habitValue(h.id, key) / habitTarget(h));
     const r = 15.5, C = 2 * Math.PI * r;
-    return '<svg class="hb-ring-svg" viewBox="0 0 36 36" aria-hidden="true">' +
+    // a full ring goes green, the same as everywhere else a day is finished
+    return '<svg class="hb-ring-svg' + (frac >= 1 ? ' is-full' : '') + '" viewBox="0 0 36 36" aria-hidden="true">' +
       '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="var(--surface-2)" stroke-width="2.6"/>' +
-      '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="var(--ink-1)" stroke-width="2.6" stroke-linecap="round"' +
+      '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="' + (frac >= 1 ? 'var(--done)' : 'var(--ink-1)') + '" stroke-width="2.6" stroke-linecap="round"' +
       ' stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + (C * (1 - frac)).toFixed(1) + '" transform="rotate(-90 18 18)"/></svg>';
   }
+  // the tick that sits inside a finished ring, so a counted habit reads as
+  // done at a glance rather than as a circle that happens to be full
+  const habitTick = '<svg class="hb-tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.6 10 17.6 19 6.8"/></svg>';
 
   function renderHabits() {
     const v = $('#view');
@@ -3130,7 +3170,7 @@
                 '</span>'
               : habitType(h) === 'check'
               ? '<span class="hb-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.6 10 17.6 19 6.8"/></svg></span>'
-              : '<span class="hb-mini">' + habitRing(h, todayKey) + '</span>' +
+              : '<span class="hb-mini">' + habitRing(h, todayKey) + (ok ? habitTick : '') + '</span>' +
                 (h.source ? '' : '<button class="hb-plus" data-step="' + esc(h.id) + '" aria-label="Add ' + (h.step || 1) + ' ' + esc(habitUnit(h)) + '">+</button>')) +
           '</div>';
         }).join('') +
@@ -3235,7 +3275,7 @@
         (h.source ? '<span class="hb-auto"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 5.5 13.5H11l-1 7.5L18.5 10H13Z"/></svg></span>' : '') +
         (habitType(h) === 'check'
           ? '<span class="hb-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.6 10 17.6 19 6.8"/></svg></span>'
-          : '<span class="hb-mini">' + habitRing(h, key) + '</span>') +
+          : '<span class="hb-mini">' + habitRing(h, key) + (ok ? habitTick : '') + '</span>') +
       '</div>';
     }).join('');
 

@@ -229,6 +229,35 @@ module.exports = async (t) => {
     t.check('the row draws the icon inside the box', drawn > 8 && drawn < 24, String(drawn));
   }
 
+  // a counted habit that reaches its goal is marked done, not left as a circle
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    const d = new Date();
+    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    st.nutrition.targets = { kcal: 2800, protein: 180, carbs: 300, fat: 70 };
+    st.nutrition.meals = [{ id: 'p', date: key, slot: 'lunch', time: '13:00', name: 'Day', kcal: 2100, protein: 181, carbs: 200, fat: 50 }];
+    st.habits = [
+      { id: 'hp', name: 'Protein', icon: 'heart', type: 'count', target: 180, unit: 'g', step: 10, source: 'protein', due: 'daily' },
+      { id: 'hk', name: 'Calories', icon: 'flame', type: 'count', target: 2800, unit: 'kcal', step: 100, source: 'kcal', due: 'daily' },
+    ];
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.click('.tab[data-tab="habits"]');
+  await page.waitForTimeout(450);
+  const autoRows = await page.evaluate(() => {
+    const pick = (name) => {
+      const r = [...document.querySelectorAll('.hb-row')].find((x) => x.textContent.includes(name));
+      return { done: r.classList.contains('is-done'), tick: !!r.querySelector('.hb-tick'),
+        full: /is-full/.test(r.querySelector('.hb-ring-svg')?.getAttribute('class') || '') };
+    };
+    return { protein: pick('Protein'), kcal: pick('Calories') };
+  });
+  t.check('181 g against a 180 g goal counts as done', autoRows.protein.done, JSON.stringify(autoRows.protein));
+  t.check('the ring closes and takes a tick', autoRows.protein.tick && autoRows.protein.full);
+  t.check('a habit still short of its goal keeps its open ring', !autoRows.kcal.done && !autoRows.kcal.tick);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();
