@@ -1648,3 +1648,37 @@ body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
 .hb-move svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .hb-move[disabled] { opacity: 0.3; }
 .hb-move:active:not([disabled]) { background: var(--surface-2); }
+
+/* ---------- a goal that has been met ----------
+   Hitting a target is the point, so it is marked done rather than warned
+   about — no portion lands exactly on 180 g of protein. Only calories clearly
+   past the goal keep the red treatment. */
+.macro-fill.done, .mc-fill.done { background: var(--done); }
+.kcal-total .done, .kl-total .done, .klm-val.done, .nc-r.done, .nm-left.done,
+.nh-num.done, .m-val.done, .kl-left.done, .mc-card.done .mc-val { color: var(--done); }
+.nh-num.nh-hit { font-size: 1.9rem; letter-spacing: -0.02em; }
+
+/* ---------- the home week strip, week by week ---------- */
+.week-wrap { touch-action: pan-y; }
+.ws-head {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  margin: 0 2px -2px;
+}
+.ws-label {
+  border: none; background: none; font: inherit; cursor: pointer; padding: 3px 8px;
+  color: var(--ink-2); font-size: 0.72rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.07em; white-space: nowrap;
+}
+.ws-label i {
+  display: block; font-style: normal; font-size: 0.62rem; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: none; color: var(--ink-muted); margin-top: 1px;
+}
+.ws-label.is-off { color: var(--ink-1); }
+.ws-nav {
+  width: 30px; height: 30px; flex-shrink: 0;
+  border: none; background: none; color: var(--ink-muted);
+  font-size: 1.05rem; line-height: 1; cursor: pointer;
+}
+.ws-nav:disabled { opacity: 0.25; }
+.home-tight .ws-head { margin-bottom: -6px; }
+.home-tight .ws-label { font-size: 0.66rem; padding: 1px 8px; }

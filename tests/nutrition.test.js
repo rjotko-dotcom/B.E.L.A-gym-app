@@ -132,6 +132,43 @@ module.exports = async (t) => {
   await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
   await page.waitForTimeout(350);
 
+  // reaching a target is a goal met, not a warning
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    const key = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0');
+    st.nutrition.targets = { kcal: 2800, protein: 180, carbs: 300, fat: 70 };
+    st.nutrition.meals = [{ id: 'goal', date: key, slot: 'lunch', time: '13:00', name: 'Day', kcal: 2860, protein: 181, carbs: 280, fat: 60 }];
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  const hit = await page.evaluate(() => {
+    const p = [...document.querySelectorAll('.nm-card')].find((c) => /Protein/.test(c.textContent)).querySelector('.nm-left');
+    return { text: p.textContent, cls: p.className, hero: document.querySelector('.nh-num').className,
+      heroText: document.querySelector('.nut-hero').textContent.replace(/\s+/g, ' ') };
+  });
+  t.check('one gram past the protein goal reads as done', /done/.test(hit.cls) && !/over/.test(hit.cls), hit.cls);
+  t.equal('and says so', hit.text.trim(), 'goal hit');
+  t.check('calories just past the goal are not flagged', /done/.test(hit.hero) && !/over/.test(hit.hero), hit.hero);
+  t.check('the hero says the goal was reached', /Goal reached/.test(hit.heroText), hit.heroText);
+
+  // clearly past the calorie goal is still worth flagging
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    st.nutrition.meals[0].kcal = 3400;
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  const blown = await page.evaluate(() => ({
+    hero: document.querySelector('.nh-num').className,
+    text: document.querySelector('.nut-hero').textContent.replace(/\s+/g, ' '),
+    protein: [...document.querySelectorAll('.nm-card')].find((c) => /Protein/.test(c.textContent)).querySelector('.nm-left').className,
+  }));
+  t.check('600 kcal past the goal is marked over', /over/.test(blown.hero), blown.hero);
+  t.check('and says how far over', /over your goal/.test(blown.text), blown.text);
+  t.check('but protein stays done', /done/.test(blown.protein), blown.protein);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

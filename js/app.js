@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '9.0';
+  const APP_VERSION = '9.1';
 
   /* ---------------- state ---------------- */
 
@@ -52,6 +52,7 @@
 
   function goTab(tab) {
     if (tab !== 'habits') habitReorder = false;
+    if (tab !== 'home') homeWeekOffset = 0;
     currentTab = tab;
     rememberTab(tab);
     if (tab === 'home') {
@@ -81,6 +82,7 @@
   let progressExerciseId = null;
   let librarySearch = '';
   let mealDayOffset = 0;           // 0 = today, -1 = yesterday…
+  let homeWeekOffset = 0;          // 0 = this week; the home strip can be dragged through weeks
 
   function load() {
     try {
@@ -862,7 +864,7 @@
     return `
     <svg viewBox="0 0 ${size} ${size}" role="img" aria-label="Calories: ${Math.round(fraction * 100)} percent of target">
       <path d="${arc(start, start + sweep)}" fill="none" stroke="var(--surface-2)" stroke-width="${sw}" stroke-linecap="round"/>
-      ${clamped > 0 ? `<path d="${arc(start, end)}" fill="none" stroke="${over ? 'var(--critical)' : 'var(--ink-1)'}" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
+      ${clamped > 0 ? `<path d="${arc(start, end)}" fill="none" stroke="${goalStroke(over === true ? 'over' : over || '')}" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
     </svg>`;
   }
 
@@ -874,14 +876,14 @@
     ];
     return rows.map(([label, val, target]) => {
       const pct = target ? Math.min(100, (val / target) * 100) : 0;
-      const over = target && val > target;
+      const st = goalState(val, target);
       return `
       <div class="macro-row">
         <div class="m-head">
           <span class="micro">${label}</span>
-          <span class="m-val">${Math.round(val)}g / ${target}g</span>
+          <span class="m-val ${st}">${Math.round(val)}g / ${target}g</span>
         </div>
-        <div class="macro-track"><div class="macro-fill ${over ? 'over' : ''}" style="width:${pct}%"></div></div>
+        <div class="macro-track"><div class="macro-fill ${st}" style="width:${pct}%"></div></div>
       </div>`;
     }).join('');
   }
@@ -894,7 +896,8 @@
     const totals = dayTotals(todayKey);
     const targets = state.nutrition.targets;
     const frac = targets.kcal ? totals.kcal / targets.kcal : 0;
-    const over = totals.kcal > targets.kcal;
+    const kSt = goalState(totals.kcal, targets.kcal, 'kcal');
+    const over = kSt === 'over';
 
     // week strip: Monday-based current week
     const dow = (today.getDay() + 6) % 7; // 0 = Monday
@@ -999,25 +1002,25 @@
           <div class="kl-ring">
             <svg viewBox="0 0 52 52" aria-hidden="true">
               <circle cx="26" cy="26" r="22" fill="none" stroke="var(--surface-2)" stroke-width="4"/>
-              <circle cx="26" cy="26" r="22" fill="none" stroke="${over ? 'var(--critical)' : 'var(--ink-1)'}" stroke-width="4" stroke-linecap="round"
+              <circle cx="26" cy="26" r="22" fill="none" stroke="${goalStroke(kSt)}" stroke-width="4" stroke-linecap="round"
                 stroke-dasharray="${RING.toFixed(1)}" stroke-dashoffset="${ringOffset.toFixed(1)}" transform="rotate(-90 26 26)"/>
             </svg>
             <span class="kl-pct">${kcalPct}%</span>
           </div>
           <div class="kl-right">
-            <div class="macro-track kl-track"><div class="macro-fill ${over ? 'over' : ''}" style="width:${Math.min(100, frac * 100)}%"></div></div>
-            <div class="kl-total"><b class="${over ? 'over' : ''}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()} <span>kcal</span></div>
-            <div class="kl-left">${over ? `${Math.round(totals.kcal - targets.kcal)} kcal over` : `${Math.round(targets.kcal - totals.kcal)} kcal left`}</div>
+            <div class="macro-track kl-track"><div class="macro-fill ${kSt}" style="width:${Math.min(100, frac * 100)}%"></div></div>
+            <div class="kl-total"><b class="${kSt}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()} <span>kcal</span></div>
+            <div class="kl-left ${kSt}">${kSt === 'done' ? 'Goal reached' : kSt === 'over' ? `${Math.round(totals.kcal - targets.kcal)} kcal over` : `${Math.round(targets.kcal - totals.kcal)} kcal left`}</div>
           </div>
         </div>
         <div class="kl-macros">
           ${macros.map(([label, val, target]) => {
             const pct = target ? Math.min(100, (val / target) * 100) : 0;
-            const isOver = target && val > target;
+            const mSt = goalState(val, target);
             return `
             <div class="klm">
-              <div class="klm-head"><span class="klm-name">${label}</span><span class="klm-val ${isOver ? 'over' : ''}">${Math.round(val)}<i>/${target}g</i></span></div>
-              <div class="mc-bar"><div class="mc-fill ${isOver ? 'over' : ''}" style="width:${pct}%"></div></div>
+              <div class="klm-head"><span class="klm-name">${label}</span><span class="klm-val ${mSt}">${Math.round(val)}<i>/${target}g</i></span></div>
+              <div class="mc-bar"><div class="mc-fill ${mSt}" style="width:${pct}%"></div></div>
             </div>`;
           }).join('')}
         </div>
@@ -1079,19 +1082,29 @@
     const totals = dayTotals(todayKey);
     const targets = state.nutrition.targets;
     const frac = targets.kcal ? totals.kcal / targets.kcal : 0;
-    const over = totals.kcal > targets.kcal;
+    const kSt = goalState(totals.kcal, targets.kcal, 'kcal');
+    const over = kSt === 'over';
     const kcalPct = Math.round(frac * 100);
     const RING = 2 * Math.PI * 22;
     const ringOffset = RING * (1 - Math.min(1, frac));
 
     const dow = (today.getDay() + 6) % 7;
     const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow);
+    // the strip can be dragged back and forth through the weeks; everything
+    // else on the page stays about today, so it keeps its own Monday
+    const stripMonday = new Date(monday);
+    stripMonday.setDate(stripMonday.getDate() + homeWeekOffset * 7);
+    // the week is named after the month holding its Thursday, the way weeks
+    // that straddle two months are normally counted
+    const stripThu = new Date(stripMonday); stripThu.setDate(stripThu.getDate() + 3);
+    const weekNo = Math.floor((stripThu.getDate() - 1) / 7) + 1;
+    const weekLabel = 'Week ' + weekNo + ' · ' + stripThu.toLocaleDateString(undefined, { month: 'long' });
     const workoutDays = new Set(state.workouts.map((w) => dateKey(new Date(w.startedAt))));
     const mealDays = new Set(state.nutrition.meals.map((m) => m.date));
     const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const hasPlan = (state.schedule || []).some(Boolean);
     const strip = dayNames.map((L, i) => {
-      const d = new Date(monday); d.setDate(d.getDate() + i);
+      const d = new Date(stripMonday); d.setDate(d.getDate() + i);
       const key = dateKey(d);
       const isToday = key === todayKey;
       const logged = workoutDays.has(key) || mealDays.has(key);
@@ -1153,7 +1166,15 @@
         '</button>' +
       '</div>' +
 
-      '<div class="week-strip">' + strip + '</div>' +
+      '<div class="week-wrap">' +
+        '<div class="ws-head">' +
+          '<button class="ws-nav" id="wkPrev" aria-label="Earlier week">‹</button>' +
+          '<button class="ws-label' + (homeWeekOffset ? ' is-off' : '') + '" id="wkLabel">' + weekLabel +
+            (homeWeekOffset ? '<i>back to this week</i>' : '') + '</button>' +
+          '<button class="ws-nav" id="wkNext" aria-label="Later week"' + (homeWeekOffset >= 4 ? ' disabled' : '') + '>›</button>' +
+        '</div>' +
+        '<div class="week-strip">' + strip + '</div>' +
+      '</div>' +
 
       '<div class="home-pair">' +
         '<button class="card hstat" id="bwCard">' +
@@ -1181,32 +1202,34 @@
         '</button>' +
       '</div>' +
 
-      '<div class="card kcal-line kcal-dash">' +
+      '<button class="card kcal-line kcal-dash" id="kcalCard" aria-label="Open nutrition">' +
         '<div class="kl-top">' +
           '<div class="kl-col">' +
             '<span class="micro">Calories</span>' +
-            '<div class="kl-total"><b class="' + (over ? 'over' : '') + '">' + Math.round(totals.kcal).toLocaleString() + '</b> / ' + targets.kcal.toLocaleString() + ' <span>kcal</span></div>' +
-            '<div class="kl-left">' + (over ? Math.round(totals.kcal - targets.kcal).toLocaleString() + ' kcal over' : Math.round(targets.kcal - totals.kcal).toLocaleString() + ' kcal left') + '</div>' +
+            '<div class="kl-total"><b class="' + kSt + '">' + Math.round(totals.kcal).toLocaleString() + '</b> / ' + targets.kcal.toLocaleString() + ' <span>kcal</span></div>' +
+            '<div class="kl-left ' + kSt + '">' + (kSt === 'done' ? 'Goal reached'
+              : kSt === 'over' ? Math.round(totals.kcal - targets.kcal).toLocaleString() + ' kcal over'
+              : Math.round(targets.kcal - totals.kcal).toLocaleString() + ' kcal left') + '</div>' +
           '</div>' +
           '<div class="kl-ring"><svg viewBox="0 0 52 52" aria-hidden="true">' +
             '<circle cx="26" cy="26" r="22" fill="none" stroke="var(--surface-2)" stroke-width="4"/>' +
-            '<circle cx="26" cy="26" r="22" fill="none" stroke="' + (over ? 'var(--critical)' : 'var(--ink-1)') + '" stroke-width="4" stroke-linecap="round"' +
+            '<circle cx="26" cy="26" r="22" fill="none" stroke="' + goalStroke(kSt) + '" stroke-width="4" stroke-linecap="round"' +
             ' stroke-dasharray="' + RING.toFixed(1) + '" stroke-dashoffset="' + ringOffset.toFixed(1) + '" transform="rotate(-90 26 26)"/>' +
           '</svg><span class="kl-pct">' + kcalPct + '%</span></div>' +
         '</div>' +
-        '<div class="macro-track kl-track"><div class="macro-fill ' + (over ? 'over' : '') + '" style="width:' + Math.min(100, frac * 100) + '%"></div></div>' +
+        '<div class="macro-track kl-track"><div class="macro-fill ' + kSt + '" style="width:' + Math.min(100, frac * 100) + '%"></div></div>' +
         '<div class="kl-macros">' +
           [['Protein', totals.protein, targets.protein], ['Carbs', totals.carbs, targets.carbs], ['Fat', totals.fat, targets.fat]].map(([label, val, target]) => {
             const pct = target ? Math.min(100, (val / target) * 100) : 0;
-            const isOver = target && val > target;
+            const mSt = goalState(val, target);
             return '<div class="klm">' +
               '<div class="klm-head"><span class="klm-name">' + label + '</span>' +
-                '<span class="klm-val ' + (isOver ? 'over' : '') + '">' + Math.round(val) + '<i>/' + target + 'g</i></span></div>' +
-              '<div class="mc-bar"><div class="mc-fill ' + (isOver ? 'over' : '') + '" style="width:' + pct + '%"></div></div>' +
+                '<span class="klm-val ' + mSt + '">' + Math.round(val) + '<i>/' + target + 'g</i></span></div>' +
+              '<div class="mc-bar"><div class="mc-fill ' + mSt + '" style="width:' + pct + '%"></div></div>' +
             '</div>';
           }).join('') +
         '</div>' +
-      '</div>' +
+      '</button>' +
 
       '<div class="home-actions">' +
         '<button class="ha-btn ha-primary" id="homeStart">' +
@@ -1219,6 +1242,26 @@
 
     $('#homeAvatar').addEventListener('click', () => goTab('profile'));
     $$('.wd[data-day]', v).forEach((b) => b.addEventListener('click', () => openDaySummary(b.dataset.day)));
+    const showWeek = (off) => { homeWeekOffset = Math.max(-52, Math.min(4, off)); render(); };
+    $('#wkPrev', v).addEventListener('click', () => showWeek(homeWeekOffset - 1));
+    $('#wkNext', v).addEventListener('click', () => showWeek(homeWeekOffset + 1));
+    $('#wkLabel', v).addEventListener('click', () => showWeek(0));
+    // dragging the strip walks the weeks — the tab swipe leaves this area alone
+    const wrap = $('.week-wrap', v);
+    let wkTouch = null;
+    wrap.addEventListener('touchstart', (e) => {
+      wkTouch = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, at: Date.now() } : null;
+    }, { passive: true });
+    wrap.addEventListener('touchend', (e) => {
+      if (!wkTouch) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - wkTouch.x, dy = t.clientY - wkTouch.y;
+      const quick = Date.now() - wkTouch.at < 700;
+      wkTouch = null;
+      if (!quick || Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      showWeek(homeWeekOffset + (dx < 0 ? 1 : -1));
+    }, { passive: true });
+    $('#kcalCard').addEventListener('click', () => { mealDayOffset = 0; goTab('meals'); });
     $('#bwCard').addEventListener('click', openWeightSheet);
     $('#hbCard').addEventListener('click', (e) => {
       const cell = e.target.closest('[data-h]');
@@ -1355,9 +1398,20 @@
     });
   }
 
+  /* Where a number sits against its goal. Reaching a target is the point, so
+     it reads as done rather than a warning — 181 g against a 180 g protein
+     goal is a goal met, not a mistake, and no portion can land on it exactly.
+     Only calories clearly past the goal (10% over) are still worth flagging. */
+  const OVER_SLACK = 1.1;
+  function goalState(val, target, kind) {
+    if (!target || val < target) return '';
+    return (kind === 'kcal' && val > target * OVER_SLACK) ? 'over' : 'done';
+  }
+  const goalStroke = (st) => (st === 'over' ? 'var(--critical)' : st === 'done' ? 'var(--done)' : 'var(--ink-1)');
+
   function macroRing(label, val, target, size) {
     const frac = target ? Math.min(1, val / target) : 0;
-    const over = target && val > target;
+    const st = goalState(val, target);
     const r = 15.5, C = 2 * Math.PI * r;
     const left = Math.max(0, Math.round(target - val));
     return '' +
@@ -1365,12 +1419,12 @@
         '<div class="nm-ring">' +
           '<svg viewBox="0 0 36 36" style="width:' + size + 'px;height:' + size + 'px" aria-hidden="true">' +
             '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="var(--surface-2)" stroke-width="3.4"/>' +
-            '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="' + (over ? 'var(--critical)' : 'var(--ink-1)') + '" stroke-width="3.4" stroke-linecap="round"' +
+            '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="' + goalStroke(st) + '" stroke-width="3.4" stroke-linecap="round"' +
             ' stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + (C * (1 - frac)).toFixed(1) + '" transform="rotate(-90 18 18)"/>' +
           '</svg>' +
         '</div>' +
         '<div class="nm-text"><span class="nm-name">' + label + '</span>' +
-          '<b class="nm-left ' + (over ? 'over' : '') + '">' + (over ? Math.round(val - target) + 'g over' : left + 'g left') + '</b></div>' +
+          '<b class="nm-left ' + st + '">' + (st ? 'goal hit' : left + 'g left') + '</b></div>' +
       '</div>';
   }
 
@@ -1382,7 +1436,8 @@
     const totals = dayTotals(key);
     const targets = state.nutrition.targets;
     const frac = targets.kcal ? totals.kcal / targets.kcal : 0;
-    const over = totals.kcal > targets.kcal;
+    const kSt = goalState(totals.kcal, targets.kcal, 'kcal');
+    const over = kSt === 'over';
     const left = Math.round(targets.kcal - totals.kcal);
     const label = mealDayOffset === 0 ? 'Today' : mealDayOffset === -1 ? 'Yesterday' : fmtDate(day.getTime());
     const glasses = waterFor(key);
@@ -1405,17 +1460,20 @@
       '</div>' +
 
       '<div class="nut-hero">' +
-        '<div class="nh-num ' + (over ? 'over' : '') + '">' + Math.abs(left).toLocaleString() + '<span>kcal</span></div>' +
-        '<div class="nh-sub">' + (over ? 'over your goal' : 'left for today') + '</div>' +
+        (kSt === 'done'
+          ? '<div class="nh-num done nh-hit">Goal reached</div>' +
+            '<div class="nh-sub">' + Math.round(totals.kcal).toLocaleString() + ' of ' + targets.kcal.toLocaleString() + ' kcal</div>'
+          : '<div class="nh-num ' + (over ? 'over' : '') + '">' + Math.abs(left).toLocaleString() + '<span>kcal</span></div>' +
+            '<div class="nh-sub">' + (over ? 'over your goal' : 'left for today') + '</div>') +
       '</div>' +
 
       '<div class="card nut-consumed">' +
         '<div class="nc-head">' +
           '<span class="nc-l"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c.7 3.1 3.4 4.4 3.4 7.4 0 1-.4 2-1.2 2.8.5-1.7-.6-3.1-1.7-3.9.2 2.3-1.4 3.5-2.3 4.8-1.7 2.2.2 5.5 3.4 5.5 3.1 0 5.4-2.4 5.4-5.4 0-4.9-4.3-7.9-7-11.2Z"/></svg>' +
             'Consumed <i>(' + Math.round(frac * 100) + '%)</i></span>' +
-          '<span class="nc-r ' + (over ? 'over' : '') + '">' + Math.round(totals.kcal).toLocaleString() + ' kcal</span>' +
+          '<span class="nc-r ' + kSt + '">' + Math.round(totals.kcal).toLocaleString() + ' kcal</span>' +
         '</div>' +
-        '<div class="macro-track"><div class="macro-fill ' + (over ? 'over' : '') + '" style="width:' + Math.min(100, frac * 100) + '%"></div></div>' +
+        '<div class="macro-track"><div class="macro-fill ' + kSt + '" style="width:' + Math.min(100, frac * 100) + '%"></div></div>' +
         '<div class="nc-foot"><span>0</span><span>' + targets.kcal.toLocaleString() + ' kcal goal</span></div>' +
       '</div>' +
 
@@ -4595,7 +4653,7 @@
     if (workoutOpen || scanOpen || $('#sheetRoot').children.length) return;
     // a real swipe cancels the tap, so buttons are fine to start on —
     // only text fields and horizontally-drawn widgets must keep the gesture
-    if (e.target.closest('input, textarea, select, .chart-wrap, .cal-grid, .pad-keys, .hbh-row')) return;
+    if (e.target.closest('input, textarea, select, .chart-wrap, .cal-grid, .pad-keys, .hbh-row, .week-wrap')) return;
     const t = e.touches[0];
     swipeStart = { x: t.clientX, y: t.clientY, at: Date.now() };
   }, { passive: true });
