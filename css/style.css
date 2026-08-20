@@ -114,7 +114,7 @@ body {
   width: 100%;
   max-width: 640px;
   margin: 0 auto;
-  padding: calc(env(safe-area-inset-top) + 38px) 14px calc(env(safe-area-inset-bottom) + 100px);
+  padding: calc(env(safe-area-inset-top) + 38px) 14px calc(env(safe-area-inset-bottom) + 94px);
   outline: none;
 }
 .view h2 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; margin: 2px 4px; }
@@ -1005,9 +1005,9 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .hbh-row { display: flex; gap: 14px; overflow-x: auto; }
 .hbh-chip { display: flex; flex-direction: column; align-items: center; gap: 6px; border: none; background: none; padding: 0; cursor: pointer; flex-shrink: 0; width: 56px; }
 .hbh-ico { position: relative; display: grid; place-items: center; width: 46px; height: 46px; }
-.hbh-ico .hb-ring-svg { position: absolute; inset: 0; }
-.hbh-ico i { display: grid; place-items: center; }
-.hbh-ico svg:not(.hb-ring-svg) { width: 21px; height: 21px; fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.hbh-ico .hb-ring-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hbh-ico i { display: grid; place-items: center; width: 100%; height: 100%; }
+.hbh-ico svg:not(.hb-ring-svg) { width: 19px; height: 19px; display: block; fill: none; stroke: var(--ink-2); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .hbh-chip.is-done .hbh-ico svg:not(.hb-ring-svg) { stroke: var(--ink-1); }
 .hbh-name { color: var(--ink-2); font-size: 0.66rem; font-weight: 600; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hbh-chip.is-done .hbh-name { color: var(--ink-1); }
@@ -1015,7 +1015,7 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 
 /* ---------- habits page ---------- */
 .hb-today-card { padding: 14px 8px 8px 16px; }
-.hb-th { display: flex; align-items: baseline; justify-content: space-between; padding-right: 8px; margin-bottom: 6px; }
+.hb-th { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 0 0; margin-bottom: 10px; }
 .hb-th-date { color: var(--ink-2); font-size: 0.78rem; font-weight: 600; }
 .hb-row { display: flex; align-items: center; gap: 13px; padding: 11px 8px 11px 0; border-bottom: 1px solid var(--border); cursor: pointer; min-height: 58px; }
 .hb-row:last-child { border-bottom: none; }
@@ -1030,7 +1030,7 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .hb-row.is-done .hb-check svg { stroke: var(--page); }
 .hb-row.is-done .hb-name { color: var(--ink-2); }
 .hb-mini { position: relative; display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; }
-.hb-mini .hb-ring-svg { position: absolute; inset: 0; }
+.hb-mini .hb-ring-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hb-mini i { font-style: normal; font-size: 0.62rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .hb-plus { width: 34px; height: 34px; border-radius: 11px; border: 1px solid var(--baseline); background: transparent; color: var(--ink-1); font-size: 1.15rem; line-height: 1; flex-shrink: 0; cursor: pointer; }
 .hb-plus:active { background: var(--surface-2); }
@@ -1264,3 +1264,41 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 /* daily-goals sheet */
 .goal-note { color: var(--ink-muted); font-size: 0.76rem; margin: -4px 0 14px; }
 .goal-note.off { color: var(--ink-2); }
+
+
+/* ---------- month calendar (replaces the scrolling table) ---------- */
+.hc-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 0 6px; margin-bottom: 6px; }
+.hc-dow span { text-align: center; color: var(--ink-muted); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; }
+.hc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 0 6px 4px; }
+.hc-pad { aspect-ratio: 1; }
+.hc-day {
+  position: relative; aspect-ratio: 1; overflow: hidden;
+  display: grid; place-items: center; cursor: pointer;
+  border: 1px solid transparent; border-radius: 11px;
+  background: var(--surface-2); color: var(--ink-2);
+  font-size: 0.8rem; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.hc-day.is-part { color: var(--ink-1); }
+.hc-part { position: absolute; left: 4px; bottom: 4px; height: 2px; border-radius: 2px; background: var(--ink-2); max-width: calc(100% - 8px); }
+.hc-day.is-full { background: var(--ink-1); color: var(--page); }
+.hc-day.is-today { border-color: var(--ink-2); }
+.hc-day.is-full.is-today { border-color: var(--ink-1); }
+.hc-day.is-future { background: transparent; color: var(--ink-muted); opacity: 0.55; }
+.hb-grid-card { padding: 14px 10px 12px; }
+
+/* workout stat cards: one centred column, and the number carries the card */
+.wk-stat { text-align: center; align-items: center; padding: 16px 12px 17px; }
+.ws-top { justify-content: center; margin-bottom: 12px; }
+.ws-big { font-size: 2.15rem; letter-spacing: -0.03em; }
+.ws-big i { font-size: 0.95rem; }
+.ws-ring { width: 46px; height: 46px; font-size: 1.05rem; }
+.ws-name { font-size: 0.95rem; }
+.ws-sub { font-size: 0.75rem; }
+
+/* the habits page is meant to be read at a glance — keep it on one screen */
+.hb-row { min-height: 52px; padding: 9px 8px 9px 0; }
+.hb-today-card { padding: 12px 8px 6px 14px; }
+.hc-day { aspect-ratio: 1.2; border-radius: 10px; }
+.hc-pad { aspect-ratio: 1.2; }
+.hb-grid-card { padding: 12px 10px 10px; }
+.hb-month { margin-bottom: 8px; font-size: 0.92rem; }
