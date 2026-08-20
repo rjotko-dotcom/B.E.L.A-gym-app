@@ -44,6 +44,94 @@ module.exports = async (t) => {
   await page.waitForTimeout(300);
   t.check('recent meals are offered as chips', await page.evaluate(() => document.querySelectorAll('.quick-chip').length > 0));
 
+  // portions: a food's macros follow the grams you type
+  await page.click('.slot-add[data-slot="lunch"]');
+  await page.waitForTimeout(450);
+  await page.evaluate(() => {
+    const n = [...document.querySelectorAll('.lib-item .li-name')].find((x) => x.textContent === 'Chicken breast');
+    n.click();
+  });
+  await page.waitForTimeout(450);
+  t.check('picking a food asks for the portion', await page.evaluate(() => !!document.querySelector('#pdAmt')));
+  await page.fill('#pdAmt', '220');
+  await page.waitForTimeout(250);
+  const scaled = await page.evaluate(() => document.querySelector('#pdOut').textContent.replace(/\s+/g, ' '));
+  t.check('the macros scale with the grams', /363/.test(scaled) && /68.2/.test(scaled), scaled);
+  const beforeP = (await readState(page)).nutrition.meals.length;
+  await page.click('#pdAdd');
+  await page.waitForTimeout(550);
+  const logged = (await readState(page)).nutrition.meals.slice(-1)[0];
+  t.equal('the portion is logged', (await readState(page)).nutrition.meals.length, beforeP + 1);
+  t.equal('the entry carries the amount', logged.name, 'Chicken breast · 220 g');
+  t.equal('the calories match the portion', logged.kcal, 363);
+
+  // the + on a row logs the usual serving without asking
+  await page.click('.slot-add[data-slot="lunch"]');
+  await page.waitForTimeout(450);
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll('.lib-item')].find((r) => /Oats, dry/.test(r.textContent));
+    row.querySelector('.li-add').click();
+  });
+  await page.waitForTimeout(550);
+  const quick = (await readState(page)).nutrition.meals.slice(-1)[0];
+  t.equal('the + button logs the usual serving', quick.name, 'Oats, dry · 60 g');
+
+  // a custom food is remembered, and works at any portion afterwards
+  await page.click('.slot-add[data-slot="dinner"]');
+  await page.waitForTimeout(450);
+  await page.fill('#cmName', 'Skyr vanilla');
+  await page.fill('#cmAmt', '150');
+  await page.fill('#cmKcal', '96');
+  await page.fill('#cmProtein', '16.5');
+  await page.fill('#cmCarbs', '6');
+  await page.fill('#cmFat', '0.3');
+  await page.click('#cmAdd');
+  await page.waitForTimeout(600);
+  const mine = (await readState(page)).foods;
+  t.equal('the custom food is remembered', mine.length, 1);
+  t.equal('it is stored per 100 g', mine[0] && mine[0].kcal, 64);
+
+  await page.click('.slot-add[data-slot="dinner"]');
+  await page.waitForTimeout(450);
+  t.check('it comes back under My foods', await page.evaluate(() =>
+    /My foods/.test(document.querySelector('#foodList').textContent)));
+  await page.evaluate(() => {
+    const n = [...document.querySelectorAll('.lib-item .li-name')].find((x) => x.textContent === 'Skyr vanilla');
+    n.click();
+  });
+  await page.waitForTimeout(450);
+  await page.fill('#pdAmt', '300');
+  await page.waitForTimeout(200);
+  await page.click('#pdAdd');
+  await page.waitForTimeout(550);
+  const again = (await readState(page)).nutrition.meals.slice(-1)[0];
+  t.equal('a remembered food scales too', again.kcal, 192);
+  t.equal('and keeps its protein', again.protein, 33);
+
+  // pieces are counted, not weighed
+  await page.click('.slot-add[data-slot="snack"]');
+  await page.waitForTimeout(450);
+  await page.evaluate(() => {
+    const n = [...document.querySelectorAll('.lib-item .li-name')].find((x) => x.textContent === 'Whole egg');
+    n.click();
+  });
+  await page.waitForTimeout(450);
+  await page.fill('#pdAmt', '3');
+  await page.click('#pdAdd');
+  await page.waitForTimeout(550);
+  const eggs = (await readState(page)).nutrition.meals.slice(-1)[0];
+  t.equal('a food sold by the piece is counted', eggs.name, 'Whole egg · 3×');
+  t.equal('three eggs are three times one', eggs.kcal, 216);
+
+  // and a remembered food can be forgotten again
+  await page.click('.slot-add[data-slot="dinner"]');
+  await page.waitForTimeout(450);
+  await page.click('[data-delfood]');
+  await page.waitForTimeout(400);
+  t.equal('a food can be forgotten', (await readState(page)).foods.length, 0);
+  await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
+  await page.waitForTimeout(350);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

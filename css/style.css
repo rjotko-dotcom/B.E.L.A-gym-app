@@ -366,9 +366,28 @@ body {
   background: var(--surface-1); border: 1px solid var(--border); border-radius: 16px;
   padding: 12px 16px; margin-bottom: 8px; cursor: pointer;
 }
+.lib-item > div:first-child { min-width: 0; }
 .lib-item .li-name { font-weight: 700; font-size: 0.92rem; }
-.lib-item .li-sub { color: var(--ink-muted); font-size: 0.78rem; }
+.lib-item .li-sub { color: var(--ink-muted); font-size: 0.78rem; line-height: 1.35; margin-top: 2px; }
 .lib-item .li-best { color: var(--good-text); font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lib-item .li-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.li-add {
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--ink-1);
+  border-radius: 999px; padding: 7px 11px; font: inherit; font-size: 0.76rem; font-weight: 700;
+  white-space: nowrap; cursor: pointer;
+}
+.li-add:active { filter: brightness(0.92); }
+/* portion sheet — the amount, the quick jumps and the per-100 line */
+.portion-per { color: var(--ink-muted); font-size: 0.78rem; margin: 0 4px 12px; line-height: 1.4; }
+.quick-amounts { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 4px; }
+.qchip {
+  border: 1px solid var(--border); background: var(--surface-1); color: var(--ink-2);
+  border-radius: 999px; padding: 8px 13px; font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+}
+.qchip.is-on { background: var(--ink-1); color: var(--page); border-color: var(--ink-1); }
+.amount-row { display: flex; gap: 10px; align-items: flex-end; }
+.amount-row .field { flex: 1; margin-bottom: 12px; }
+.seg-unit { flex: 0 0 auto; width: 148px; margin-bottom: 12px; }
 
 /* ---------- rest bar ---------- */
 .rest-bar {

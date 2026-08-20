@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '8.7';
+  const APP_VERSION = '8.8';
 
   /* ---------------- state ---------------- */
 
@@ -20,6 +20,7 @@
       measurements: [], // { date:'YYYY-MM-DD', key, value }  key: waist|chest|arm|thigh|hips
     },
     savedMeals: [],   // { id, name, slot, items:[{name,kcal,protein,carbs,fat}] }
+    foods: [],        // your own foods: { id, name, unit:'g'|'ml'|'piece', per, serving, kcal, protein, carbs, fat, used }
     schedule: [null, null, null, null, null, null, null],  // Mon..Sun: template id, 'rest', or null
     habits: [],       // { id, name, icon, type:'check'|'count', target, unit, step }
     habitLog: {},     // { 'YYYY-MM-DD': { habitId: value } }
@@ -98,6 +99,7 @@
      anything added since it was written, without touching what it already has. */
   function normalize(parsed, d = defaultState()) {
     if (!Array.isArray(parsed.savedMeals)) parsed.savedMeals = [];
+    if (!Array.isArray(parsed.foods)) parsed.foods = [];
     if (!Array.isArray(parsed.schedule) || parsed.schedule.length !== 7) parsed.schedule = [null, null, null, null, null, null, null];
     if (!parsed.habits) parsed.habits = starterHabits();
     if (!parsed.habitLog) parsed.habitLog = {};
@@ -729,6 +731,26 @@
     const l = wakeLock; wakeLock = null;
     l.release().catch(() => {});
   }
+  /* ---------- full screen ----------
+     The thin grey line under the status bar is drawn by the browser between
+     the system bar and the page — nothing the app paints reaches it. Going
+     full screen removes the bar, and the line with it. Android only grants
+     this off a gesture, so a stored preference is re-applied on the first
+     touch after the app opens. */
+  function requestFullBleed() {
+    const el = document.documentElement;
+    if (document.fullscreenElement || !el.requestFullscreen) return;
+    el.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+  }
+  function exitFullBleed() {
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  }
+  function armFullBleed() {
+    if (!state.settings.fullscreen) return;
+    const go = () => { requestFullBleed(); removeEventListener('pointerdown', go); };
+    addEventListener('pointerdown', go);
+  }
+
   function syncWakeLock() {
     if (state.activeWorkout && workoutOpen) holdWakeLock(); else dropWakeLock();
   }
@@ -1541,25 +1563,141 @@
     });
   }
 
+  /* ---------- foods and portions ----------
+     Every food carries the amount its numbers describe (100 g, 100 ml or one
+     piece), so any portion is just arithmetic. Foods you type in yourself are
+     kept in state.foods and offered back the next time. */
+
+  const foodUnit = (f) => (f.unit === 'piece' ? 'piece' : f.unit === 'ml' ? 'ml' : 'g');
+  const foodBase = (f) => Number(f.per) || (foodUnit(f) === 'piece' ? 1 : 100);
+  const foodServing = (f) => Number(f.serving) || foodBase(f);
+
+  // macros for `amount` of a food — one decimal, so 30 g of oats still counts
+  function scaleFood(f, amount) {
+    const k = (Number(amount) || 0) / foodBase(f);
+    const r = (v) => Math.round((Number(v) || 0) * k * 10) / 10;
+    return { kcal: Math.round((Number(f.kcal) || 0) * k), protein: r(f.protein), carbs: r(f.carbs), fat: r(f.fat) };
+  }
+
+  const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
+  const amountLabel = (f, amount) => (foodUnit(f) === 'piece' ? round1(amount) + '×' : round1(amount) + ' ' + foodUnit(f));
+  // one bar reads "Protein bar", two read "Protein bar · 2×"
+  const portionName = (f, amount) =>
+    (foodUnit(f) === 'piece' && Number(amount) === 1) ? f.name : f.name + ' · ' + amountLabel(f, amount);
+  const perLabel = (f) => (foodUnit(f) === 'piece' ? 'each' : 'per ' + foodBase(f) + ' ' + foodUnit(f));
+  const macroLine = (v) => Math.round(v.kcal) + ' kcal · P ' + round1(v.protein) + ' · C ' + round1(v.carbs) + ' · F ' + round1(v.fat);
+  const baseName = (n) => String(n || '').split(' · ')[0];
+
+  function myFoods() { return [...(state.foods || [])].sort((a, b) => (b.used || 0) - (a.used || 0)); }
+
+  /* Adds a food to My foods, or refreshes one already there under that name. */
+  function rememberFood(f) {
+    if (!Array.isArray(state.foods)) state.foods = [];
+    const name = String(f.name || '').trim();
+    const same = state.foods.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    const rec = {
+      ...f, name,
+      unit: foodUnit(f), per: foodBase(f), serving: foodServing(f),
+      id: same ? same.id : uid(), used: Date.now(),
+    };
+    if (same) Object.assign(same, rec); else state.foods.push(rec);
+    return rec;
+  }
+  function touchFood(id) {
+    const mine = (state.foods || []).find((x) => x.id === id);
+    if (mine) mine.used = Date.now();
+  }
+
+  /* One food, any portion: type the grams (or the count) and the macros follow. */
+  function openPortionSheet(food, startSlot, key, opts = {}) {
+    const date = key || dateKey();
+    let slot = startSlot || slotFromTime(new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' }));
+    const piece = foodUnit(food) === 'piece';
+    const quick = [...new Set([foodServing(food), ...(piece ? [1, 2, 3] : [50, 100, 150, 200])])]
+      .filter((n) => n > 0).sort((a, b) => a - b).slice(0, 5);
+
+    openSheet(food.name, '' +
+      '<div class="seg seg-slot" id="slotPick">' +
+        MEAL_SLOTS.map(([k, title]) => '<button data-slot="' + k + '" class="' + (k === slot ? 'is-on' : '') + '">' + title + '</button>').join('') +
+      '</div>' +
+      '<p class="portion-per">' + macroLine(scaleFood(food, foodBase(food))) + ' ' + perLabel(food) + '</p>' +
+      '<div class="field"><label for="pdAmt">' + (piece ? 'How many' : 'Portion (' + foodUnit(food) + ')') + '</label>' +
+        '<input id="pdAmt" type="number" inputmode="decimal" min="0" step="' + (piece ? '1' : '1') + '" value="' + foodServing(food) + '"></div>' +
+      '<div class="quick-amounts" id="pdQuick">' +
+        quick.map((n) => '<button class="qchip" data-amt="' + n + '">' + amountLabel(food, n) + '</button>').join('') +
+      '</div>' +
+      '<div class="prod-macros" id="pdOut"></div>' +
+      (opts.offerSave
+        ? '<label class="switch-row" style="margin-top:14px"><span><b>Remember this food</b>' +
+          '<i>Keeps it under My foods, with these numbers per ' + (piece ? 'piece' : foodBase(food) + ' ' + foodUnit(food)) + '</i></span>' +
+          '<input type="checkbox" id="pdSave" checked></label>'
+        : '') +
+      '<button class="btn btn-primary" id="pdAdd" style="margin-top:16px">Add to log</button>',
+    (body) => {
+      const amtIn = $('#pdAmt', body), out = $('#pdOut', body);
+      const paint = () => {
+        const v = scaleFood(food, amtIn.value);
+        out.innerHTML =
+          '<div><span class="micro">kcal</span><b>' + v.kcal + '</b></div>' +
+          '<div><span class="micro">Protein</span><b>' + round1(v.protein) + 'g</b></div>' +
+          '<div><span class="micro">Carbs</span><b>' + round1(v.carbs) + 'g</b></div>' +
+          '<div><span class="micro">Fat</span><b>' + round1(v.fat) + 'g</b></div>';
+        $$('#pdQuick .qchip', body).forEach((c) => c.classList.toggle('is-on', Number(c.dataset.amt) === Number(amtIn.value)));
+      };
+      paint();
+      amtIn.addEventListener('input', paint);
+      $$('#pdQuick .qchip', body).forEach((c) => c.addEventListener('click', () => { amtIn.value = c.dataset.amt; paint(); }));
+      $$('#slotPick button', body).forEach((b) => b.addEventListener('click', () => {
+        slot = b.dataset.slot;
+        $$('#slotPick button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+      }));
+      $('#pdAdd', body).addEventListener('click', () => {
+        const amount = Number(amtIn.value) || 0;
+        if (!amount) { toast(piece ? 'Enter how many' : 'Enter a portion size'); return; }
+        const v = scaleFood(food, amount);
+        logMeal({ name: portionName(food, amount), ...v }, slot, date);
+        if (opts.offerSave && $('#pdSave', body) && $('#pdSave', body).checked) rememberFood({ ...food, serving: amount });
+        else if (food.id) touchFood(food.id);
+        save(); closeSheet(); mealDayOffset = 0; goTab('meals');
+        toast('Logged ' + v.kcal + ' kcal');
+      });
+    });
+  }
+
   function openMealSheet(key = dateKey(), slot = null) {
     if (!slot) slot = slotFromTime(new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' }));
-    // recent custom entries (not in the food library), newest first, unique by name
-    const libNames = new Set(FOOD_LIBRARY.map((f) => f.name));
+    // one-off entries logged before, newest first — anything already in a food
+    // list is skipped, since those can be logged at any portion instead
+    const known = new Set([...FOOD_LIBRARY, ...(state.foods || [])].map((f) => f.name.toLowerCase()));
     const recents = [];
     for (const m of [...state.nutrition.meals].reverse()) {
-      if (libNames.has(m.name) || recents.some((r) => r.name === m.name)) continue;
+      const b = baseName(m.name);
+      if (known.has(b.toLowerCase()) || recents.some((r) => baseName(r.name) === b)) continue;
       recents.push(m);
-      if (recents.length >= 6) break;
+      if (recents.length >= 5) break;
     }
 
-    const foodRow = (f, tag) => `
-      <div class="lib-item" data-food="${esc(JSON.stringify({ name: f.name, kcal: f.kcal, protein: f.protein, carbs: f.carbs, fat: f.fat }))}" role="button" tabindex="0">
-        <div>
-          <div class="li-name">${esc(f.name)}</div>
-          <div class="li-sub">${Math.round(f.kcal)} kcal · P ${Math.round(f.protein)} · C ${Math.round(f.carbs)} · F ${Math.round(f.fat)}${tag ? ' · ' + tag : ''}</div>
-        </div>
-        <span class="li-best">+</span>
-      </div>`;
+    // a food with a per-100 (or per-piece) basis: the row opens portions, + logs the usual serving
+    const basisRow = (f, mine) => {
+      const data = esc(JSON.stringify({
+        id: f.id, name: f.name, unit: foodUnit(f), per: foodBase(f), serving: foodServing(f),
+        kcal: f.kcal, protein: f.protein, carbs: f.carbs, fat: f.fat,
+      }));
+      return '<div class="lib-item" data-food="' + data + '" role="button" tabindex="0">' +
+        '<div><div class="li-name">' + esc(f.name) + '</div>' +
+          '<div class="li-sub">' + Math.round(f.kcal) + ' kcal ' + perLabel(f) + ' · P ' + round1(f.protein) + ' C ' + round1(f.carbs) + ' F ' + round1(f.fat) + '</div></div>' +
+        '<div class="li-actions">' +
+          (mine ? '<button class="saved-del" data-delfood="' + esc(f.id) + '" aria-label="Forget this food">×</button>' : '') +
+          '<button class="li-add" data-quick="' + data + '" aria-label="Log ' + esc(amountLabel(f, foodServing(f))) + '">+ ' + esc(amountLabel(f, foodServing(f))) + '</button>' +
+        '</div></div>';
+    };
+
+    // something logged by hand once — no basis to scale, so it goes in as it was
+    const recentRow = (m) => '<div class="lib-item" data-recent="' +
+      esc(JSON.stringify({ name: m.name, kcal: m.kcal, protein: m.protein, carbs: m.carbs, fat: m.fat })) + '" role="button" tabindex="0">' +
+      '<div><div class="li-name">' + esc(m.name) + '</div>' +
+        '<div class="li-sub">' + macroLine(m) + '</div></div>' +
+      '<span class="li-best">+</span></div>';
 
     const savedHtml = () => {
       const mine = (state.savedMeals || []).filter((m) => !m.slot || m.slot === slot);
@@ -1575,12 +1713,15 @@
 
     const listHtml = (q) => {
       const query = q.trim().toLowerCase();
-      const rec = recents.filter((f) => !query || f.name.toLowerCase().includes(query));
-      const lib = FOOD_LIBRARY.filter((f) => !query || f.name.toLowerCase().includes(query));
+      const hit = (f) => !query || f.name.toLowerCase().includes(query);
+      const mine = myFoods().filter(hit);
+      const rec = recents.filter(hit);
+      const lib = FOOD_LIBRARY.filter(hit);
       let html = '';
-      if (rec.length) html += `<div class="lib-group-title">Recent</div>` + rec.map((f) => foodRow(f)).join('');
-      if (lib.length) html += `<div class="lib-group-title">Common foods</div>` + lib.map((f) => foodRow(f)).join('');
-      if (!html) html = `<p class="empty-note">No matches — use the custom entry below.</p>`;
+      if (mine.length) html += '<div class="lib-group-title">My foods</div>' + mine.map((f) => basisRow(f, true)).join('');
+      if (rec.length) html += '<div class="lib-group-title">Logged before</div>' + rec.map(recentRow).join('');
+      if (lib.length) html += '<div class="lib-group-title">Common foods</div>' + lib.map((f) => basisRow(f, false)).join('');
+      if (!html) html = '<p class="empty-note">No matches — add it under Custom entry and it will be waiting here next time.</p>';
       return html;
     };
 
@@ -1594,28 +1735,38 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5V6a2 2 0 0 1 2-2h2.5M15.5 4H18a2 2 0 0 1 2 2v2.5M20 15.5V18a2 2 0 0 1-2 2h-2.5M8.5 20H6a2 2 0 0 1-2-2v-2.5M7.5 12h9"/></svg>
         </button>
       </div>
+      <p class="portion-per">Tap a food to set the grams, or + to log the usual portion.</p>
       <div id="savedList">${savedHtml()}</div>
       <div id="foodList">${listHtml('')}</div>
       <div class="section-title">Custom entry</div>
       <div class="field"><label for="cmName">Name</label><input id="cmName" type="text" placeholder="e.g. Chicken bowl"></div>
+      <div class="amount-row">
+        <div class="field"><label for="cmAmt">Amount</label><input id="cmAmt" type="number" inputmode="decimal" min="0" value="100"></div>
+        <div class="seg seg-unit" id="cmUnit">
+          <button data-u="g" class="is-on">g</button>
+          <button data-u="ml">ml</button>
+          <button data-u="piece">item</button>
+        </div>
+      </div>
+      <p class="portion-per" id="cmHint">Enter what is in that much of it.</p>
       <div class="field-row">
-        <div class="field"><label for="cmKcal">kcal</label><input id="cmKcal" type="number" inputmode="numeric" min="0" placeholder="0"></div>
-        <div class="field"><label for="cmProtein">Protein g</label><input id="cmProtein" type="number" inputmode="numeric" min="0" placeholder="0"></div>
+        <div class="field"><label for="cmKcal">kcal</label><input id="cmKcal" type="number" inputmode="decimal" min="0" placeholder="0"></div>
+        <div class="field"><label for="cmProtein">Protein g</label><input id="cmProtein" type="number" inputmode="decimal" min="0" placeholder="0"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label for="cmCarbs">Carbs g</label><input id="cmCarbs" type="number" inputmode="numeric" min="0" placeholder="0"></div>
-        <div class="field"><label for="cmFat">Fat g</label><input id="cmFat" type="number" inputmode="numeric" min="0" placeholder="0"></div>
+        <div class="field"><label for="cmCarbs">Carbs g</label><input id="cmCarbs" type="number" inputmode="decimal" min="0" placeholder="0"></div>
+        <div class="field"><label for="cmFat">Fat g</label><input id="cmFat" type="number" inputmode="decimal" min="0" placeholder="0"></div>
       </div>
-      <button class="btn btn-primary" id="cmAdd">Add meal</button>
+      <label class="switch-row">
+        <span><b>Remember this food</b><i>Keeps it under My foods so you never type it twice — any portion works from then on</i></span>
+        <input type="checkbox" id="cmSave" checked>
+      </label>
+      <button class="btn btn-primary" id="cmAdd" style="margin-top:16px">Add meal</button>
     `, (body) => {
       const addMeal = (f) => {
-        state.nutrition.meals.push({
-          id: uid(), date: key,
-          time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
-          slot,
-          name: f.name, kcal: f.kcal || 0, protein: f.protein || 0, carbs: f.carbs || 0, fat: f.fat || 0,
-        });
+        logMeal(f, slot, key);
         save(); closeSheet();
+        mealDayOffset = 0;
         goTab('meals');
         toast(`${f.name} logged`);
       };
@@ -1623,6 +1774,7 @@
       $$('#slotPick button', body).forEach((b) => b.addEventListener('click', () => {
         slot = b.dataset.slot;
         $$('#slotPick button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+        $('#savedList', body).innerHTML = savedHtml();
       }));
 
       $('#scanBtn', body).addEventListener('click', () => openScanner((code) => lookupBarcode(code, slot, key)));
@@ -1631,9 +1783,26 @@
       const list = $('#foodList', body);
       search.addEventListener('input', () => { list.innerHTML = listHtml(search.value); });
       list.addEventListener('click', (e) => {
+        const del = e.target.closest('[data-delfood]');
+        if (del) {
+          state.foods = (state.foods || []).filter((f) => f.id !== del.dataset.delfood);
+          save(); list.innerHTML = listHtml(search.value);
+          return;
+        }
+        const quick = e.target.closest('[data-quick]');
+        if (quick) {
+          const f = JSON.parse(quick.dataset.quick);
+          const amount = foodServing(f);
+          if (f.id) touchFood(f.id);
+          addMeal({ name: portionName(f, amount), ...scaleFood(f, amount) });
+          return;
+        }
+        const again = e.target.closest('[data-recent]');
+        if (again) { addMeal(JSON.parse(again.dataset.recent)); return; }
         const item = e.target.closest('[data-food]');
-        if (item) addMeal(JSON.parse(item.dataset.food));
+        if (item) { closeSheetNow(); openPortionSheet(JSON.parse(item.dataset.food), slot, key); }
       });
+
       const savedBox = $('#savedList', body);
       savedBox.addEventListener('click', (e) => {
         const del = e.target.closest('[data-delsaved]');
@@ -1650,17 +1819,44 @@
         save(); closeSheet(); goTab('meals');
         toast(meal.name + ' logged');
       });
+
+      // custom entry — the numbers describe the amount typed above them
+      let cUnit = 'g';
+      const hint = $('#cmHint', body), amt = $('#cmAmt', body);
+      const paintHint = () => {
+        const n = Number(amt.value) || 0;
+        hint.textContent = cUnit === 'piece'
+          ? (n === 1 ? 'Enter what is in one of them.' : 'Enter what is in ' + round1(n) + ' of them.')
+          : 'Enter what is in ' + round1(n) + ' ' + cUnit + ' of it.';
+      };
+      paintHint();
+      amt.addEventListener('input', paintHint);
+      $$('#cmUnit button', body).forEach((b) => b.addEventListener('click', () => {
+        cUnit = b.dataset.u;
+        $$('#cmUnit button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+        if (cUnit === 'piece' && Number(amt.value) === 100) amt.value = 1;
+        if (cUnit !== 'piece' && Number(amt.value) === 1) amt.value = 100;
+        paintHint();
+      }));
+
       $('#cmAdd', body).addEventListener('click', () => {
         const name = $('#cmName', body).value.trim();
-        const kcal = Number($('#cmKcal', body).value) || 0;
+        const num = (sel) => Number($(sel, body).value) || 0;
+        const amount = Number(amt.value) || 0;
+        const macros = { kcal: num('#cmKcal'), protein: num('#cmProtein'), carbs: num('#cmCarbs'), fat: num('#cmFat') };
         if (!name) { toast('Give the meal a name'); return; }
-        if (!kcal) { toast('Enter calories'); return; }
-        addMeal({
-          name, kcal,
-          protein: Number($('#cmProtein', body).value) || 0,
-          carbs: Number($('#cmCarbs', body).value) || 0,
-          fat: Number($('#cmFat', body).value) || 0,
-        });
+        if (!macros.kcal) { toast('Enter calories'); return; }
+        if (!amount) { toast('Enter an amount'); return; }
+        const basis = { name, unit: cUnit, per: cUnit === 'piece' ? 1 : 100, serving: amount };
+        if ($('#cmSave', body).checked) {
+          const factor = (cUnit === 'piece' ? 1 : 100) / amount;
+          rememberFood({
+            ...basis,
+            kcal: round1(macros.kcal * factor), protein: round1(macros.protein * factor),
+            carbs: round1(macros.carbs * factor), fat: round1(macros.fat * factor),
+          });
+        }
+        addMeal({ name: portionName(basis, amount), ...macros });
       });
     });
   }
@@ -2607,11 +2803,12 @@
         };
         if (!per100.kcal) { toast('No nutrition data for that product'); notFound(code, slot, key); return; }
         const servMatch = String(pr.serving_size || '').match(/([\d.]+)\s*g/i);
-        openProductSheet({
+        // a scanned product is a per-100 g food like any other, and worth keeping
+        openPortionSheet({
           name: [pr.brands ? String(pr.brands).split(',')[0].trim() : '', pr.product_name || 'Scanned product'].filter(Boolean).join(' — '),
-          per100,
-          grams: servMatch ? Math.round(Number(servMatch[1])) : 100,
-        }, slot, key);
+          unit: 'g', per: 100, serving: servMatch ? Math.round(Number(servMatch[1])) : 100,
+          kcal: per100.kcal, protein: per100.protein, carbs: per100.carbs, fat: per100.fat,
+        }, slot, key, { offerSave: true });
       })
       .catch(() => toast('Lookup failed — check your connection'));
   }
@@ -2621,54 +2818,6 @@
       '<p class="empty-note">Barcode ' + esc(code) + ' isn’t in the food database yet.</p>' +
       '<button class="btn btn-primary" id="nfManual">Enter it by hand</button>',
       (body) => { $('#nfManual', body).addEventListener('click', () => { closeSheetNow(); openMealSheet(key || dateKey(), slot); }); });
-  }
-
-  function openProductSheet(prod, startSlot, key) {
-    const date = key || dateKey();
-    let slot = startSlot || slotFromTime(new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' }));
-    const scaled = (g) => ({
-      kcal: Math.round(prod.per100.kcal * g / 100),
-      protein: Math.round(prod.per100.protein * g / 100),
-      carbs: Math.round(prod.per100.carbs * g / 100),
-      fat: Math.round(prod.per100.fat * g / 100),
-    });
-    openSheet(prod.name, '' +
-      '<div class="seg seg-slot" id="slotPick">' +
-        MEAL_SLOTS.map(([k, title]) => '<button data-slot="' + k + '" class="' + (k === slot ? 'is-on' : '') + '">' + title + '</button>').join('') +
-      '</div>' +
-      '<div class="field"><label for="pdG">Portion (g)</label>' +
-        '<input id="pdG" type="number" inputmode="numeric" min="1" value="' + prod.grams + '"></div>' +
-      '<div class="prod-macros" id="pdOut"></div>' +
-      '<button class="btn btn-primary" id="pdAdd" style="margin-top:16px">Add to log</button>',
-    (body) => {
-      const gIn = $('#pdG', body), out = $('#pdOut', body);
-      const paint = () => {
-        const v = scaled(Number(gIn.value) || 0);
-        out.innerHTML =
-          '<div><span class="micro">kcal</span><b>' + v.kcal + '</b></div>' +
-          '<div><span class="micro">Protein</span><b>' + v.protein + 'g</b></div>' +
-          '<div><span class="micro">Carbs</span><b>' + v.carbs + 'g</b></div>' +
-          '<div><span class="micro">Fat</span><b>' + v.fat + 'g</b></div>';
-      };
-      paint();
-      gIn.addEventListener('input', paint);
-      $$('#slotPick button', body).forEach((b) => b.addEventListener('click', () => {
-        slot = b.dataset.slot;
-        $$('#slotPick button', body).forEach((x) => x.classList.toggle('is-on', x === b));
-      }));
-      $('#pdAdd', body).addEventListener('click', () => {
-        const g = Number(gIn.value) || 0;
-        if (!g) { toast('Enter a portion size'); return; }
-        const v = scaled(g);
-        state.nutrition.meals.push({
-          id: uid(), date, slot,
-          time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
-          name: prod.name + ' (' + g + 'g)', ...v,
-        });
-        save(); closeSheet(); mealDayOffset = 0; goTab('meals');
-        toast('Logged ' + v.kcal + ' kcal');
-      });
-    });
   }
 
   /* ================= HABITS TAB ================= */
@@ -4201,6 +4350,10 @@
         <input type="checkbox" id="keepAwake" ${s.keepAwake === false ? '' : 'checked'}>
       </label>
       <label class="switch-row">
+        <span><b>Full screen</b><i>Hides the Android status bar — and the grey hairline the browser draws under it</i></span>
+        <input type="checkbox" id="fullBleed" ${s.fullscreen ? 'checked' : ''}>
+      </label>
+      <label class="switch-row">
         <span><b>Track effort (RPE)</b><i>An extra column on every set</i></span>
         <input type="checkbox" id="trackRpe" ${s.trackRpe === false ? '' : 'checked'}>
       </label>
@@ -4337,6 +4490,11 @@
       $('#keepAwake', body).addEventListener('change', (e) => {
         state.settings.keepAwake = e.target.checked;
         save(); syncWakeLock();
+      });
+      $('#fullBleed', body).addEventListener('change', (e) => {
+        state.settings.fullscreen = e.target.checked;
+        save();
+        if (e.target.checked) requestFullBleed(); else exitFullBleed();
       });
       $('#trackRpe', body).addEventListener('change', (e) => {
         state.settings.trackRpe = e.target.checked;
@@ -4504,4 +4662,5 @@
 
   render();
   checkSharedImport();
+  armFullBleed();
 })();
