@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '7.8';
+  const APP_VERSION = '7.9';
 
   /* ---------------- state ---------------- */
 
@@ -2750,6 +2750,153 @@
     });
   }
 
+
+  /* ---- importing a habit's history from an exported file ----
+     Samsung Health has no web API — nothing in a browser can read it live.
+     What it does have is "Download personal data", which produces CSVs, and
+     those we can read. The parser is deliberately loose so a Google Fit or
+     Health Connect export works too. */
+
+  function splitCsvLine(line) {
+    const out = []; let cur = '', q = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (q) {
+        if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+        else if (c === '"') q = false;
+        else cur += c;
+      } else if (c === '"') q = true;
+      else if (c === ',') { out.push(cur); cur = ''; }
+      else cur += c;
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function parseDayValue(raw) {
+    const v = String(raw).trim();
+    if (!v) return null;
+    if (/^\d{10}$/.test(v)) return new Date(Number(v) * 1000);        // epoch seconds
+    if (/^\d{13}$/.test(v)) return new Date(Number(v));               // epoch millis
+    const d = new Date(v.replace(' ', 'T'));
+    return isNaN(d) ? null : d;
+  }
+
+  // -> { days: {key: value}, count, span } or { error }
+  function parseHabitCsv(text) {
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    if (!lines.length) return { error: 'That file is empty.' };
+    let headerAt = -1, cols = null;
+    for (let i = 0; i < Math.min(8, lines.length); i++) {
+      const c = splitCsvLine(lines[i]).map((x) => x.trim().toLowerCase());
+      const hasValue = c.some((x) => /(^|_)(step_count|steps|count|value|total)($|_)/.test(x));
+      const hasDate = c.some((x) => /(time|date)/.test(x));
+      if (hasValue && hasDate) { headerAt = i; cols = c; break; }
+    }
+    if (headerAt < 0) return { error: 'Could not find a date and a value column in that file.' };
+
+    const pick = (patterns) => {
+      for (const p of patterns) {
+        const i = cols.findIndex((c) => p.test(c));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const valueIdx = pick([/^step_count$/, /^steps$/, /step/, /^count$/, /^value$/, /^total$/, /count/]);
+    const dateIdx = pick([/^day_time$/, /^date$/, /^start_time$/, /^create_time$/, /date/, /time/]);
+    if (valueIdx < 0 || dateIdx < 0) return { error: 'Could not find a date and a value column in that file.' };
+
+    const days = {};
+    for (let i = headerAt + 1; i < lines.length; i++) {
+      const row = splitCsvLine(lines[i]);
+      if (row.length <= Math.max(valueIdx, dateIdx)) continue;
+      const d = parseDayValue(row[dateIdx]);
+      const val = Number(String(row[valueIdx]).trim());
+      if (!d || !Number.isFinite(val) || val <= 0) continue;
+      const key = dateKey(d);
+      days[key] = Math.max(days[key] || 0, Math.round(val));   // one row per day wins
+    }
+    const keys = Object.keys(days).sort();
+    if (!keys.length) return { error: 'No usable rows in that file.' };
+    return { days, count: keys.length, from: keys[0], to: keys[keys.length - 1] };
+  }
+
+  /* A file shared into the app lands in the cache; on the next load we read it
+     out, ask which habit it belongs to, and import it. */
+  function checkSharedImport() {
+    const q = new URLSearchParams(location.search);
+    if (!q.has('shared')) return;
+    history.replaceState({}, '', location.pathname);
+    if (q.get('shared') === 'error' || !('caches' in window)) { toast('Could not read the shared file'); return; }
+    // search every cache: during an update the worker that stashed the file may
+    // be a version ahead of this page
+    caches.keys()
+      .then((names) => Promise.all(names.map((n) => caches.open(n).then((c) => c.match('shared-import').then((r) => (r ? { c, r } : null))))))
+      .then((hits) => hits.find(Boolean))
+      .then((hit) => (hit ? hit.r.text().then((t) => { hit.c.delete('shared-import'); return t; }) : null))
+      .then((text) => {
+        if (!text) { toast('Nothing came through'); return; }
+        const parsed = parseHabitCsv(text);
+        if (parsed.error) { toast(parsed.error); return; }
+        const targets = habitsList().filter((x) => habitType(x) === 'count' && !x.source);
+        if (!targets.length) { toast('No amount-based habit to import into'); return; }
+        openSheet('Imported file', '' +
+          '<div class="imp-ok"><b>' + parsed.count + ' days</b> found, ' +
+            esc(fmtShortDate(new Date(parsed.from + 'T12:00:00').getTime())) + ' – ' +
+            esc(fmtShortDate(new Date(parsed.to + 'T12:00:00').getTime())) + '</div>' +
+          '<div class="lib-group-title">Import into</div>' +
+          targets.map((x) => '<div class="lib-item" data-into="' + esc(x.id) + '" role="button" tabindex="0">' +
+            '<div><div class="li-name">' + esc(x.name) + '</div>' +
+            '<div class="li-sub">goal ' + habitShort(habitTarget(x)) + ' ' + esc(habitUnit(x)) + '</div></div>' +
+            '<span class="li-best">+</span></div>').join(''),
+        (body) => {
+          body.addEventListener('click', (e) => {
+            const item = e.target.closest('[data-into]');
+            if (!item) return;
+            Object.entries(parsed.days).forEach(([key, val]) => setHabitValue(item.dataset.into, val, key));
+            save(); closeSheet(); goTab('habits');
+            toast(parsed.count + ' days imported');
+          });
+        });
+      })
+      .catch(() => toast('Could not read the shared file'));
+  }
+
+  function openHabitImport(h) {
+    openSheet('Import ' + h.name, '' +
+      '<p class="confirm-msg">Nothing in a browser can read Samsung Health directly — it has no web API. What works is its export:</p>' +
+      '<ol class="how-list">' +
+        '<li>Samsung Health → <b>⋮</b> → Settings → <b>Download personal data</b></li>' +
+        '<li>Unzip the file it gives you</li>' +
+        '<li>Pick the file with <b>pedometer_day_summary</b> in its name</li>' +
+      '</ol>' +
+      '<button class="btn btn-primary" id="impPick">Choose a CSV file</button>' +
+      '<input id="impFile" type="file" accept=".csv,text/csv,text/plain" hidden>' +
+      '<div id="impOut"></div>',
+    (body) => {
+      const out = $('#impOut', body);
+      $('#impPick', body).addEventListener('click', () => $('#impFile', body).click());
+      $('#impFile', body).addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        file.text().then((text) => {
+          const res = parseHabitCsv(text);
+          if (res.error) { out.innerHTML = '<p class="imp-err">' + esc(res.error) + '</p>'; return; }
+          out.innerHTML =
+            '<div class="imp-ok"><b>' + res.count + ' days</b> found, ' +
+              esc(fmtShortDate(new Date(res.from + 'T12:00:00').getTime())) + ' – ' +
+              esc(fmtShortDate(new Date(res.to + 'T12:00:00').getTime())) + '</div>' +
+            '<button class="btn btn-primary" id="impGo">Import into ' + esc(h.name) + '</button>';
+          $('#impGo', out).addEventListener('click', () => {
+            Object.entries(res.days).forEach(([key, val]) => setHabitValue(h.id, val, key));
+            save(); closeSheet(); render();
+            toast(res.count + ' days imported');
+          });
+        }).catch(() => { out.innerHTML = '<p class="imp-err">Could not read that file.</p>'; });
+      });
+    });
+  }
+
   function openHabitEditor(id) {
     const h = id ? habitById(id) : null;
     const draft = h ? { ...h } : { id: uid(), name: '', icon: 'check', type: 'check', target: 1, unit: '', step: 1 };
@@ -2780,7 +2927,9 @@
         '<div class="field"><label for="hbStep">+ button adds</label><input id="hbStep" type="number" inputmode="decimal" min="0" value="' + (draft.step || 1) + '"></div>' +
       '</div>' +
       '</div>' +
-      '<button class="btn btn-primary" id="hbSave" style="margin-top:16px">' + (h ? 'Save habit' : 'Add habit') + '</button>' +
+      (h && habitType(h) === 'count' && !h.source
+        ? '<button class="btn btn-quiet" id="hbImport" style="margin-top:16px">Import history from a file</button>' : '') +
+      '<button class="btn btn-primary" id="hbSave" style="margin-top:' + (h && habitType(h) === 'count' && !h.source ? '10px' : '16px') + '">' + (h ? 'Save habit' : 'Add habit') + '</button>' +
       (h ? '<button class="btn btn-danger" id="hbDel" style="margin-top:10px">Delete habit</button>' : ''),
     (body) => {
       $$('.ip-btn', body).forEach((b) => b.addEventListener('click', () => {
@@ -2797,6 +2946,9 @@
         $$('#hbType button', body).forEach((x) => x.classList.toggle('is-on', x === b));
         $('#hbCountFields', body).hidden = draft.type !== 'count';
       }));
+      const imp = $('#hbImport', body);
+      if (imp) imp.addEventListener('click', () => { closeSheetNow(); openHabitImport(h); });
+
       $('#hbSave', body).addEventListener('click', () => {
         const name = $('#hbName', body).value.trim();
         if (!name) { toast('Give the habit a name'); return; }
@@ -3759,4 +3911,5 @@
   }));
 
   render();
+  checkSharedImport();
 })();

@@ -1,5 +1,5 @@
 /* B.E.L.A Gym — service worker */
-const VERSION = '7.8';
+const VERSION = '7.9';
 const CACHE = 'bela-gym-' + VERSION;
 const ASSETS = [
   '.',
@@ -34,7 +34,28 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+/* A file shared into the app (Samsung Health export -> Share -> B.E.L.A Gym)
+   arrives as a POST. Stash it, then send the app to ?shared=1 to pick it up. */
+const SHARE_KEY = 'shared-import';
+
 self.addEventListener('fetch', (e) => {
+  const url = new URL(e.request.url);
+  if (e.request.method === 'POST' && url.pathname.endsWith('/share-target/')) {
+    e.respondWith((async () => {
+      const home = url.pathname.replace(/share-target\/$/, '');
+      try {
+        const form = await e.request.formData();
+        const file = form.get('file');
+        const text = file && file.text ? await file.text() : String(form.get('text') || '');
+        const c = await caches.open(CACHE);
+        await c.put(SHARE_KEY, new Response(text, { headers: { 'Content-Type': 'text/plain' } }));
+        return Response.redirect(home + '?shared=1', 303);
+      } catch (err) {
+        return Response.redirect(home + '?shared=error', 303);
+      }
+    })());
+    return;
+  }
   if (e.request.method !== 'GET') return;
   const sameOrigin = new URL(e.request.url).origin === location.origin;
   const put = (res) => {
