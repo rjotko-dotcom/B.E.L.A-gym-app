@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '7.7';
+  const APP_VERSION = '7.8';
 
   /* ---------------- state ---------------- */
 
@@ -604,6 +604,22 @@
     if (!sheetHasEntry) { history.pushState({ t: 'sheet' }, ''); sheetHasEntry = true; }
     if (onMount) onMount(body);
   }
+  /* Every destructive action asks here rather than through window.confirm,
+     which renders as an unstyled system box titled with the domain name.
+     onCancel lets a caller restore the sheet this one replaced. */
+  function confirmAction({ title, message, confirm: label, danger = true, onConfirm, onCancel }) {
+    openSheet(title, '' +
+      '<p class="confirm-msg">' + esc(message) + '</p>' +
+      '<button class="btn ' + (danger ? 'btn-danger' : 'btn-primary') + '" id="cfYes">' + esc(label) + '</button>' +
+      '<button class="btn btn-quiet" id="cfNo" style="margin-top:10px">Cancel</button>',
+    (body) => {
+      $('#cfYes', body).addEventListener('click', () => { closeSheet(); onConfirm(); });
+      $('#cfNo', body).addEventListener('click', () => {
+        if (onCancel) { closeSheetNow(); onCancel(); } else closeSheet();
+      });
+    });
+  }
+
   function closeSheetNow() { $('#sheetRoot').innerHTML = ''; }
   function closeSheet() {
     closeSheetNow();
@@ -982,9 +998,7 @@
           '<div class="hstat-sub">' + (st && st.week != null
             ? (st.week > 0 ? '↑' : st.week < 0 ? '↓' : '→') + ' ' + Math.abs(st.week).toFixed(1) + ' ' + esc(unit()) + ' this week'
             : 'Tap to log today') + '</div>' +
-          (proj ? '<div class="hstat-goal">' + (Math.abs(proj.togo) < 0.05 ? 'Goal reached' :
-            Math.abs(proj.togo).toFixed(1) + ' ' + esc(unit()) + ' to ' + (proj.togo > 0 ? 'go' : 'gain')) + '</div>' : '') +
-          '<div class="hstat-spark">' + weightSpark(week) + '</div>' +
+          '<div class="hstat-goalbox">' + goalProgressHTML() + '</div>' +
         '</button>' +
         '<button class="card hstat" id="hbCard">' +
           '<span class="micro">Habits</span>' +
@@ -1058,20 +1072,35 @@
     $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
   }
 
-  /* tiny 7-day line for the bodyweight stat card */
-  function weightSpark(week) {
-    const pts = week.map((e, i) => (e ? { i, v: e.value } : null)).filter(Boolean);
-    if (pts.length < 2) return '<span class="spark-note">Log two days to see a trend</span>';
-    const vals = pts.map((p) => p.v);
-    const min = Math.min(...vals), max = Math.max(...vals);
-    const span = max - min || 1;
-    const W = 100, H = 26;
-    const xy = pts.map((p) => [((p.i / 6) * W).toFixed(1), (H - ((p.v - min) / span) * (H - 4) - 2).toFixed(1)]);
-    const d = xy.map(([x, y], i) => (i ? 'L' : 'M') + x + ',' + y).join(' ');
-    const lastPt = xy[xy.length - 1];
-    return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
-      '<path d="' + d + '" fill="none" stroke="var(--ink-2)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>' +
-      '<circle cx="' + lastPt[0] + '" cy="' + lastPt[1] + '" r="2.2" fill="var(--ink-1)"/></svg>';
+  /* How far along the journey to the goal weight — the number that actually
+     matters, instead of a line drawn through two noisy points. */
+  function goalProgressHTML() {
+    const goal = state.settings.goalWeight;
+    const lw = latestWeight();
+    const u = esc(unit());
+    if (!lw) return '<div class="gb-empty">Log your weight to start tracking</div>';
+    if (!goal) return '<div class="gb-empty">Set a goal weight</div>';
+
+    const all = [...state.nutrition.weights].sort((a, b) => a.date.localeCompare(b.date));
+    const start = all.length ? all[0].value : lw.value;
+    const togo = Math.round((lw.value - goal) * 10) / 10;
+    const span = Math.abs(start - goal);
+    const done = Math.abs(start - lw.value);
+    let pct = span > 0.05 ? Math.round(Math.min(100, Math.max(0, (done / span) * 100))) : 100;
+    // moving away from the goal shouldn't read as progress
+    const wrongWay = (goal < start && lw.value > start) || (goal > start && lw.value < start);
+    if (wrongWay) pct = 0;
+    const reached = Math.abs(togo) < 0.05 || (goal < start ? lw.value <= goal : lw.value >= goal);
+
+    const proj = goalProjection();
+    const note = reached ? 'Goal reached'
+      : Math.abs(togo).toFixed(1) + ' ' + u + ' to ' + (togo > 0 ? 'go' : 'gain') +
+        (proj && proj.eta ? ' · ' + proj.eta.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '');
+
+    return '' +
+      '<div class="gb-note' + (reached ? ' all-done' : '') + '">' + note + '</div>' +
+      '<div class="gb-track"><div class="gb-fill' + (reached ? ' all-done' : '') + '" style="width:' + (reached ? 100 : pct) + '%"></div></div>' +
+      '<div class="gb-ends"><span>' + fmtNum(Math.round(start * 10) / 10) + '</span><span>' + fmtNum(goal) + ' ' + u + '</span></div>';
   }
 
   function renderHome() {
@@ -1564,16 +1593,40 @@
       el.addEventListener('click', (e) => {
         const delBtn = e.target.closest('[data-del-tpl]');
         if (delBtn) {
-          if (confirm('Delete this routine?')) {
-            state.templates = state.templates.filter((t) => t.id !== delBtn.dataset.delTpl);
-            save(); render();
-          }
+          const tpl = state.templates.find((t) => t.id === delBtn.dataset.delTpl);
+          confirmAction({
+            title: 'Delete routine',
+            message: 'Delete "' + (tpl ? tpl.name : 'this routine') + '"? Workouts you already logged from it stay in your history.',
+            confirm: 'Delete routine',
+            onConfirm: () => {
+              state.templates = state.templates.filter((t) => t.id !== delBtn.dataset.delTpl);
+              save(); render();
+            },
+          });
           return;
         }
         const editBtn = e.target.closest('[data-edit-tpl]');
         if (editBtn) { openRoutineBuilder(editBtn.dataset.editTpl); return; }
         startWorkout(el.dataset.tpl);
       });
+    });
+  }
+
+  function confirmDiscard(fromLogger) {
+    const w = state.activeWorkout;
+    const sets = w ? loggedSets(w).length : 0;
+    confirmAction({
+      title: 'Discard workout',
+      message: sets
+        ? sets + ' logged set' + (sets === 1 ? '' : 's') + ' will be deleted. This cannot be undone.'
+        : 'Nothing has been logged yet, so nothing will be lost.',
+      confirm: 'Discard workout',
+      onConfirm: () => {
+        state.activeWorkout = null;
+        workoutOpen = false;
+        if (fromLogger) closeWkEntry();
+        stopRest(); save(); render();
+      },
     });
   }
 
@@ -1604,11 +1657,7 @@
       const expand = () => { workoutOpen = true; openWkEntry(); render(); };
       $('.mini-bar', root).addEventListener('click', (e) => {
         if (e.target.closest('#miniDiscard')) {
-          if (confirm('Discard this workout? Logged sets will be lost.')) {
-            state.activeWorkout = null;
-            workoutOpen = false;
-            stopRest(); save(); render();
-          }
+          confirmDiscard(false);
           return;
         }
         expand();
@@ -1647,14 +1696,7 @@
       w.exercises.push(newExerciseEntry(exId, 3));
       save(); render();
     }));
-    $('#cancelWorkout', root).addEventListener('click', () => {
-      if (confirm('Discard this workout? Logged sets will be lost.')) {
-        state.activeWorkout = null;
-        workoutOpen = false;
-        closeWkEntry();
-        stopRest(); save(); render();
-      }
-    });
+    $('#cancelWorkout', root).addEventListener('click', () => confirmDiscard(true));
 
     $$('.ex-block', root).forEach((block) => {
       const exIdx = Number(block.dataset.ex);
@@ -2232,9 +2274,22 @@
     if (!scanHasEntry) { history.pushState({ t: 'scan' }, ''); scanHasEntry = true; }
     $('#scanClose').addEventListener('click', () => closeScanner());
     $('#scanManual').addEventListener('click', () => {
-      const code = prompt('Barcode number');
-      if (code && /^\d{6,14}$/.test(code.trim())) { closeScanner(); onCode(code.trim()); }
-      else if (code) toast('That does not look like a barcode');
+      closeScanner();
+      openSheet('Enter barcode', '' +
+        '<div class="field"><label for="bcNum">Barcode number</label>' +
+          '<input id="bcNum" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 5711953068881"></div>' +
+        '<button class="btn btn-primary" id="bcGo">Look it up</button>',
+      (body) => {
+        const input = $('#bcNum', body);
+        input.focus();
+        const go = () => {
+          const code = input.value.trim();
+          if (!/^\d{6,14}$/.test(code)) { toast('That does not look like a barcode'); return; }
+          onCode(code);
+        };
+        $('#bcGo', body).addEventListener('click', go);
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+      });
     });
 
     const msg = $('#scanMsg');
@@ -2763,13 +2818,21 @@
       });
       const del = $('#hbDel', body);
       if (del) del.addEventListener('click', () => {
-        if (!confirm('Delete "' + draft.name + '" and its history?')) return;
-        state.habits = state.habits.filter((x) => x.id !== draft.id);
-        Object.keys(state.habitLog || {}).forEach((k) => {
-          delete state.habitLog[k][draft.id];
-          if (!Object.keys(state.habitLog[k]).length) delete state.habitLog[k];
+        closeSheetNow();
+        confirmAction({
+          title: 'Delete habit',
+          message: 'Delete "' + draft.name + '" and everything logged against it?',
+          confirm: 'Delete habit',
+          onCancel: () => openHabitEditor(draft.id),
+          onConfirm: () => {
+            state.habits = state.habits.filter((x) => x.id !== draft.id);
+            Object.keys(state.habitLog || {}).forEach((k) => {
+              delete state.habitLog[k][draft.id];
+              if (!Object.keys(state.habitLog[k]).length) delete state.habitLog[k];
+            });
+            save(); render();
+          },
         });
-        save(); closeSheet(); render();
       });
     });
   }
@@ -3316,24 +3379,42 @@
       card.addEventListener('click', (e) => {
         const del = e.target.closest('[data-delete]');
         if (del) {
-          if (confirm('Delete this workout permanently?')) {
-            state.workouts = state.workouts.filter((w) => w.id !== del.dataset.delete);
-            save(); render();
-          }
+          const w = state.workouts.find((x) => x.id === del.dataset.delete);
+          confirmAction({
+            title: 'Delete workout',
+            message: w ? esc(w.name) + ' from ' + fmtDate(w.startedAt) + ' will be removed from your history for good.'
+                       : 'This session will be removed from your history for good.',
+            confirm: 'Delete workout',
+            onConfirm: () => {
+              state.workouts = state.workouts.filter((x) => x.id !== del.dataset.delete);
+              save(); render();
+            },
+          });
           return;
         }
         const rep = e.target.closest('[data-repeat]');
         if (rep) {
           const w = state.workouts.find((x) => x.id === rep.dataset.repeat);
           if (w) {
-            if (state.activeWorkout && !confirm('A workout is in progress. Replace it?')) return;
-            state.activeWorkout = {
-              id: uid(), name: w.name, startedAt: Date.now(),
-              exercises: w.exercises.map((ex) => newExerciseEntry(ex.exerciseId, ex.sets.length)),
+            const begin = () => {
+              state.activeWorkout = {
+                id: uid(), name: w.name, startedAt: Date.now(),
+                exercises: w.exercises.map((ex) => newExerciseEntry(ex.exerciseId, ex.sets.length)),
+              };
+              workoutOpen = true;
+              openWkEntry();
+              save(); goTab('workout');
             };
-            workoutOpen = true;
-            openWkEntry();
-            save(); goTab('workout');
+            if (state.activeWorkout) {
+              confirmAction({
+                title: 'Replace session',
+                message: 'A workout is already in progress. Starting "' + w.name + '" again will discard it.',
+                confirm: 'Replace it',
+                onConfirm: begin,
+              });
+              return;
+            }
+            begin();
           }
           return;
         }
@@ -3562,10 +3643,14 @@
         location.replace(location.pathname + '?u=' + Date.now());
       });
       $('#wipeBtn', body).addEventListener('click', () => {
-        if (confirm('Erase ALL workouts, meals, routines and settings? This cannot be undone.')) {
-          state = defaultState();
-          save(); closeSheet(); render();
-        }
+        closeSheetNow();
+        confirmAction({
+          title: 'Erase everything',
+          message: 'Every workout, meal, habit, weigh-in and setting on this device will be deleted. Export a backup first if you might want any of it back.',
+          confirm: 'Erase all data',
+          onCancel: openSettings,
+          onConfirm: () => { state = defaultState(); save(); render(); toast('All data erased'); },
+        });
       });
     });
   }
