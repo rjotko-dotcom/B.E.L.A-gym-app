@@ -132,6 +132,46 @@ module.exports = async (t) => {
   t.check('and never covers the first exercise', !rest2.covers);
   t.check('the countdown shows next to the duration', /^\d+:\d\d$/.test(rest2.countdown || ''), rest2.countdown);
 
+  // logging a set must not throw the list back to the top
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    const ids = ['bench-press', 'incline-db-press', 'shoulder-press', 'lateral-raise', 'triceps-pushdown'];
+    st.activeWorkout = {
+      id: 'scroll', name: 'Push day', startedAt: Date.now() - 600000,
+      exercises: ids.map((id) => ({ exerciseId: id, sets: [0, 1, 2].map(() => ({ weight: 40, reps: 10, done: false })) })),
+    };
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(600);
+  await page.evaluate(() => { document.querySelector('.wk-body').scrollTop = 900; });
+  await page.waitForTimeout(200);
+  const wkY = () => page.evaluate(() => document.querySelector('.wk-body').scrollTop);
+  const startY = await wkY();
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.set-row')];
+    const seen = rows.find((r) => { const b = r.getBoundingClientRect(); return b.top > 120 && b.bottom < innerHeight - 40; }) || rows[0];
+    seen.querySelector('.set-done').click();
+  });
+  await page.waitForTimeout(450);
+  t.equal('ticking a set holds the scroll position', await wkY(), startY);
+  await page.evaluate(() => { document.querySelectorAll('.ex-block')[3].querySelector('.add-set').click(); });
+  await page.waitForTimeout(450);
+  t.equal('adding a set holds it too', await wkY(), startY);
+
+  // a new exercise is worth scrolling to, though
+  await page.click('#addExercise');
+  await page.waitForTimeout(450);
+  await page.evaluate(() => document.querySelector('.lib-item').click());
+  await page.waitForTimeout(550);
+  const added = await page.evaluate(() => {
+    const blocks = [...document.querySelectorAll('.ex-block')];
+    const r = blocks[blocks.length - 1].getBoundingClientRect();
+    return { count: blocks.length, visible: r.top < innerHeight && r.bottom > 0 };
+  });
+  t.equal('the exercise is added', added.count, 6);
+  t.check('and scrolled into view', added.visible);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

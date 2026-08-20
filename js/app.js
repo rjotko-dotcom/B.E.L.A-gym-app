@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '8.8';
+  const APP_VERSION = '8.9';
 
   /* ---------------- state ---------------- */
 
@@ -2025,6 +2025,8 @@
 
   /* -------- full-screen workout logger (Hevy-style) -------- */
 
+  let wkScrollTo = null;   // index of an exercise to bring into view after a rebuild
+
   function renderWorkoutOverlay() {
     const root = $('#workoutRoot');
     const w = state.activeWorkout;
@@ -2034,6 +2036,10 @@
     // overlay is rebuilt, or innerHTML takes it down with the old DOM
     const restBar = $('#restBar');
     if (restBar && restBar.parentElement !== document.body) document.body.appendChild(restBar);
+    // every tick, every added set rebuilds this overlay — remember where the
+    // list was so logging a set does not throw you back to the first exercise
+    const openBody = $('.wk-body', root);
+    const keptScroll = openBody ? openBody.scrollTop : null;
     syncWakeLock();
     if (!w) { root.innerHTML = ''; return; }
     if (!workoutOpen) {
@@ -2091,10 +2097,20 @@
 
     ensureElapsedTimer();
 
+    const wkBody = $('.wk-body', root);
+    if (keptScroll != null && wkBody) wkBody.scrollTop = keptScroll;
+    if (wkScrollTo != null && wkBody) {
+      // a brand new exercise: bring it into view instead of holding the old spot
+      const block = $$('.ex-block', root)[wkScrollTo];
+      if (block) wkBody.scrollTop = Math.max(0, block.offsetTop - 12);
+      wkScrollTo = null;
+    }
+
     $('#wkMin', root).addEventListener('click', () => { workoutOpen = false; closeWkEntry(); render(); });
     $('#wkFinishTop', root).addEventListener('click', finishWorkout);
     $('#addExercise', root).addEventListener('click', () => openExercisePicker((exId) => {
       w.exercises.push(newExerciseEntry(exId, 3));
+      wkScrollTo = w.exercises.length - 1;
       save(); render();
     }));
     $('#cancelWorkout', root).addEventListener('click', () => confirmDiscard(true));
@@ -4635,6 +4651,9 @@
 
   function render() {
     ensureElapsedTimer();
+    // rebuilding a view drops the page to the top: ticking a habit or adding a
+    // glass of water should leave you looking at the same thing
+    const pageY = window.scrollY;
     $('#view').classList.toggle('home-screen', currentTab === 'home');
     switch (currentTab) {
       case 'home': renderHome(); break;
@@ -4645,6 +4664,7 @@
     }
     renderWorkoutOverlay();
     fitHome();
+    if (pageY) window.scrollTo(0, pageY);
     if (slideDir) {
       const v = $('#view');
       v.classList.remove('slide-left', 'slide-right');
