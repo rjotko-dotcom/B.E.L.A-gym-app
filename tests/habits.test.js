@@ -76,6 +76,69 @@ module.exports = async (t) => {
   await page.waitForTimeout(450);
   t.check('a calendar day opens its habits', await page.evaluate(() => document.querySelectorAll('.hb-row').length > 0));
 
+  // ---- rest days: a habit that is not due today must not count as missed ----
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    const dk = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const read = st.habits.find((h) => h.id === 'h_read');
+    // due only on the weekday two days ago and today's weekday, so we can be
+    // sure at least one recent day is a skip
+    const idx = (n) => (new Date(Date.now() - n * 86400000).getDay() + 6) % 7;
+    read.due = 'days';
+    read.days = [false, false, false, false, false, false, false];
+    read.days[idx(0)] = true;
+    read.days[idx(2)] = true;
+    // done on every due day for the last three weeks, never on the others
+    for (let i = 0; i <= 21; i++) {
+      const key = dk(new Date(Date.now() - i * 86400000));
+      st.habitLog[key] = st.habitLog[key] || {};
+      if (read.days[idx(i)]) st.habitLog[key].h_read = 25; else delete st.habitLog[key].h_read;
+    }
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(450);
+  await page.click('.tab[data-tab="habits"]');
+  await page.waitForTimeout(450);
+
+  const dueState = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.hb-row')];
+    const read = rows.find((r) => r.querySelector('.hb-name').textContent === 'Read');
+    return {
+      heading: document.querySelector('.page-head .subtitle').textContent,
+      off: read.classList.contains('is-off'),
+      sub: read.querySelector('.hb-sub').textContent,
+      total: document.querySelectorAll('.hb-row').length,
+    };
+  });
+  const dueToday = /^(\d+) of (\d+)/.exec(dueState.heading);
+  t.check('a habit that is not due today is left out of the count',
+    dueState.off ? Number(dueToday[2]) < dueState.total : Number(dueToday[2]) === dueState.total,
+    dueState.heading + ' with ' + dueState.total + ' habits');
+  if (dueState.off) t.check('and says it is a rest day', /Rest day/.test(dueState.sub), dueState.sub);
+
+  const streakKept = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.hb-row')];
+    const read = rows.find((r) => r.querySelector('.hb-name').textContent === 'Read');
+    return read.querySelector('.hb-sub').textContent;
+  });
+  t.check('skipped days do not break the streak', /\d+ day streak/.test(streakKept), streakKept);
+
+  // the editor exposes the three modes
+  await page.evaluate(() => {
+    const row = document.querySelector('.hb-row[data-habit="h_read"]');
+    const touch = new Touch({ identifier: 1, target: row, clientX: 100, clientY: 100 });
+    row.dispatchEvent(new TouchEvent('touchstart', { touches: [touch], changedTouches: [touch], bubbles: true }));
+  });
+  await page.waitForTimeout(750);
+  t.equal('the editor offers every day, training days and pick days',
+    await page.evaluate(() => document.querySelectorAll('#hbDue button').length), 3);
+  await page.click('#hbDue button[data-due="plan"]');
+  await page.waitForTimeout(250);
+  await page.click('#hbSave');
+  await page.waitForTimeout(600);
+  t.equal('the choice is saved', (await readState(page)).habits.find((h) => h.id === 'h_read').due, 'plan');
+
   // importing a Samsung Health export into a habit
   const fs = require('fs'), os = require('os'), path = require('path');
   const csvPath = path.join(os.tmpdir(), 'bela-pedometer-test.csv');

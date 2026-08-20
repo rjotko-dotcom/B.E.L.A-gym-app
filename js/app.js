@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '8.4';
+  const APP_VERSION = '8.5';
 
   /* ---------------- state ---------------- */
 
@@ -377,6 +377,7 @@
   function streakAtRisk() {
     let best = null;
     for (const h of habitsList()) {
+      if (!habitDueOn(h)) continue;
       if (habitDone(h, dateKey())) continue;
       const st = habitStreak(h);
       if (st >= 3 && (!best || st > best.streak)) best = { habit: h, streak: st };
@@ -399,7 +400,11 @@
     const parts = {
       training: trained ? 30 : (planned && planned.rest ? 30 : 0),
       nutrition: 0,
-      habits: list.length ? Math.round((list.filter((h) => habitDone(h, key)).length / list.length) * 30) : 0,
+      habits: (() => {
+        const due = habitsDueOn(key);
+        if (!due.length) return 30;                      // nothing was owed today
+        return Math.round((due.filter((h) => habitDone(h, key)).length / due.length) * 30);
+      })(),
       weight: weightOn(key) ? 10 : 0,
     };
     if (t.kcal && tot.kcal) {
@@ -2734,20 +2739,40 @@
     if (!Object.keys(day).length) delete state.habitLog[key];
   }
   // consecutive days ending today (or yesterday, if today isn't logged yet)
+  /* A habit is not owed every day. 'daily' is every day, 'plan' follows the
+     weekly workout plan (so rest days are excused), and 'days' is whichever
+     weekdays you pick. A day a habit isn't due can never break its streak. */
+  function habitDueOn(h, key = dateKey()) {
+    const idx = (new Date(key + 'T12:00:00').getDay() + 6) % 7;   // 0 = Monday
+    const mode = h.due || 'daily';
+    if (mode === 'plan') {
+      if (!(state.schedule || []).some(Boolean)) return true;     // no plan yet
+      const planned = plannedFor(idx);
+      return !!planned && !planned.rest;
+    }
+    if (mode === 'days') return !(Array.isArray(h.days) && h.days[idx] === false);
+    return true;
+  }
+  const habitsDueOn = (key = dateKey()) => habitsList().filter((h) => habitDueOn(h, key));
+
   function habitStreak(h) {
     const d = new Date();
-    if (!habitDone(h, dateKey(d))) d.setDate(d.getDate() - 1);
+    // today only ends the streak once it is actually due and still undone
+    if (habitDueOn(h, dateKey(d)) && !habitDone(h, dateKey(d))) d.setDate(d.getDate() - 1);
     let count = 0;
     for (let i = 0; i < 400; i++) {
-      if (!habitDone(h, dateKey(d))) break;
-      count++;
+      const key = dateKey(d);
+      if (habitDueOn(h, key)) {
+        if (!habitDone(h, key)) break;
+        count++;
+      }
       d.setDate(d.getDate() - 1);
     }
     return count;
   }
   function habitsDone(key = dateKey()) {
-    const list = habitsList();
-    return { done: list.filter((h) => habitDone(h, key)).length, total: list.length };
+    const due = habitsDueOn(key);
+    return { done: due.filter((h) => habitDone(h, key)).length, total: due.length };
   }
   // compact cell text: 10000 -> 10k, 6400 -> 6.4k
   function habitShort(v) {
@@ -2781,11 +2806,12 @@
     for (let dnum = 1; dnum <= daysInMonth; dnum++) {
       const d = new Date(gridMonth.getFullYear(), gridMonth.getMonth(), dnum);
       const key = dateKey(d);
-      const doneCount = list.filter((h) => habitDone(h, key)).length;
-      const pct = list.length ? Math.round((doneCount / list.length) * 100) : 0;
-      const state = pct === 100 ? 'is-full' : doneCount ? 'is-part' : '';
+      const due = habitsDueOn(key);
+      const doneCount = due.filter((h) => habitDone(h, key)).length;
+      const pct = due.length ? Math.round((doneCount / due.length) * 100) : 0;
+      const state = !due.length ? 'is-off' : pct === 100 ? 'is-full' : doneCount ? 'is-part' : '';
       cells += '<button class="hc-day ' + state + (key === todayKey ? ' is-today' : '') + (key > todayKey ? ' is-future' : '') +
-        '" data-day="' + key + '" aria-label="' + dnum + ': ' + doneCount + ' of ' + list.length + ' done">' +
+        '" data-day="' + key + '" aria-label="' + dnum + ': ' + (due.length ? doneCount + ' of ' + due.length + ' done' : 'nothing due') + '">' +
         (state === 'is-part' ? '<i class="hc-fill" style="height:' + pct + '%"></i>' : '') +
         '<span>' + dnum + '</span></button>';
     }
@@ -2797,16 +2823,18 @@
     for (let dnum = 1; dnum <= daysInMonth; dnum++) {
       const d = new Date(gridMonth.getFullYear(), gridMonth.getMonth(), dnum);
       const key = dateKey(d);
-      const doneCount = list.filter((h) => habitDone(h, key)).length;
-      const pct = list.length ? Math.round((doneCount / list.length) * 100) : 0;
-      rows += '<tr class="' + (pct === 100 ? 'is-all ' : '') + (key === todayKey ? 'is-today' : key > todayKey ? 'is-future' : '') + '">' +
+      const dueToday = habitsDueOn(key);
+      const doneCount = dueToday.filter((h) => habitDone(h, key)).length;
+      const pct = dueToday.length ? Math.round((doneCount / dueToday.length) * 100) : 0;
+      rows += '<tr class="' + (dueToday.length && pct === 100 ? 'is-all ' : '') + (key === todayKey ? 'is-today' : key > todayKey ? 'is-future' : '') + '">' +
         '<th scope="row" data-day="' + key + '"><span class="hg-d">' + dnum + '</span><span class="hg-w">' + dowLetters[d.getDay()] + '</span>' +
           '<i class="hg-bar"><b style="width:' + pct + '%"></b></i></th>' +
         cols.map((h) => {
           const val = habitValue(h.id, key);
           const ok = val >= habitTarget(h);
-          const txt = !val ? '·' : habitType(h) === 'check' ? '✓' : habitShort(val);
-          return '<td class="' + (ok ? 'is-on' : val ? 'is-part' : '') + '" data-cell="' + esc(h.id) + '" data-day="' + key + '">' + txt + '</td>';
+          const off = !habitDueOn(h, key);
+          const txt = val ? (habitType(h) === 'check' ? '✓' : habitShort(val)) : off ? '–' : '·';
+          return '<td class="' + (ok ? 'is-on' : val ? 'is-part' : off ? 'is-off' : '') + '" data-cell="' + esc(h.id) + '" data-day="' + key + '">' + txt + '</td>';
         }).join('') + '</tr>';
     }
 
@@ -2834,10 +2862,13 @@
           const val = habitValue(h.id, todayKey);
           const ok = val >= habitTarget(h);
           const streak = habitStreak(h);
-          const sub = habitType(h) === 'check'
+          const off = !habitDueOn(h, todayKey);
+          const sub = off
+            ? 'Rest day' + (streak > 1 ? ' · ' + streak + ' day streak kept' : '')
+            : habitType(h) === 'check'
             ? (ok ? 'Done' : 'Not yet') + (streak > 1 ? ' · ' + streak + ' day streak' : '')
             : habitShort(val) + ' / ' + habitShort(habitTarget(h)) + (habitUnit(h) ? ' ' + esc(habitUnit(h)) : '') + (streak > 1 ? ' · ' + streak + ' day streak' : '');
-          return '<div class="hb-row ' + (ok ? 'is-done' : '') + (h.source ? ' is-auto' : '') + '" data-habit="' + esc(h.id) + '" role="button" tabindex="0">' +
+          return '<div class="hb-row ' + (ok ? 'is-done' : '') + (h.source ? ' is-auto' : '') + (off ? ' is-off' : '') + '" data-habit="' + esc(h.id) + '" role="button" tabindex="0">' +
             '<span class="hb-ico">' + habitIcon(h.icon) + '</span>' +
             '<div class="hb-body"><div class="hb-name">' + esc(h.name) + '</div><div class="hb-sub">' + sub + '</div></div>' +
             (h.source ? '<span class="hb-auto" title="Fills in automatically"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 5.5 13.5H11l-1 7.5L18.5 10H13Z"/></svg></span>' : '') +
@@ -3170,6 +3201,17 @@
       '<div class="icon-pick" id="hbIcons">' +
         HABIT_ICON_KEYS.map((k) => '<button class="ip-btn ' + (k === draft.icon ? 'is-on' : '') + '" data-icon="' + k + '" aria-label="' + k + '">' + habitIcon(k) + '</button>').join('') +
       '</div>' +
+      '<span class="micro" style="margin:14px 0 8px">Due on</span>' +
+      '<div class="src-pick" id="hbDue">' +
+        '<button data-due="daily" class="' + ((draft.due || 'daily') === 'daily' ? 'is-on' : '') + '">Every day</button>' +
+        '<button data-due="plan" class="' + (draft.due === 'plan' ? 'is-on' : '') + '">Training days</button>' +
+        '<button data-due="days" class="' + (draft.due === 'days' ? 'is-on' : '') + '">Pick days</button>' +
+      '</div>' +
+      '<p class="due-note" id="dueNote"></p>' +
+      '<div class="day-pick" id="hbDays" ' + (draft.due === 'days' ? '' : 'hidden') + '>' +
+        ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((l, i) =>
+          '<button data-day="' + i + '" class="' + (draft.days && draft.days[i] === false ? '' : 'is-on') + '">' + l + '</button>').join('') +
+      '</div>' +
       '<span class="micro" style="margin:14px 0 8px">Fills in</span>' +
       '<div class="src-pick" id="hbSource">' +
         '<button data-src="" class="' + (!draft.source ? 'is-on' : '') + '">By hand</button>' +
@@ -3199,6 +3241,30 @@
         draft.icon = b.dataset.icon;
         $$('.ip-btn', body).forEach((x) => x.classList.toggle('is-on', x === b));
       }));
+      const note = $('#dueNote', body);
+      const paintNote = () => {
+        const mode = draft.due || 'daily';
+        note.textContent = mode === 'plan'
+          ? 'Only on days your weekly plan has a session. Rest days are skipped, and skipping one never breaks the streak.'
+          : mode === 'days'
+          ? 'Only on the days you pick below. The others are skipped rather than missed.'
+          : 'Owed every day.';
+      };
+      paintNote();
+      $$('#hbDue button', body).forEach((b) => b.addEventListener('click', () => {
+        draft.due = b.dataset.due;
+        if (draft.due === 'days' && !Array.isArray(draft.days)) draft.days = [true, true, true, true, true, true, true];
+        $$('#hbDue button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+        $('#hbDays', body).hidden = draft.due !== 'days';
+        paintNote();
+      }));
+      $$('#hbDays button', body).forEach((b) => b.addEventListener('click', () => {
+        const i = Number(b.dataset.day);
+        if (!Array.isArray(draft.days)) draft.days = [true, true, true, true, true, true, true];
+        draft.days[i] = !(draft.days[i] !== false);
+        b.classList.toggle('is-on', draft.days[i] !== false);
+      }));
+
       $$('#hbSource button', body).forEach((b) => b.addEventListener('click', () => {
         draft.source = b.dataset.src || null;
         $$('#hbSource button', body).forEach((x) => x.classList.toggle('is-on', x === b));
@@ -3216,6 +3282,7 @@
         const name = $('#hbName', body).value.trim();
         if (!name) { toast('Give the habit a name'); return; }
         draft.name = name;
+        if (draft.due !== 'days') delete draft.days;
         if (draft.source) {
           draft.type = HABIT_SOURCES[draft.source].type;
           draft.unit = HABIT_SOURCES[draft.source].unit;
