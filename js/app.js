@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '7.1';
+  const APP_VERSION = '7.2';
 
   /* ---------------- state ---------------- */
 
@@ -39,6 +39,7 @@
   let tabHasEntry = false;
   let wkHasEntry = false;
   let sheetHasEntry = false;
+  let scanHasEntry = false;
 
   function goTab(tab) {
     currentTab = tab;
@@ -58,6 +59,7 @@
   }
   addEventListener('popstate', () => {
     if (skipPop > 0) { skipPop--; return; }
+    if (scanOpen) { scanHasEntry = false; closeScanner(false); return; }
     if ($('#sheetRoot').children.length) { sheetHasEntry = false; closeSheetNow(); return; }
     if (workoutOpen) { wkHasEntry = false; workoutOpen = false; render(); return; }
     if (currentTab !== 'home') { tabHasEntry = false; currentTab = 'home'; render(); return; }
@@ -80,17 +82,7 @@
       if (parsed.settings && !parsed.settings.appearance) {
         parsed.settings.appearance = parsed.settings.theme === 'dark' ? 'dark' : 'system';
       }
-      if (!parsed.habits) parsed.habits = starterHabits();
-      if (!parsed.habitLog) parsed.habitLog = {};
-      (parsed.nutrition?.meals || []).forEach((m) => { if (!m.slot) m.slot = slotFromTime(m.time); });
-      return {
-        ...d, ...parsed,
-        settings: { ...d.settings, ...(parsed.settings || {}) },
-        nutrition: {
-          ...d.nutrition, ...(parsed.nutrition || {}),
-          targets: { ...d.nutrition.targets, ...(parsed.nutrition?.targets || {}) },
-        },
-      };
+      return normalize(parsed, d);
     } catch {
       return defaultState();
     }
@@ -99,9 +91,25 @@
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
   }
 
+  /* Brings a saved (or imported) document up to the current shape: fills in
+     anything added since it was written, without touching what it already has. */
+  function normalize(parsed, d = defaultState()) {
+    if (!parsed.habits) parsed.habits = starterHabits();
+    if (!parsed.habitLog) parsed.habitLog = {};
+    (parsed.nutrition?.meals || []).forEach((m) => { if (!m.slot) m.slot = slotFromTime(m.time); });
+    return {
+      ...d, ...parsed,
+      settings: { ...d.settings, ...(parsed.settings || {}) },
+      nutrition: {
+        ...d.nutrition, ...(parsed.nutrition || {}),
+        targets: { ...d.nutrition.targets, ...(parsed.nutrition?.targets || {}) },
+      },
+    };
+  }
+
   function starterHabits() {
     return [
-      { id: 'h_train', name: 'Train', icon: 'dumbbell', type: 'check', target: 1, unit: '', step: 1 },
+      { id: 'h_train', name: 'Train', icon: 'dumbbell', type: 'check', target: 1, unit: '', step: 1, source: 'workout' },
       { id: 'h_steps', name: 'Steps', icon: 'steps', type: 'count', target: 10000, unit: 'steps', step: 1000 },
       { id: 'h_read', name: 'Read', icon: 'book', type: 'count', target: 20, unit: 'pages', step: 5 },
       { id: 'h_sleep', name: 'Sleep 8h', icon: 'sleep', type: 'check', target: 1, unit: '', step: 1 },
@@ -241,6 +249,25 @@
       }
     }
     return [];
+  }
+
+  /* What to aim for this session, from how the last one actually went:
+     every working set hit the target -> add weight; otherwise chase a rep. */
+  function overloadHint(ex) {
+    if (isCardio(ex.exerciseId)) return null;
+    const prev = previousSets(ex.exerciseId).filter((s) => (s.type || 'N') !== 'W' && s.weight);
+    if (!prev.length) return null;
+    const goal = ex.targetReps || Math.max(...prev.map((s) => s.reps || 0)) || 8;
+    const top = prev.reduce((a, b) => (est1RM(b.weight, b.reps) > est1RM(a.weight, a.reps) ? b : a));
+    const allHit = prev.every((s) => (s.reps || 0) >= goal);
+    const inc = unit() === 'kg' ? 2.5 : 5;
+    return {
+      allHit,
+      prevWeight: top.weight,
+      prevReps: prev.map((s) => s.reps || 0).join(','),
+      weight: allHit ? Math.round((top.weight + inc) * 2) / 2 : top.weight,
+      reps: allHit ? goal : Math.min(goal, (top.reps || 0) + 1),
+    };
   }
 
   /* -------- nutrition helpers -------- */
@@ -601,13 +628,6 @@
     const ringOffset = RING * (1 - Math.min(1, frac));
 
     v.innerHTML = `
-      <svg class="home-wave" viewBox="0 0 400 120" preserveAspectRatio="none" aria-hidden="true">
-        <defs><linearGradient id="waveGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop class="wave-a" offset="0%"/><stop class="wave-b" offset="100%"/>
-        </linearGradient></defs>
-        <path d="M0,0 H400 V74 C336,84 306,104 252,104 C192,104 150,72 92,79 C52,84 24,95 0,103 Z" fill="url(#waveGrad)"/>
-      </svg>
-
       <div class="home-head">
         <div class="hh-text">
           <span class="hh-greet">${greeting},</span>
@@ -714,7 +734,9 @@
     $$('.hbh-chip', v).forEach((c) => c.addEventListener('click', () => {
       const h = habitById(c.dataset.h);
       if (!h) return;
-      if (h.type === 'check') toggleHabit(h); else openHabitPad(h, todayKey);
+      if (h.source) goHabitSource(h);
+      else if (habitType(h) === 'check') toggleHabit(h);
+      else openHabitPad(h, todayKey);
     }));
     const hbHome = $('.hb-home', v);
     if (hbHome) hbHome.addEventListener('click', (e) => { if (!e.target.closest('.hbh-chip')) goTab('habits'); });
@@ -817,7 +839,11 @@
     v.innerHTML =
       '<div class="page-head">' +
         '<div><h2>Nutrition</h2><p class="subtitle">Log meals, macros and water</p></div>' +
-        '<button class="icon-btn" id="addMeal" aria-label="Log a meal"><svg viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg></button>' +
+        '<div class="ph-actions">' +
+          '<button class="icon-btn" id="editTargets" aria-label="Edit daily goals">' +
+            '<svg viewBox="0 0 24 24"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2.1"/><circle cx="9" cy="16" r="2.1"/></svg></button>' +
+          '<button class="icon-btn" id="addMeal" aria-label="Log a meal"><svg viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg></button>' +
+        '</div>' +
       '</div>' +
 
       '<div class="day-nav">' +
@@ -884,11 +910,54 @@
     $('#waterPlus').addEventListener('click', () => { setWater(key, waterFor(key) + 1); save(); render(); });
     $('#waterMinus').addEventListener('click', () => { setWater(key, Math.max(0, waterFor(key) - 1)); save(); render(); });
     $('#addMeal').addEventListener('click', () => openMealSheet(key));
+    $('#editTargets').addEventListener('click', openTargetsSheet);
     $$('.slot-add', v).forEach((b) => b.addEventListener('click', () => openMealSheet(key, b.dataset.slot)));
     $$('.si-del', v).forEach((b) => b.addEventListener('click', () => {
       state.nutrition.meals = state.nutrition.meals.filter((m) => m.id !== b.dataset.del);
       save(); render();
     }));
+  }
+
+  /* daily goals, editable straight from the nutrition page */
+  function openTargetsSheet() {
+    const t = state.nutrition.targets;
+    const kcalFromMacros = (p, c, f) => Math.round(p * 4 + c * 4 + f * 9);
+    openSheet('Daily goals', '' +
+      '<div class="field"><label for="ngKcal">Calories (kcal)</label>' +
+        '<input id="ngKcal" type="number" inputmode="numeric" min="0" value="' + t.kcal + '"></div>' +
+      '<div class="field-row-3">' +
+        '<div class="field"><label for="ngP">Protein g</label><input id="ngP" type="number" inputmode="numeric" min="0" value="' + t.protein + '"></div>' +
+        '<div class="field"><label for="ngC">Carbs g</label><input id="ngC" type="number" inputmode="numeric" min="0" value="' + t.carbs + '"></div>' +
+        '<div class="field"><label for="ngF">Fat g</label><input id="ngF" type="number" inputmode="numeric" min="0" value="' + t.fat + '"></div>' +
+      '</div>' +
+      '<p class="goal-note" id="ngNote"></p>' +
+      '<div class="field"><label for="ngW">Water (glasses)</label>' +
+        '<input id="ngW" type="number" inputmode="numeric" min="1" value="' + (state.settings.waterTarget || 8) + '"></div>' +
+      '<button class="btn btn-quiet" id="ngMatch">Set calories from macros</button>' +
+      '<button class="btn btn-primary" id="ngSave" style="margin-top:10px">Save goals</button>',
+    (body) => {
+      const get = (id) => Math.max(0, Number($(id, body).value) || 0);
+      const note = $('#ngNote', body);
+      const paint = () => {
+        const fromMacros = kcalFromMacros(get('#ngP'), get('#ngC'), get('#ngF'));
+        const diff = fromMacros - get('#ngKcal');
+        note.textContent = 'Your macros add up to ' + fromMacros.toLocaleString() + ' kcal' +
+          (Math.abs(diff) > 50 ? ' — ' + Math.abs(diff) + ' ' + (diff > 0 ? 'more' : 'less') + ' than your calorie goal' : ' — that matches your calorie goal');
+        note.classList.toggle('off', Math.abs(diff) > 50);
+      };
+      paint();
+      $$('input', body).forEach((i) => i.addEventListener('input', paint));
+      $('#ngMatch', body).addEventListener('click', () => {
+        $('#ngKcal', body).value = kcalFromMacros(get('#ngP'), get('#ngC'), get('#ngF'));
+        paint();
+      });
+      $('#ngSave', body).addEventListener('click', () => {
+        state.nutrition.targets = { kcal: get('#ngKcal'), protein: get('#ngP'), carbs: get('#ngC'), fat: get('#ngF') };
+        state.settings.waterTarget = Math.max(1, get('#ngW'));
+        save(); closeSheet(); render();
+        toast('Goals updated');
+      });
+    });
   }
 
   function openMealSheet(key = dateKey(), slot = null) {
@@ -926,7 +995,12 @@
       <div class="seg seg-slot" id="slotPick">
         ${MEAL_SLOTS.map(([k, title]) => `<button data-slot="${k}" class="${k === slot ? 'is-on' : ''}">${title}</button>`).join('')}
       </div>
-      <input class="search-field" id="foodSearch" type="search" placeholder="Search foods…" autocomplete="off">
+      <div class="search-row">
+        <input class="search-field" id="foodSearch" type="search" placeholder="Search foods…" autocomplete="off">
+        <button class="scan-btn" id="scanBtn" aria-label="Scan a barcode">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5V6a2 2 0 0 1 2-2h2.5M15.5 4H18a2 2 0 0 1 2 2v2.5M20 15.5V18a2 2 0 0 1-2 2h-2.5M8.5 20H6a2 2 0 0 1-2-2v-2.5M7.5 12h9"/></svg>
+        </button>
+      </div>
       <div id="foodList">${listHtml('')}</div>
       <div class="section-title">Custom entry</div>
       <div class="field"><label for="cmName">Name</label><input id="cmName" type="text" placeholder="e.g. Chicken bowl"></div>
@@ -956,6 +1030,8 @@
         slot = b.dataset.slot;
         $$('#slotPick button', body).forEach((x) => x.classList.toggle('is-on', x === b));
       }));
+
+      $('#scanBtn', body).addEventListener('click', () => openScanner((code) => lookupBarcode(code, slot, key)));
 
       const search = $('#foodSearch', body);
       const list = $('#foodList', body);
@@ -1191,6 +1267,19 @@
       $('.ex-menu', block).addEventListener('click', () => openExerciseMenu(exIdx));
       $('.ex-note-line', block).addEventListener('click', () => openNoteSheet(ex));
       $('.ex-rest', block).addEventListener('click', () => openRestSheet(ex));
+      const hintBtn = $('.ex-hint', block);
+      if (hintBtn) hintBtn.addEventListener('click', () => {
+        const h = overloadHint(ex);
+        if (!h) return;
+        let filled = 0;
+        ex.sets.forEach((st) => {
+          if (st.done || (st.type || 'N') === 'W') return;
+          st.weight = h.weight; st.reps = h.reps; filled++;
+        });
+        if (!filled) { toast('Every set is already logged'); return; }
+        save(); render();
+        toast('Filled in ' + fmtNum(h.weight) + ' ' + unit() + ' × ' + h.reps);
+      });
       $('.add-set', block).addEventListener('click', () => {
         const last = ex.sets[ex.sets.length - 1];
         ex.sets.push({ weight: last?.weight ?? null, reps: last?.reps ?? null, done: false });
@@ -1466,6 +1555,11 @@
         </div>
         <button class="ex-line ex-note-line ${ex.note ? 'has' : ''}">${ex.note ? '📝 ' + esc(ex.note) : 'Add notes here…'}</button>
         <button class="ex-line ex-rest">⏱ Rest timer: <b>${ex.rest === 0 ? 'Off' : (ex.rest ?? state.settings.restSeconds) + 's'}</b></button>
+        ${(() => {
+          const h = overloadHint(ex);
+          if (!h) return '';
+          return `<button class="ex-line ex-hint ${h.allHit ? 'up' : ''}">${h.allHit ? '↑' : '→'} Last ${fmtNum(h.prevWeight)} ${esc(u)} × ${h.prevReps} — try <b>${fmtNum(h.weight)} ${esc(u)} × ${h.reps}</b></button>`;
+        })()}
         <div class="set-grid">
           <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(u)}</span><span class="hdr">${cardio ? 'min' : 'Reps'}</span><span class="hdr">✓</span>
           ${ex.sets.map((s, i) => {
@@ -1707,33 +1801,215 @@
   }
 
 
+
+  /* ================= BARCODE SCANNING ================= */
+  /* Camera -> BarcodeDetector -> Open Food Facts. Needs a connection; every
+     other part of the app keeps working offline. */
+
+  let scanOpen = false;
+  let scanStream = null;
+  let scanTimer = null;
+
+  function closeScanner(pop = true) {
+    scanOpen = false;
+    clearInterval(scanTimer); scanTimer = null;
+    if (scanStream) { scanStream.getTracks().forEach((t) => t.stop()); scanStream = null; }
+    $('#scanRoot').innerHTML = '';
+    if (pop && scanHasEntry) { scanHasEntry = false; skipPop++; history.back(); }
+  }
+
+  function openScanner(onCode) {
+    const root = $('#scanRoot');
+    root.innerHTML = '' +
+      '<div class="scan-overlay">' +
+        '<video id="scanVideo" playsinline muted autoplay></video>' +
+        '<div class="scan-frame"><span></span><span></span><span></span><span></span></div>' +
+        '<div class="scan-bar">' +
+          '<button class="icon-btn" id="scanClose" aria-label="Close scanner"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>' +
+          '<p id="scanMsg">Point the camera at a barcode</p>' +
+          '<button class="chip-btn" id="scanManual">Type it</button>' +
+        '</div>' +
+      '</div>';
+    scanOpen = true;
+    if (!scanHasEntry) { history.pushState({ t: 'scan' }, ''); scanHasEntry = true; }
+    $('#scanClose').addEventListener('click', () => closeScanner());
+    $('#scanManual').addEventListener('click', () => {
+      const code = prompt('Barcode number');
+      if (code && /^\d{6,14}$/.test(code.trim())) { closeScanner(); onCode(code.trim()); }
+      else if (code) toast('That does not look like a barcode');
+    });
+
+    const msg = $('#scanMsg');
+    if (!('BarcodeDetector' in window)) {
+      msg.textContent = 'This browser can’t scan — tap “Type it”';
+      return;
+    }
+    const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'] });
+    const video = $('#scanVideo');
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      .then((stream) => {
+        if (!scanOpen) { stream.getTracks().forEach((t) => t.stop()); return; }
+        scanStream = stream;
+        video.srcObject = stream;
+        scanTimer = setInterval(async () => {
+          if (!scanOpen || video.readyState < 2) return;
+          try {
+            const codes = await detector.detect(video);
+            if (codes.length) {
+              const code = codes[0].rawValue;
+              if (navigator.vibrate) navigator.vibrate(30);
+              closeScanner();
+              onCode(code);
+            }
+          } catch (e) { /* a dropped frame is not worth reporting */ }
+        }, 350);
+      })
+      .catch(() => { msg.textContent = 'No camera access — tap “Type it”'; });
+  }
+
+  function lookupBarcode(code, slot, key) {
+    toast('Looking up ' + code + '…');
+    const url = 'https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) +
+      '.json?fields=product_name,brands,serving_size,nutriments';
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => {
+        const pr = data && data.product;
+        if (!pr || (data.status !== undefined && data.status !== 1)) { notFound(code, slot, key); return; }
+        const nut = pr.nutriments || {};
+        const per100 = {
+          kcal: Number(nut['energy-kcal_100g']) || (Number(nut.energy_100g) ? Number(nut.energy_100g) / 4.184 : 0),
+          protein: Number(nut.proteins_100g) || 0,
+          carbs: Number(nut.carbohydrates_100g) || 0,
+          fat: Number(nut.fat_100g) || 0,
+        };
+        if (!per100.kcal) { toast('No nutrition data for that product'); notFound(code, slot, key); return; }
+        const servMatch = String(pr.serving_size || '').match(/([\d.]+)\s*g/i);
+        openProductSheet({
+          name: [pr.brands ? String(pr.brands).split(',')[0].trim() : '', pr.product_name || 'Scanned product'].filter(Boolean).join(' — '),
+          per100,
+          grams: servMatch ? Math.round(Number(servMatch[1])) : 100,
+        }, slot, key);
+      })
+      .catch(() => toast('Lookup failed — check your connection'));
+  }
+
+  function notFound(code, slot, key) {
+    openSheet('Not found', '' +
+      '<p class="empty-note">Barcode ' + esc(code) + ' isn’t in the food database yet.</p>' +
+      '<button class="btn btn-primary" id="nfManual">Enter it by hand</button>',
+      (body) => { $('#nfManual', body).addEventListener('click', () => { closeSheetNow(); openMealSheet(key || dateKey(), slot); }); });
+  }
+
+  function openProductSheet(prod, startSlot, key) {
+    const date = key || dateKey();
+    let slot = startSlot || slotFromTime(new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' }));
+    const scaled = (g) => ({
+      kcal: Math.round(prod.per100.kcal * g / 100),
+      protein: Math.round(prod.per100.protein * g / 100),
+      carbs: Math.round(prod.per100.carbs * g / 100),
+      fat: Math.round(prod.per100.fat * g / 100),
+    });
+    openSheet(prod.name, '' +
+      '<div class="seg seg-slot" id="slotPick">' +
+        MEAL_SLOTS.map(([k, title]) => '<button data-slot="' + k + '" class="' + (k === slot ? 'is-on' : '') + '">' + title + '</button>').join('') +
+      '</div>' +
+      '<div class="field"><label for="pdG">Portion (g)</label>' +
+        '<input id="pdG" type="number" inputmode="numeric" min="1" value="' + prod.grams + '"></div>' +
+      '<div class="prod-macros" id="pdOut"></div>' +
+      '<button class="btn btn-primary" id="pdAdd" style="margin-top:16px">Add to log</button>',
+    (body) => {
+      const gIn = $('#pdG', body), out = $('#pdOut', body);
+      const paint = () => {
+        const v = scaled(Number(gIn.value) || 0);
+        out.innerHTML =
+          '<div><span class="micro">kcal</span><b>' + v.kcal + '</b></div>' +
+          '<div><span class="micro">Protein</span><b>' + v.protein + 'g</b></div>' +
+          '<div><span class="micro">Carbs</span><b>' + v.carbs + 'g</b></div>' +
+          '<div><span class="micro">Fat</span><b>' + v.fat + 'g</b></div>';
+      };
+      paint();
+      gIn.addEventListener('input', paint);
+      $$('#slotPick button', body).forEach((b) => b.addEventListener('click', () => {
+        slot = b.dataset.slot;
+        $$('#slotPick button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+      }));
+      $('#pdAdd', body).addEventListener('click', () => {
+        const g = Number(gIn.value) || 0;
+        if (!g) { toast('Enter a portion size'); return; }
+        const v = scaled(g);
+        state.nutrition.meals.push({
+          id: uid(), date, slot,
+          time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+          name: prod.name + ' (' + g + 'g)', ...v,
+        });
+        save(); closeSheet(); mealDayOffset = 0; goTab('meals');
+        toast('Logged ' + v.kcal + ' kcal');
+      });
+    });
+  }
+
   /* ================= HABITS TAB ================= */
 
   const HABIT_ICONS = {
     dumbbell: '<path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/>',
-    steps: '<path d="M8.4 3.5c1.6 0 2.4 1 2.3 2.6-.1 1.5-.7 2.4-.7 3.8 0 1.2.4 1.9.4 3 0 1.5-1 2.3-2.6 2.3S5.4 14.4 5.4 13c0-1.1.4-1.8.4-3 0-1.4-.6-2.3-.7-3.8-.1-1.6.7-2.6 2.3-2.6ZM5.6 17.2h4.9v1.9c0 .9-.9 1.4-2.4 1.4s-2.5-.5-2.5-1.4ZM16.1 6.6c1.6 0 2.4 1 2.3 2.6-.1 1.5-.7 2.4-.7 3.8 0 1.2.4 1.9.4 3 0 1.5-1 2.3-2.6 2.3s-2.4-.8-2.4-2.2c0-1.1.4-1.8.4-3 0-1.4-.6-2.3-.7-3.8-.1-1.6.7-2.6 2.3-2.6Z"/>',
-    book: '<path d="M4.5 5.2h4.7A2.8 2.8 0 0 1 12 8v11a2.4 2.4 0 0 0-2.4-1.9H4.5ZM19.5 5.2h-4.7A2.8 2.8 0 0 0 12 8v11a2.4 2.4 0 0 1 2.4-1.9h5.1Z"/>',
+    steps: '<path d="M3.5 12.4h3.6l2.3-5.8 3.9 11.2 2.2-5.4h4.9"/>',
+    book: '<path d="M12 7.6C10.8 6 8.9 5.2 6 5.2H4v13h2.6c2.4 0 4.2.6 5.4 1.6 1.2-1 3-1.6 5.4-1.6H20v-13h-2c-2.9 0-4.8.8-6 2.4ZM12 7.6v12.2"/>',
     sleep: '<path d="M19.6 14.4A7.6 7.6 0 0 1 9.6 4.4a7.6 7.6 0 1 0 10 10Z"/>',
     water: '<path d="M12 3.6c3.1 3.6 5.3 6.1 5.3 8.8a5.3 5.3 0 1 1-10.6 0c0-2.7 2.2-5.2 5.3-8.8Z"/>',
     run: '<path d="M14.2 5.4a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8ZM10.2 21l2.3-5.2-2.6-2.4.9-4.6-3.1 1.9-1.9 2.4M13.9 9.9l2.3 2.2 3.1-.6M10.7 7.4l3.4-1.2 2.1 2.6"/>',
     sun: '<path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10ZM12 2.6v1.8M12 19.6v1.8M2.6 12h1.8M19.6 12h1.8M5.3 5.3l1.3 1.3M17.4 17.4l1.3 1.3M18.7 5.3l-1.3 1.3M6.6 17.4l-1.3 1.3"/>',
-    heart: '<path d="M12 20s-7.2-4.4-7.2-9.2A3.9 3.9 0 0 1 12 8.4a3.9 3.9 0 0 1 7.2 2.4C19.2 15.6 12 20 12 20Z"/>',
+    heart: '<path d="M12 20.2C8.4 17.6 4.4 14.4 4.4 10.6a3.9 3.9 0 0 1 7.6-1.4 3.9 3.9 0 0 1 7.6 1.4c0 3.8-4 7-7.6 9.6Z"/>',
     timer: '<path d="M12 21.2a8.1 8.1 0 1 0 0-16.2 8.1 8.1 0 0 0 0 16.2ZM12 9.2v4l2.6 1.6M9.4 2.6h5.2"/>',
     flame: '<path d="M12 3.2c.7 3.1 3.4 4.4 3.4 7.4 0 1-.4 2-1.2 2.8.5-1.7-.6-3.1-1.7-3.9.2 2.3-1.4 3.5-2.3 4.8-1.7 2.2.2 5.5 3.4 5.5 3.1 0 5.4-2.4 5.4-5.4 0-4.9-4.3-7.9-7-11.2Z"/>',
     pen: '<path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/>',
     check: '<path d="M5 12.6 10 17.6 19 6.8"/>',
     brain: '<path d="M9.5 4.5A2.6 2.6 0 0 0 7 7.1a2.5 2.5 0 0 0-1.4 4.4A2.6 2.6 0 0 0 7.3 16c.2 1.6 1.3 2.7 2.9 2.7.9 0 1.6-.4 1.8-1V5.9c-.4-.9-1.3-1.4-2.5-1.4ZM14.5 4.5A2.6 2.6 0 0 1 17 7.1a2.5 2.5 0 0 1 1.4 4.4A2.6 2.6 0 0 1 16.7 16c-.2 1.6-1.3 2.7-2.9 2.7-.9 0-1.6-.4-1.8-1"/>',
-    money: '<path d="M12 3.2v17.6M15.8 7.3c-.6-1.2-2-2-3.8-2-2.2 0-3.7 1.1-3.7 2.8 0 4 7.6 2.3 7.6 6.2 0 1.8-1.7 3-4 3-2 0-3.5-.8-4.1-2.2"/>',
+    money: '<path d="M12 4v16M15.6 8c-.6-1.1-1.9-1.8-3.6-1.8-2.1 0-3.5 1-3.5 2.6 0 3.7 7.2 2.1 7.2 5.8 0 1.7-1.6 2.8-3.8 2.8-1.9 0-3.3-.7-3.9-2"/>',
   };
   const HABIT_ICON_KEYS = Object.keys(HABIT_ICONS);
   const habitIcon = (key) => '<svg viewBox="0 0 24 24" aria-hidden="true">' + (HABIT_ICONS[key] || HABIT_ICONS.check) + '</svg>';
 
   let habitMonthOffset = 0;   // 0 = this month
 
+  /* a habit can fill itself in from what the app already knows — a workout you
+     finished, water you logged, protein you hit — instead of a manual tick */
+  const HABIT_SOURCES = {
+    workout: { label: 'A workout is logged', type: 'check', unit: '', tab: 'workout' },
+    weight:  { label: 'Bodyweight is logged', type: 'check', unit: '', tab: 'weight' },
+    water:   { label: 'Water glasses', type: 'count', unit: 'glasses', tab: 'meals' },
+    protein: { label: 'Protein eaten', type: 'count', unit: 'g', tab: 'meals' },
+    kcal:    { label: 'Calories eaten', type: 'count', unit: 'kcal', tab: 'meals' },
+  };
+  function habitAuto(h, key) {
+    switch (h.source) {
+      case 'workout': return state.workouts.some((w) => dateKey(new Date(w.startedAt)) === key) ? 1 : 0;
+      case 'weight': return weightOn(key) ? 1 : 0;
+      case 'water': return waterFor(key);
+      case 'protein': return Math.round(dayTotals(key).protein);
+      case 'kcal': return Math.round(dayTotals(key).kcal);
+      default: return null;
+    }
+  }
   function habitsList() { return (state.habits || []).filter((h) => !h.archived); }
   function habitById(id) { return (state.habits || []).find((h) => h.id === id); }
-  function habitValue(id, key = dateKey()) { return ((state.habitLog || {})[key] || {})[id] || 0; }
-  function habitTarget(h) { return h.type === 'check' ? 1 : (h.target || 1); }
+  function habitType(h) { return h.source ? HABIT_SOURCES[h.source].type : h.type; }
+  function habitUnit(h) { return h.source ? HABIT_SOURCES[h.source].unit : (h.unit || ''); }
+  function habitValue(id, key = dateKey()) {
+    const h = habitById(id);
+    if (h && h.source) {
+      const v = habitAuto(h, key);
+      if (v != null) return v;
+    }
+    return ((state.habitLog || {})[key] || {})[id] || 0;
+  }
+  function habitTarget(h) {
+    // linked habits follow the goal they mirror, so changing it in one place is enough
+    if (h.source === 'water') return state.settings.waterTarget || 8;
+    if (h.source === 'protein') return state.nutrition.targets.protein || 1;
+    if (h.source === 'kcal') return state.nutrition.targets.kcal || 1;
+    return habitType(h) === 'check' ? 1 : (h.target || 1);
+  }
   function habitDone(h, key = dateKey()) { return habitValue(h.id, key) >= habitTarget(h); }
   function setHabitValue(id, val, key = dateKey()) {
     if (!state.habitLog) state.habitLog = {};
@@ -1795,7 +2071,7 @@
         cols.map((h) => {
           const val = habitValue(h.id, key);
           const ok = val >= habitTarget(h);
-          const txt = !val ? '·' : h.type === 'check' ? '✓' : habitShort(val);
+          const txt = !val ? '·' : habitType(h) === 'check' ? '✓' : habitShort(val);
           return '<td class="' + (ok ? 'is-on' : val ? 'is-part' : '') + '" data-cell="' + esc(h.id) + '" data-day="' + key + '">' + txt + '</td>';
         }).join('') + '</tr>';
     }
@@ -1816,16 +2092,17 @@
           const val = habitValue(h.id, todayKey);
           const ok = val >= habitTarget(h);
           const streak = habitStreak(h);
-          const sub = h.type === 'check'
+          const sub = habitType(h) === 'check'
             ? (ok ? 'Done' : 'Not yet') + (streak > 1 ? ' · ' + streak + ' day streak' : '')
-            : habitShort(val) + ' / ' + habitShort(habitTarget(h)) + (h.unit ? ' ' + esc(h.unit) : '') + (streak > 1 ? ' · ' + streak + ' day streak' : '');
-          return '<div class="hb-row ' + (ok ? 'is-done' : '') + '" data-habit="' + esc(h.id) + '" role="button" tabindex="0">' +
+            : habitShort(val) + ' / ' + habitShort(habitTarget(h)) + (habitUnit(h) ? ' ' + esc(habitUnit(h)) : '') + (streak > 1 ? ' · ' + streak + ' day streak' : '');
+          return '<div class="hb-row ' + (ok ? 'is-done' : '') + (h.source ? ' is-auto' : '') + '" data-habit="' + esc(h.id) + '" role="button" tabindex="0">' +
             '<span class="hb-ico">' + habitIcon(h.icon) + '</span>' +
             '<div class="hb-body"><div class="hb-name">' + esc(h.name) + '</div><div class="hb-sub">' + sub + '</div></div>' +
-            (h.type === 'check'
+            (h.source ? '<span class="hb-auto" title="Fills in automatically"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 5.5 13.5H11l-1 7.5L18.5 10H13Z"/></svg></span>' : '') +
+            (habitType(h) === 'check'
               ? '<span class="hb-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.6 10 17.6 19 6.8"/></svg></span>'
-              : '<span class="hb-mini">' + habitRing(h, todayKey, 34) + '<i>' + Math.round(Math.min(100, (val / habitTarget(h)) * 100)) + '</i></span>' +
-                '<button class="hb-plus" data-step="' + esc(h.id) + '" aria-label="Add ' + (h.step || 1) + ' ' + esc(h.unit || '') + '">+</button>') +
+              : '<span class="hb-mini">' + habitRing(h, todayKey, 34) + '<i>' + (val ? Math.round(Math.min(100, (val / habitTarget(h)) * 100)) : habitShort(habitTarget(h))) + '</i></span>' +
+                (h.source ? '' : '<button class="hb-plus" data-step="' + esc(h.id) + '" aria-label="Add ' + (h.step || 1) + ' ' + esc(habitUnit(h)) + '">+</button>')) +
           '</div>';
         }).join('') +
       '</div>' +
@@ -1853,13 +2130,14 @@
       row.addEventListener('click', (e) => {
         const h = habitById(row.dataset.habit);
         if (!h) return;
+        if (h.source) { goHabitSource(h); return; }
         if (e.target.closest('[data-step]')) {
           e.stopPropagation();
           setHabitValue(h.id, habitValue(h.id) + (h.step || 1));
           save(); render();
           return;
         }
-        if (h.type === 'check') { toggleHabit(h); return; }
+        if (habitType(h) === 'check') { toggleHabit(h); return; }
         openHabitPad(h, todayKey);
       });
     });
@@ -1867,7 +2145,8 @@
       cell.addEventListener('click', () => {
         const h = habitById(cell.dataset.cell);
         if (!h) return;
-        if (h.type === 'check') { toggleHabit(h, cell.dataset.day); return; }
+        if (h.source) { toast(esc(h.name) + ' fills in automatically'); return; }
+        if (habitType(h) === 'check') { toggleHabit(h, cell.dataset.day); return; }
         openHabitPad(h, cell.dataset.day);
       });
     });
@@ -1885,6 +2164,14 @@
     const scroll = $('#hbScroll');
     const todayRow = scroll && $('tr.is-today', scroll);
     if (scroll && todayRow) scroll.scrollTop = Math.max(0, todayRow.offsetTop - scroll.clientHeight / 2);
+  }
+
+  // tapping a linked habit takes you to wherever it gets filled in
+  function goHabitSource(h) {
+    const tab = HABIT_SOURCES[h.source]?.tab;
+    if (tab === 'weight') { openWeightSheet(); return; }
+    if (tab === 'meals') { mealDayOffset = 0; goTab('meals'); return; }
+    if (tab === 'workout') { goTab('workout'); return; }
   }
 
   function toggleHabit(h, key = dateKey()) {
@@ -1947,6 +2234,13 @@
       '<div class="icon-pick" id="hbIcons">' +
         HABIT_ICON_KEYS.map((k) => '<button class="ip-btn ' + (k === draft.icon ? 'is-on' : '') + '" data-icon="' + k + '" aria-label="' + k + '">' + habitIcon(k) + '</button>').join('') +
       '</div>' +
+      '<span class="micro" style="margin:14px 0 8px">Fills in</span>' +
+      '<div class="src-pick" id="hbSource">' +
+        '<button data-src="" class="' + (!draft.source ? 'is-on' : '') + '">By hand</button>' +
+        Object.entries(HABIT_SOURCES).map(([k, v]) =>
+          '<button data-src="' + k + '" class="' + (draft.source === k ? 'is-on' : '') + '">' + v.label + '</button>').join('') +
+      '</div>' +
+      '<div id="hbManual" ' + (draft.source ? 'hidden' : '') + '>' +
       '<span class="micro" style="margin:14px 0 8px">Type</span>' +
       '<div class="seg" id="hbType">' +
         '<button data-type="check" class="' + (draft.type === 'check' ? 'is-on' : '') + '">Done / not done</button>' +
@@ -1959,12 +2253,18 @@
         '</div>' +
         '<div class="field"><label for="hbStep">+ button adds</label><input id="hbStep" type="number" inputmode="decimal" min="0" value="' + (draft.step || 1) + '"></div>' +
       '</div>' +
+      '</div>' +
       '<button class="btn btn-primary" id="hbSave" style="margin-top:16px">' + (h ? 'Save habit' : 'Add habit') + '</button>' +
       (h ? '<button class="btn btn-danger" id="hbDel" style="margin-top:10px">Delete habit</button>' : ''),
     (body) => {
       $$('.ip-btn', body).forEach((b) => b.addEventListener('click', () => {
         draft.icon = b.dataset.icon;
         $$('.ip-btn', body).forEach((x) => x.classList.toggle('is-on', x === b));
+      }));
+      $$('#hbSource button', body).forEach((b) => b.addEventListener('click', () => {
+        draft.source = b.dataset.src || null;
+        $$('#hbSource button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+        $('#hbManual', body).hidden = !!draft.source;
       }));
       $$('#hbType button', body).forEach((b) => b.addEventListener('click', () => {
         draft.type = b.dataset.type;
@@ -1975,7 +2275,11 @@
         const name = $('#hbName', body).value.trim();
         if (!name) { toast('Give the habit a name'); return; }
         draft.name = name;
-        if (draft.type === 'count') {
+        if (draft.source) {
+          draft.type = HABIT_SOURCES[draft.source].type;
+          draft.unit = HABIT_SOURCES[draft.source].unit;
+          draft.step = 1;
+        } else if (draft.type === 'count') {
           draft.target = Number($('#hbTarget', body).value) || 1;
           draft.unit = $('#hbUnit', body).value.trim();
           draft.step = Number($('#hbStep', body).value) || 1;
@@ -2656,15 +2960,7 @@
           try {
             const data = JSON.parse(text);
             if (!data || !Array.isArray(data.workouts)) throw new Error('bad file');
-            const d = defaultState();
-            state = {
-              ...d, ...data,
-              settings: { ...d.settings, ...(data.settings || {}) },
-              nutrition: {
-                ...d.nutrition, ...(data.nutrition || {}),
-                targets: { ...d.nutrition.targets, ...(data.nutrition?.targets || {}) },
-              },
-            };
+            state = normalize(data);
             save(); closeSheet(); render();
             toast('Data imported');
           } catch {
@@ -2708,7 +3004,7 @@
     swipeStart = null;
     if (e.touches.length !== 1) return;
     // never hijack gestures inside the logger, a sheet, inputs or charts
-    if (workoutOpen || $('#sheetRoot').children.length) return;
+    if (workoutOpen || scanOpen || $('#sheetRoot').children.length) return;
     // a real swipe cancels the tap, so buttons are fine to start on —
     // only text fields and horizontally-drawn widgets must keep the gesture
     if (e.target.closest('input, textarea, select, .chart-wrap, .cal-grid, .pad-keys, .hbh-row')) return;

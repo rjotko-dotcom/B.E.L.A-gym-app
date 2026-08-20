@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest?v=5" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="css/style.css?v=7.1" />
+  <link rel="stylesheet" href="css/style.css?v=7.2" />
   <script>
     // apply saved appearance before first paint (default: follow the device)
     try {
@@ -46,29 +46,30 @@
 
   <nav class="tab-bar" aria-label="Main">
     <button class="tab active" data-tab="home" aria-label="Home">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.75 10.4 12 4.25l7.25 6.15V19a1.25 1.25 0 0 1-1.25 1.25h-3.75V15.5h-4.5v4.75H6A1.25 1.25 0 0 1 4.75 19Z"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.2 10.7 12 4.4l7.8 6.3v8a1.5 1.5 0 0 1-1.5 1.5H5.7a1.5 1.5 0 0 1-1.5-1.5Z"/></svg>
       <span class="tab-label">Home</span>
     </button>
     <button class="tab" data-tab="workout" aria-label="Workouts">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.3 9.7v4.6M7.5 7.3v9.4M16.5 7.3v9.4M19.7 9.7v4.6M7.5 12h9"/></svg>
       <span class="tab-label">Workouts</span>
     </button>
     <button class="tab" data-tab="meals" aria-label="Nutrition">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5c0-3 3.35-5 7.5-5s7.5 2 7.5 5M3.6 15.5h16.8M5.5 18.4h13"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.4h16a8 8 0 0 1-16 0Z"/><path d="M3 15.6h18"/></svg>
       <span class="tab-label">Nutrition</span>
     </button>
     <button class="tab" data-tab="habits" aria-label="Habits">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/><path d="M4.5 4.5h9M4.5 20h5"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.7h12A1.3 1.3 0 0 1 19.3 6v12a1.3 1.3 0 0 1-1.3 1.3H6A1.3 1.3 0 0 1 4.7 18V6A1.3 1.3 0 0 1 6 4.7Z"/><path d="M8.7 12.2l2.4 2.4 4.2-5"/></svg>
       <span class="tab-label">Habits</span>
     </button>
   </nav>
   <div id="workoutRoot"></div>
   <div id="sheetRoot"></div>
+  <div id="scanRoot"></div>
   <div id="toastRoot" class="toast-root" aria-live="polite"></div>
 
-  <script src="js/exercises.js?v=7.1"></script>
-  <script src="js/foods.js?v=7.1"></script>
-  <script src="js/app.js?v=7.1"></script>
+  <script src="js/exercises.js?v=7.2"></script>
+  <script src="js/foods.js?v=7.2"></script>
+  <script src="js/app.js?v=7.2"></script>
   <script>
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       addEventListener('load', () => {
