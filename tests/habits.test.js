@@ -261,7 +261,12 @@ module.exports = async (t) => {
   // holding a habit opens its settings instead of logging it
   await page.evaluate(() => document.querySelector('.hb-row').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
   await page.waitForTimeout(450);
-  t.check('a long press opens the editor', /Edit habit/.test(await page.evaluate(() => document.querySelector('#sheetRoot')?.textContent || '')));
+  const held = await page.evaluate(() => document.querySelector('#sheetRoot')?.textContent || '');
+  t.check('a long press opens the habit\'s record', /Streak/.test(held) && /Best/.test(held), held.slice(0, 60));
+  t.equal('with four weeks of days', await page.evaluate(() => document.querySelectorAll('.hd-cell').length), 28);
+  await page.click('#hdEdit');
+  await page.waitForTimeout(500);
+  t.check('and a way through to its settings', /Edit habit/.test(await page.evaluate(() => document.querySelector('#sheetRoot')?.textContent || '')));
   await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
   await page.waitForTimeout(350);
 

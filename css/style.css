@@ -1810,3 +1810,55 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 @media (prefers-reduced-motion: reduce) {
   .water-card .slot-ico.took-drop { animation: none; }
 }
+
+/* four macro boxes side by side when a logged meal is edited by hand */
+.macro-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+
+/* ---------- the week behind you, on nutrition ---------- */
+.nut-week { margin-top: 14px; }
+.nw-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.nw-note { color: var(--ink-2); font-size: 0.76rem; font-weight: 600; }
+.nw-bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; align-items: end; }
+.nw-day { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.nw-col { width: 100%; height: 62px; display: flex; align-items: flex-end; background: var(--surface-2); border-radius: 8px; overflow: hidden; }
+.nw-fill { width: 100%; background: var(--ink-1); border-radius: 8px; }
+.nw-fill.done { background: var(--done); }
+.nw-fill.over { background: var(--critical); }
+.nw-let { color: var(--ink-muted); font-size: 0.66rem; font-weight: 700; }
+/* two rows of two, label and figure on one line — four columns made every
+   label wrap onto two lines and the row grew a head taller than the bars */
+.nw-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 16px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--border); }
+.nw-stats > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.nw-stats .micro { display: inline; white-space: nowrap; }
+.nw-stats b { font-size: 0.98rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.nw-stats i { font-style: normal; color: var(--ink-muted); font-size: 0.78rem; font-weight: 600; }
+
+/* ---------- one habit's record ---------- */
+.hd-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; text-align: center; margin-bottom: 18px; }
+.hd-stats b { display: block; font-size: 1.35rem; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.hd-stats i { font-style: normal; color: var(--ink-muted); font-size: 0.72rem; font-weight: 600; margin-left: 2px; }
+.hd-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.hd-cell {
+  aspect-ratio: 1; display: grid; place-items: center; border-radius: 10px;
+  background: var(--surface-2); color: var(--ink-2);
+  font-size: 0.74rem; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.hd-cell.is-done { background: var(--done); color: var(--done-ink); }
+.hd-cell.is-off { background: transparent; border: 1px solid var(--border); color: var(--ink-muted); opacity: 0.55; }
+.hd-legend { color: var(--ink-muted); font-size: 0.74rem; text-align: center; margin-top: 12px; }
+.hd-target { color: var(--ink-2); font-size: 0.8rem; text-align: center; margin-top: 6px; font-weight: 600; }
+
+/* ---------- searching past sessions ---------- */
+.hist-search {
+  display: flex; align-items: center; gap: 9px;
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 14px; padding: 0 12px; margin-bottom: 12px;
+}
+.hist-search svg { width: 17px; height: 17px; flex-shrink: 0; fill: none; stroke: var(--ink-muted); stroke-width: 1.9; stroke-linecap: round; }
+.hist-search input {
+  flex: 1; min-width: 0; border: none; background: none; color: var(--ink-1);
+  font: inherit; font-size: 0.9rem; padding: 12px 0; outline: none;
+}
+.hist-search input::-webkit-search-cancel-button { display: none; }
+.hist-search button { border: none; background: none; color: var(--ink-2); font-size: 1.3rem; line-height: 1; padding: 4px 2px; cursor: pointer; }
+.hist-count { color: var(--ink-2); font-size: 0.8rem; font-weight: 600; margin: 0 4px 12px; }

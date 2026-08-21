@@ -6,12 +6,12 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '10.5';
+  const APP_VERSION = '10.6';
 
   /* ---------------- state ---------------- */
 
   const defaultState = () => ({
-    settings: { unit: 'kg', restSeconds: 90, appearance: 'system', waterTarget: 8, name: '' },
+    settings: { unit: 'kg', appearance: 'system', waterTarget: 8, name: '' },
     nutrition: {
       targets: { kcal: 2800, protein: 180, carbs: 300, fat: 70 },
       meals: [],        // { id, date:'YYYY-MM-DD', time, name, kcal, protein, carbs, fat }
@@ -1489,11 +1489,15 @@
     return out;
   }
   function logMeal(src, slot, key) {
-    state.nutrition.meals.push({
+    const meal = {
       id: uid(), date: key, slot,
       time: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
       name: src.name, kcal: src.kcal || 0, protein: src.protein || 0, carbs: src.carbs || 0, fat: src.fat || 0,
-    });
+    };
+    // what it was made of, so the portion can be corrected without retyping
+    if (src.base && src.amount) { meal.base = src.base; meal.amount = src.amount; }
+    state.nutrition.meals.push(meal);
+    return meal;
   }
 
   /* Where a number sits against its goal. Reaching a target is the point, so
@@ -1634,7 +1638,8 @@
         '</div>' +
       '</div>' +
       '<div class="water-dots">' + Array.from({ length: wTarget }, (_, i) =>
-        '<span class="wdot ' + (i < glasses ? 'on' : '') + '"></span>').join('') + '</div>';
+        '<span class="wdot ' + (i < glasses ? 'on' : '') + '"></span>').join('') + '</div>' +
+      nutWeekHTML(key);
 
     $('#dayPrev').addEventListener('click', () => { mealDayOffset -= 1; render(); });
     $('#dayNext').addEventListener('click', () => { if (mealDayOffset < 0) { mealDayOffset += 1; render(); } });
@@ -1677,6 +1682,149 @@
       if (!id) return;
       swipeToDelete(row, () => delMeal(id));
       longPress(row, () => openMealMenu(id));
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.si-del')) return;      // the bin is its own button
+        openMealEdit(id);
+      });
+    });
+  }
+
+  /* The last seven days at a glance: what you averaged, and how often the
+     goal was actually met. A single day says little; a week says whether the
+     targets are the right ones. */
+  function nutWeekHTML(endKey) {
+    const t = state.nutrition.targets;
+    const end = new Date(endKey + 'T12:00:00');
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(end);
+      d.setDate(d.getDate() - (6 - i));
+      const key = dateKey(d);
+      return { key, letter: 'MTWTFSS'[(d.getDay() + 6) % 7], ...dayTotals(key) };
+    });
+    const logged = days.filter((d) => d.kcal > 0);
+    if (logged.length < 2) return '';
+    const avg = (pick) => Math.round(logged.reduce((s, d) => s + pick(d), 0) / logged.length);
+    const onTarget = logged.filter((d) => t.kcal && d.kcal <= t.kcal * OVER_SLACK && d.kcal >= t.kcal * 0.85).length;
+    const proteinHit = logged.filter((d) => t.protein && d.protein >= t.protein).length;
+    const peak = Math.max(t.kcal || 0, ...days.map((d) => d.kcal));
+
+    return '<div class="card nut-week">' +
+      '<div class="nw-head"><span class="micro">Last 7 days</span>' +
+        '<span class="nw-note">' + logged.length + (logged.length === 1 ? ' day logged' : ' days logged') + '</span></div>' +
+      '<div class="nw-bars">' +
+        days.map((d) => {
+          const h = peak ? Math.max(3, Math.round((d.kcal / peak) * 100)) : 3;
+          const st = d.kcal ? goalState(d.kcal, t.kcal, 'kcal') : '';
+          return '<div class="nw-day">' +
+            '<div class="nw-col"><span class="nw-fill ' + st + '" style="height:' + h + '%"></span></div>' +
+            '<span class="nw-let">' + d.letter + '</span></div>';
+        }).join('') +
+      '</div>' +
+      '<div class="nw-stats">' +
+        '<div><span class="micro">Avg kcal</span><b>' + avg((d) => d.kcal).toLocaleString() + '</b></div>' +
+        '<div><span class="micro">Avg protein</span><b>' + avg((d) => d.protein) + 'g</b></div>' +
+        '<div><span class="micro">Kcal on target</span><b>' + onTarget + '<i>/' + logged.length + '</i></b></div>' +
+        '<div><span class="micro">Protein hit</span><b>' + proteinHit + '<i>/' + logged.length + '</i></b></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  /* Correcting something already logged. A meal that came from a food carries
+     what it was made of, so only the portion needs changing and the macros
+     follow; anything else is edited as four numbers. */
+  function openMealEdit(id) {
+    const meal = state.nutrition.meals.find((m) => m.id === id);
+    if (!meal) return;
+    const base = meal.base;
+    const unit = base ? base.unit : null;
+    const piece = unit === 'piece';
+    let slot = meal.slot;
+
+    const quick = base
+      ? [...new Set(piece ? [1, 2, 3, 4] : [50, 100, 150, 200, 250])].filter((n) => n > 0)
+      : [];
+
+    openSheet('Edit ' + (base ? base.name : meal.name), '' +
+      '<div class="seg seg-slot" id="meSlot">' +
+        MEAL_SLOTS.map(([k, title]) => '<button data-slot="' + k + '" class="' + (k === slot ? 'is-on' : '') + '">' + title + '</button>').join('') +
+      '</div>' +
+      (base
+        ? '<p class="portion-per">' + macroLine(base) + ' per ' + (piece ? 'piece' : base.per + ' ' + unit) + '</p>' +
+          '<div class="field"><label for="meAmt">' + (piece ? 'How many' : 'Portion (' + unit + ')') + '</label>' +
+            '<input id="meAmt" type="number" inputmode="decimal" min="0" step="1" value="' + meal.amount + '"></div>' +
+          '<div class="quick-amounts" id="meQuick">' +
+            quick.map((n) => '<button class="qchip" data-amt="' + n + '">' + (piece ? n + '×' : n + ' ' + unit) + '</button>').join('') +
+          '</div>' +
+          '<div class="prod-macros" id="meOut"></div>'
+        : '<div class="field"><label for="meName">Name</label>' +
+            '<input id="meName" type="text" value="' + esc(meal.name) + '"></div>' +
+          '<div class="macro-fields">' +
+            '<div class="field"><label for="meKcal">kcal</label><input id="meKcal" type="number" inputmode="numeric" min="0" value="' + Math.round(meal.kcal) + '"></div>' +
+            '<div class="field"><label for="meP">Protein</label><input id="meP" type="number" inputmode="decimal" min="0" value="' + round1(meal.protein) + '"></div>' +
+            '<div class="field"><label for="meC">Carbs</label><input id="meC" type="number" inputmode="decimal" min="0" value="' + round1(meal.carbs) + '"></div>' +
+            '<div class="field"><label for="meF">Fat</label><input id="meF" type="number" inputmode="decimal" min="0" value="' + round1(meal.fat) + '"></div>' +
+          '</div>') +
+      '<button class="btn btn-primary" id="meSave" style="margin-top:16px">Save</button>' +
+      '<button class="btn btn-danger" id="meDel" style="margin-top:10px">Delete</button>',
+    (body) => {
+      $$('#meSlot button', body).forEach((b) => b.addEventListener('click', () => {
+        slot = b.dataset.slot;
+        $$('#meSlot button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+      }));
+
+      const amtIn = base ? $('#meAmt', body) : null;
+      const scaled = (amount) => {
+        const k = (Number(amount) || 0) / (base.per || 1);
+        return { kcal: Math.round(base.kcal * k), protein: round1(base.protein * k),
+          carbs: round1(base.carbs * k), fat: round1(base.fat * k) };
+      };
+      if (base) {
+        const out = $('#meOut', body);
+        const paint = () => {
+          const v = scaled(amtIn.value);
+          out.innerHTML =
+            '<div><span class="micro">kcal</span><b>' + v.kcal + '</b></div>' +
+            '<div><span class="micro">Protein</span><b>' + v.protein + 'g</b></div>' +
+            '<div><span class="micro">Carbs</span><b>' + v.carbs + 'g</b></div>' +
+            '<div><span class="micro">Fat</span><b>' + v.fat + 'g</b></div>';
+          $$('#meQuick .qchip', body).forEach((c) => c.classList.toggle('is-on', Number(c.dataset.amt) === Number(amtIn.value)));
+        };
+        paint();
+        amtIn.addEventListener('input', paint);
+        $$('#meQuick .qchip', body).forEach((c) => c.addEventListener('click', () => { amtIn.value = c.dataset.amt; paint(); }));
+      }
+
+      $('#meSave', body).addEventListener('click', () => {
+        if (base) {
+          const amount = Number(amtIn.value) || 0;
+          if (!amount) { toast(piece ? 'Enter how many' : 'Enter a portion size'); return; }
+          Object.assign(meal, scaled(amount), {
+            amount,
+            name: piece && amount === 1 ? base.name : base.name + ' · ' + round1(amount) + (piece ? '×' : ' ' + unit),
+          });
+        } else {
+          const name = $('#meName', body).value.trim();
+          if (!name) { toast('Give it a name'); return; }
+          Object.assign(meal, {
+            name,
+            kcal: Math.max(0, Number($('#meKcal', body).value) || 0),
+            protein: Math.max(0, Number($('#meP', body).value) || 0),
+            carbs: Math.max(0, Number($('#meC', body).value) || 0),
+            fat: Math.max(0, Number($('#meF', body).value) || 0),
+          });
+        }
+        meal.slot = slot;
+        haptic('tick');
+        save(); closeSheet(); render();
+        toast('Updated');
+      });
+
+      $('#meDel', body).addEventListener('click', () => {
+        closeSheet();
+        undoable(meal.name + ' deleted', () => {
+          state.nutrition.meals = state.nutrition.meals.filter((m) => m.id !== id);
+        });
+      });
     });
   }
 
@@ -1688,6 +1836,7 @@
     const today = dateKey();
     openSheet(meal.name, '' +
       '<div class="menu-list">' +
+        '<button class="menu-item" data-act="edit">✎ &nbsp;Edit</button>' +
         '<button class="menu-item" data-act="again">＋ &nbsp;Log it again</button>' +
         (meal.date !== today ? '<button class="menu-item" data-act="today">→ &nbsp;Copy to today</button>' : '') +
         '<button class="menu-item" data-act="save">☆ &nbsp;Save as a meal</button>' +
@@ -1699,7 +1848,9 @@
         if (!b) return;
         const act = b.dataset.act;
         closeSheet();
-        if (act === 'again') {
+        if (act === 'edit') {
+          queueMicrotask(() => openMealEdit(id));
+        } else if (act === 'again') {
           state.nutrition.meals.push({ ...meal, id: uid(), time: nowTime() });
           haptic('tick'); save(); render(); toast(meal.name + ' logged again');
         } else if (act === 'today') {
@@ -1934,7 +2085,11 @@
         const amount = Number(amtIn.value) || 0;
         if (!amount) { toast(piece ? 'Enter how many' : 'Enter a portion size'); return; }
         const v = scaleFood(food, amount);
-        logMeal({ name: portionName(food, amount), ...v }, slot, date);
+        logMeal({
+          name: portionName(food, amount), ...v,
+          base: { name: food.name, unit: foodUnit(food), per: foodBase(food), ...scaleFood(food, foodBase(food)) },
+          amount,
+        }, slot, date);
         haptic('tick');
         if (opts.offerSave && $('#pdSave', body) && $('#pdSave', body).checked) rememberFood({ ...food, serving: amount });
         else if (food.id) touchFood(food.id);
@@ -3426,11 +3581,11 @@
     }));
 
     $$('.hb-row', v).forEach((row) => {
-      // hold a habit to open its settings instead of logging it
+      // hold a habit to see how it has been going, rather than logging it
       longPress(row, () => {
         if (habitReorder) return;
         const h = habitById(row.dataset.habit);
-        if (h) openHabitEditor(h.id);
+        if (h) openHabitDetail(h.id);
       });
       row.addEventListener('click', (e) => {
         if (habitReorder) return;
@@ -3718,6 +3873,63 @@
             toast(res.count + ' days imported');
           });
         }).catch(() => { out.innerHTML = '<p class="imp-err">Could not read that file.</p>'; });
+      });
+    });
+  }
+
+  /* One habit's own record: how it is going now, how it has gone, and every
+     day of the last few weeks. Reached by holding the habit. */
+  function openHabitDetail(id) {
+    const h = habitById(id);
+    if (!h) return;
+    const today = new Date();
+    const streak = habitStreak(h);
+
+    // the last 28 days, oldest first, in rows of seven
+    const days = Array.from({ length: 28 }, (_, i) => {
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (27 - i));
+      const key = dateKey(d);
+      const due = habitDueOn(h, key);
+      return { key, n: d.getDate(), due, done: due && habitDone(h, key), value: habitValue(h.id, key) };
+    });
+    const due = days.filter((d) => d.due);
+    const doneCount = due.filter((d) => d.done).length;
+    const rate = due.length ? Math.round((doneCount / due.length) * 100) : 0;
+
+    // the best run there has ever been, over everything logged
+    const keys = Object.keys(state.habitLog || {}).sort();
+    let best = 0, run = 0;
+    if (keys.length) {
+      const from = new Date(keys[0] + 'T12:00:00');
+      for (const d = new Date(from); d <= today; d.setDate(d.getDate() + 1)) {
+        const key = dateKey(d);
+        if (!habitDueOn(h, key)) continue;
+        if (habitDone(h, key)) { run++; best = Math.max(best, run); } else run = 0;
+      }
+    }
+    best = Math.max(best, streak);
+    const unitTxt = habitUnit(h) ? ' ' + habitUnit(h) : '';
+
+    openSheet(h.name, '' +
+      '<div class="hd-stats">' +
+        '<div><span class="micro">Streak</span><b>' + streak + '<i>' + (streak === 1 ? 'day' : 'days') + '</i></b></div>' +
+        '<div><span class="micro">Best</span><b>' + best + '<i>' + (best === 1 ? 'day' : 'days') + '</i></b></div>' +
+        '<div><span class="micro">28 days</span><b>' + rate + '<i>%</i></b></div>' +
+        '<div><span class="micro">Done</span><b>' + doneCount + '<i>/' + due.length + '</i></b></div>' +
+      '</div>' +
+      '<div class="hd-grid">' +
+        days.map((d) => '<span class="hd-cell' + (d.done ? ' is-done' : d.due ? '' : ' is-off') + '"' +
+          ' title="' + d.key + '">' + d.n + '</span>').join('') +
+      '</div>' +
+      '<p class="hd-legend">Green is done · faint is a day it was not due</p>' +
+      (habitType(h) === 'count'
+        ? '<p class="hd-target">Target ' + habitShort(habitTarget(h)) + esc(unitTxt) + ' a day</p>'
+        : '') +
+      '<button class="btn btn-quiet" id="hdEdit" style="margin-top:14px">Edit habit</button>',
+    (body) => {
+      $('#hdEdit', body).addEventListener('click', () => {
+        closeSheetNow();
+        queueMicrotask(() => openHabitEditor(h.id));
       });
     });
   }
@@ -4486,6 +4698,7 @@
   /* -------- history segment -------- */
 
   let histMonthOffset = 0;
+  let histQuery = '';        // what the history list is filtered by
 
   function calendarHTML() {
     const now = new Date();
@@ -4522,7 +4735,23 @@
       const tag = t === 'N' ? '' : t + ' ';
       return cardio ? `${fmtNum(s.weight ?? 0)}km·${s.reps}m` : `${tag}${fmtNum(s.weight ?? 0)}×${s.reps}${s.pr ? ' ' + prIcon('pr-mark pr-inline') : ''}`;
     };
-    v.innerHTML = calendarHTML() + state.workouts.map((w) => {
+    const q = histQuery.trim().toLowerCase();
+    const matches = (w) => !q || esc(w.name).toLowerCase().includes(q) ||
+      (w.note || '').toLowerCase().includes(q) ||
+      w.exercises.some((ex) => (exerciseById(ex.exerciseId)?.name || '').toLowerCase().includes(q)) ||
+      fmtDate(w.startedAt).toLowerCase().includes(q);
+    const shown = state.workouts.filter(matches);
+    v.innerHTML =
+      '<div class="hist-search">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>' +
+        '<input id="histQ" type="search" placeholder="Search sessions or exercises…" value="' + esc(histQuery) + '" autocomplete="off">' +
+        (q ? '<button id="histClear" aria-label="Clear search">×</button>' : '') +
+      '</div>' +
+      (q
+        ? '<p class="hist-count">' + shown.length + (shown.length === 1 ? ' session' : ' sessions') + ' found</p>'
+        : calendarHTML()) +
+      (shown.length ? '' : '<p class="empty-note">Nothing matches “' + esc(histQuery) + '”.</p>') +
+      shown.map((w) => {
       const sets = loggedSets(w);
       const prCount = workoutPRs(w).length;
       const open = expandedHistoryId === w.id;
@@ -4567,8 +4796,21 @@
       </div>`;
     }).join('');
 
-    $('#calPrev', v).addEventListener('click', () => { histMonthOffset -= 1; render(); });
-    $('#calNext', v).addEventListener('click', () => { if (histMonthOffset < 0) { histMonthOffset += 1; render(); } });
+    const qIn = $('#histQ', v);
+    qIn.addEventListener('input', () => {
+      histQuery = qIn.value;
+      const at = qIn.selectionStart;
+      render();
+      // the list is rebuilt under the cursor, so put it back where it was
+      const again = $('#histQ');
+      if (again) { again.focus(); try { again.setSelectionRange(at, at); } catch (e) { /* number-ish inputs */ } }
+    });
+    const clear = $('#histClear', v);
+    if (clear) clear.addEventListener('click', () => { histQuery = ''; render(); });
+    if ($('#calPrev', v)) {
+      $('#calPrev', v).addEventListener('click', () => { histMonthOffset -= 1; render(); });
+      $('#calNext', v).addEventListener('click', () => { if (histMonthOffset < 0) { histMonthOffset += 1; render(); } });
+    }
 
     $$('.hist-item', v).forEach((card) => {
       card.addEventListener('click', (e) => {

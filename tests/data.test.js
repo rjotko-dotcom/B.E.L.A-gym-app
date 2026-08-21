@@ -118,6 +118,34 @@ module.exports = async (t) => {
   await page.waitForTimeout(800);
   t.equal('restoring brings the meal back', await meals(), mealsBefore);
   t.check('and keeps a copy of what it replaced', (await snapKeys()).length > keys.length);
+  // past sessions can be searched
+  await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
+  await page.waitForTimeout(300);
+  await page.click('.tab[data-tab="home"]');
+  await page.waitForTimeout(350);
+  await page.click('#homeAvatar');
+  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('[data-seg]')].find((x) => x.dataset.seg === 'history');
+    if (b) b.click();
+  });
+  await page.waitForTimeout(500);
+  const cards = () => page.evaluate(() => document.querySelectorAll('.hist-item').length);
+  const all = await cards();
+  t.check('history lists the sessions', all > 0, String(all));
+  await page.fill('#histQ', 'zzzz');
+  await page.waitForTimeout(450);
+  t.equal('a search that matches nothing empties the list', await cards(), 0);
+  t.check('and says so', await page.evaluate(() => !!document.querySelector('.empty-note')));
+  t.check('the calendar steps aside while searching', await page.evaluate(() => !document.querySelector('.cal-grid')));
+  t.equal('the field keeps the cursor', await page.evaluate(() => document.activeElement?.id), 'histQ');
+  await page.fill('#histQ', 'bench');
+  await page.waitForTimeout(450);
+  t.check('searching an exercise finds its sessions', (await cards()) > 0, String(await cards()));
+  await page.click('#histClear');
+  await page.waitForTimeout(450);
+  t.equal('clearing brings them all back', await cards(), all);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
 

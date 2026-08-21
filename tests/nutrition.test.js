@@ -270,6 +270,60 @@ module.exports = async (t) => {
   t.equal('only the latest message is on screen',
     await page.evaluate(() => document.querySelectorAll('.toast').length), 1);
 
+  // a logged portion can be corrected instead of deleted and retyped
+  await page.click('#addMeal');
+  await page.waitForTimeout(450);
+  await page.fill('#foodSearch', 'chicken breast');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    const it = [...document.querySelectorAll('.lib-item')].find((x) => /Chicken breast/.test(x.textContent));
+    if (it) it.click();
+  });
+  await page.waitForTimeout(500);
+  await page.fill('#pdAmt', '150');
+  await page.click('#pdAdd');
+  await page.waitForTimeout(600);
+  const last = () => page.evaluate(() => JSON.parse(localStorage.getItem('bela-gym-v1')).nutrition.meals.at(-1));
+  const portion = await last();
+  t.check('a logged portion remembers what it was made of', !!portion.base && portion.amount === 150, JSON.stringify(portion.base || null));
+  await page.evaluate(() => {
+    const r = [...document.querySelectorAll('.slot-item')].find((x) => /Chicken breast/.test(x.textContent));
+    if (r) r.click();
+  });
+  await page.waitForTimeout(500);
+  t.check('tapping it opens the editor', await page.evaluate(() => !!document.querySelector('#meAmt')));
+  await page.fill('#meAmt', '200');
+  await page.waitForTimeout(250);
+  t.check('the macros follow the new portion', /330/.test(await page.textContent('#meOut')), await page.textContent('#meOut'));
+  await page.click('.seg-slot button[data-slot="dinner"]');
+  await page.click('#meSave');
+  await page.waitForTimeout(600);
+  const fixed = await last();
+  t.equal('saving rewrites the portion', fixed.amount, 200);
+  t.equal('and the calories', fixed.kcal, 330);
+  t.equal('and it can move meal', fixed.slot, 'dinner');
+  t.check('the name follows too', /200 g/.test(fixed.name), fixed.name);
+
+  // the week behind you — earlier checks emptied some days, so give it a week
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    const dk = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    for (let i = 1; i < 6; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      st.nutrition.meals.push({ id: 'wk' + i, date: dk(d), slot: 'lunch', time: '13:00',
+        name: 'Day ' + i, kcal: 2400 + i * 90, protein: 160 + i * 5, carbs: 240, fat: 62 });
+    }
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(650);
+  await page.click('.tab[data-tab="meals"]');
+  await page.waitForTimeout(450);
+  const week = await page.evaluate(() => document.querySelector('.nut-week')?.textContent.replace(/\s+/g, ' ') || '');
+  t.check('the week card sums the last seven days', /Last 7 days/.test(week) && /Avg kcal/.test(week), week.slice(0, 70));
+  t.equal('with a bar per day', await page.evaluate(() => document.querySelectorAll('.nw-day').length), 7);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();
