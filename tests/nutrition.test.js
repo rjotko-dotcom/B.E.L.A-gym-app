@@ -245,10 +245,10 @@ module.exports = async (t) => {
   await page.waitForTimeout(450);
   await page.click('#waterPlus');
   await page.waitForTimeout(150);
-  t.check('the last glass sends a drop across', await page.evaluate(() => !!document.querySelector('.water-drop')));
+  t.check('the last glass runs a wave across the dots', await page.evaluate(() =>
+    [...document.querySelectorAll('.wdot')].some((d) => d.getAnimations().length > 0)));
   await page.waitForTimeout(1400);
-  t.check('the drop is taken by the card', await page.evaluate(() =>
-    !document.querySelector('.water-drop') && !!document.querySelector('.slot-ico.took-drop')));
+  t.check('and the card takes the ripple', await page.evaluate(() => !!document.querySelector('.slot-ico.took-drop')));
   const dots = await page.evaluate(() => {
     const d = [...document.querySelectorAll('.wdot')];
     return { count: d.length, on: d.filter((x) => x.classList.contains('on')).length,
@@ -256,9 +256,10 @@ module.exports = async (t) => {
   });
   t.equal('and every dot comes back filled', dots.on, dots.count);
   t.equal('none left invisible', dots.hidden, 0);
+  await page.evaluate(() => document.querySelector('.slot-ico').classList.remove('took-drop'));
   await page.click('#waterPlus');
-  await page.waitForTimeout(300);
-  t.check('a glass past the target does not pour again', await page.evaluate(() => !document.querySelector('.water-drop')));
+  await page.waitForTimeout(700);
+  t.check('a glass past the target does not run it again', await page.evaluate(() => !document.querySelector('.slot-ico.took-drop')));
 
   // deleting several things in a row leaves one message, not a pile
   for (let i = 0; i < 4; i++) {
