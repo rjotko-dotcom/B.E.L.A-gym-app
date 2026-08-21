@@ -1,10 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#141414"/>
-  <g fill="none" stroke="#f5f5f4" stroke-width="34" stroke-linecap="round">
-    <path d="M150 166v180"/>
-    <path d="M92 206v100"/>
-    <path d="M362 166v180"/>
-    <path d="M420 206v100"/>
-    <path d="M150 256h212"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#000000"/>
+  <g fill="#fff" transform="translate(-8.51 9.26) scale(0.4085)">
+    <path d="M370 228 H 740 A 185 185 0 0 1 740 598 H 370 Z"/>
+    <path d="M370 610 H 700 C 802 616 874 666 902 740 C 814 700 722 728 662 802 C 576 906 486 980 370 980 Z"/>
   </g>
 </svg>

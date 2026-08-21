@@ -1,5 +1,5 @@
 /* B.E.L.A Gym — service worker */
-const VERSION = '10.9';
+const VERSION = '11.0';
 const CACHE = 'bela-gym-' + VERSION;
 const ASSETS = [
   '.',
@@ -10,6 +10,9 @@ const ASSETS = [
   'js/foods.js?v=' + VERSION,
   'manifest.webmanifest',
   'icons/icon.svg',
+  'icons/icon-192.png',
+  'icons/notify-192.png',      // the workout notification must draw offline too
+  'icons/badge-96.png',
 ];
 
 self.addEventListener('install', (e) => {

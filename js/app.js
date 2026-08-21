@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '10.9';
+  const APP_VERSION = '11.0';
 
   /* ---------------- state ---------------- */
 
@@ -1009,8 +1009,8 @@
       renotify: false,
       silent: true,
       requireInteraction: true,
-      icon: 'icons/icon-192.png',
-      badge: 'icons/icon-192.png',
+      icon: 'icons/notify-192.png',      // the mark alone, nothing behind it
+      badge: 'icons/badge-96.png',       // the status bar draws this as a silhouette
       data: { kind: 'workout' },
     })).catch(() => { /* the browser may refuse: nothing else to do */ });
   }
@@ -1260,7 +1260,7 @@
           Start workout
         </button>
         <button class="ha-btn" id="homeLog">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.6 3.4v6.1a2 2 0 0 1-4 0V3.4M5.6 9.7V20.6"/><path d="M17.4 3.4c-1.5 1.6-2.2 3.2-2.2 5.2 0 1.6.7 2.6 2.2 2.9v9.1"/></svg>
           Log meal
         </button>
       </div>`}`;
@@ -1436,7 +1436,7 @@
             '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg>' +
             esc(startLabel) + '</button>' +
           '<button class="ha-btn" id="homeLog">' +
-            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg>' +
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.6 3.4v6.1a2 2 0 0 1-4 0V3.4M5.6 9.7V20.6"/><path d="M17.4 3.4c-1.5 1.6-2.2 3.2-2.2 5.2 0 1.6.7 2.6 2.2 2.9v9.1"/></svg>' +
             'Log meal</button>' +
         '</div>');
 
