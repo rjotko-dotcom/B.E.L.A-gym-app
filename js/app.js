@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '9.9';
+  const APP_VERSION = '10.0';
 
   /* ---------------- state ---------------- */
 
@@ -798,6 +798,7 @@
     const move = (e) => {
       if (!dragging) return;
       dy = Math.max(0, e.touches[0].clientY - startY);
+      claimGesture();
       sheet.style.transform = 'translateY(' + dy + 'px)';
       sheet.style.transition = 'none';
     };
@@ -851,6 +852,7 @@
      delete goes through the same undo as the button does. */
   function swipeToDelete(row, onDelete) {
     let sx = 0, sy = 0, dx = 0, live = false;
+    row.dataset.swipeOwn = '';
     row.addEventListener('touchstart', (e) => {
       if (e.touches.length !== 1) return;
       sx = e.touches[0].clientX; sy = e.touches[0].clientY; dx = 0; live = true;
@@ -861,6 +863,7 @@
       const t = e.touches[0];
       const ax = t.clientX - sx, ay = t.clientY - sy;
       if (Math.abs(ay) > Math.abs(ax)) { live = false; row.style.transform = ''; return; }
+      if (Math.abs(ax) > 8) claimGesture();     // this drag is the row's, not the tab bar's
       dx = Math.min(0, ax);
       row.style.transform = 'translateX(' + dx + 'px)';
       row.classList.toggle('swipe-armed', dx < -80);
@@ -1091,60 +1094,15 @@
     return true;
   }
 
-  /* ---------------- stepper bar ----------------
-     A number under a thumb is easier to nudge than to type. While a set
-     field has focus a small bar sits above the nav with the steps that
-     field actually uses — 2.5 on a bar, 1 on reps, 0.1 on a bodyweight. */
-
-  let stepBar = null;
-  function stepsFor(input) {
-    if (input.classList.contains('in-reps')) return [1, 5];
-    if (input.dataset.step) return input.dataset.step.split(',').map(Number);
-    return [2.5, 5];
-  }
-  function showStepBar(input) {
-    hideStepBar();
-    const steps = stepsFor(input);
-    const bar = document.createElement('div');
-    bar.className = 'step-bar';
-    bar.innerHTML = steps.slice().reverse().map((v) => '<button data-by="-' + v + '">−' + fmtNum(v) + '</button>').join('') +
-      steps.map((v) => '<button data-by="' + v + '">+' + fmtNum(v) + '</button>').join('');
-    bar.addEventListener('mousedown', (e) => e.preventDefault());   // never steal focus
-    bar.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
-    bar.addEventListener('click', (e) => {
-      const b = e.target.closest('button[data-by]');
-      if (!b) return;
-      const by = Number(b.dataset.by);
-      const now = Number(input.value || input.placeholder || 0);
-      const next = Math.max(0, Math.round((now + by) * 100) / 100);
-      input.value = next ? fmtNum(next) : '';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      haptic('tap');
-    });
-    document.body.appendChild(bar);
-    stepBar = bar;
-  }
-  function hideStepBar() {
-    if (stepBar) { stepBar.remove(); stepBar = null; }
-  }
-  let fieldLeftAt = 0;      // when a set field last had the keyboard
-  addEventListener('focusin', (e) => {
-    const el = e.target;
-    if (el.matches && el.matches('.set-input, [data-stepper]')) showStepBar(el);
-    else hideStepBar();
-  });
+  /* The keyboard's own recency, kept because ticking a set blurs the field
+     before the handler runs: "was the keyboard up a moment ago" is the only
+     honest test of whether to move the cursor on. */
+  let fieldLeftAt = 0;
   addEventListener('focusout', (e) => {
     if (e.target.matches && e.target.matches('.set-input')) fieldLeftAt = Date.now();
   });
-  /* Tapping the tick blurs the field first, so "is a field focused right now"
-     is always false by the time the row is rebuilt — recency is the honest test. */
   const wasTyping = () => (document.activeElement && document.activeElement.matches && document.activeElement.matches('.set-input')) ||
     Date.now() - fieldLeftAt < 1500;
-  addEventListener('focusout', (e) => {
-    // a tap on the bar itself must not take it away
-    setTimeout(() => { if (!document.activeElement || !document.activeElement.matches('.set-input, [data-stepper]')) hideStepBar(); }, 60);
-  });
 
   /* ---------------- workout elapsed clock ---------------- */
 
@@ -1620,8 +1578,7 @@
       <div class="field">
         <label for="bwInput">Today's weight (${esc(unit())})</label>
         <input id="bwInput" type="number" inputmode="decimal" step="0.1" min="0"
-               value="${existing ? existing.value : latestWeight()?.value ?? ''}" placeholder="e.g. 77.9"
-               data-stepper data-step="0.1,0.5">
+               value="${existing ? existing.value : latestWeight()?.value ?? ''}" placeholder="e.g. 77.9">
       </div>
       <div class="field">
         <label for="bwGoalInput">Goal weight (optional)</label>
@@ -2438,6 +2395,7 @@
       const quick = Date.now() - planTouch.at < 700;
       planTouch = null;
       if (!quick || Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      claimGesture();
       showPlanWeek(planWeekOffset + (dx < 0 ? 1 : -1));
     }, { passive: true });
     $('#wkLast').addEventListener('click', () => { if (last) { progressSeg = 'history'; expandedHistoryId = last.id; goTab('profile'); } });
@@ -5309,20 +5267,27 @@
   const TAB_ORDER = ['home', 'workout', 'meals', 'habits'];
   let swipeStart = null;
   let slideDir = null;
+  /* Anything that drags sideways on its own — a meal row, the plan card, a
+     sheet — calls this, and the tab swipe stands down for that gesture. It is
+     a flag rather than a list of selectors so it cannot go stale. */
+  let gestureClaimed = false;
+  function claimGesture() { gestureClaimed = true; swipeStart = null; }
 
   addEventListener('touchstart', (e) => {
     swipeStart = null;
+    gestureClaimed = false;
     if (e.touches.length !== 1) return;
     // never hijack gestures inside the logger, a sheet, inputs or charts
     if (workoutOpen || scanOpen || $('#sheetRoot').children.length) return;
     // a real swipe cancels the tap, so buttons are fine to start on —
     // only text fields and horizontally-drawn widgets must keep the gesture
-    if (e.target.closest('input, textarea, select, .chart-wrap, .cal-grid, .pad-keys, .hbh-row, .wk-plan, .slot-item')) return;
+    if (e.target.closest('input, textarea, select, .chart-wrap, .cal-grid, .pad-keys, .hbh-row, .wk-plan, .slot-items, [data-swipe-own]')) return;
     const t = e.touches[0];
     swipeStart = { x: t.clientX, y: t.clientY, at: Date.now() };
   }, { passive: true });
 
   addEventListener('touchend', (e) => {
+    if (gestureClaimed) { gestureClaimed = false; swipeStart = null; return; }
     if (!swipeStart) return;
     const t = e.changedTouches[0];
     const dx = t.clientX - swipeStart.x;

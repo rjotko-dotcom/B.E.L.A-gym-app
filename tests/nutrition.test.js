@@ -214,6 +214,8 @@ module.exports = async (t) => {
   });
   await page.waitForTimeout(450);
   t.equal('a swipe deletes the row', await mealCount(), had - 1);
+  t.equal('and never carries the page to another tab',
+    await page.evaluate(() => document.querySelector('.tab.active')?.dataset.tab), 'meals');
   await page.click('.toast-btn');
   await page.waitForTimeout(450);
   t.equal('and undo brings it back', await mealCount(), had);
