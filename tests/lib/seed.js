@@ -40,7 +40,13 @@ function build() {
       meals, weights, water: [{ date: dk(today), glasses: 4 }], measurements: [],
     },
     savedMeals: [],
-    schedule: ['tpl-push', 'tpl-pull', null, 'tpl-push', 'rest', 'tpl-legs', null],
+    // today is always a training day, so the suite does not depend on which
+    // weekday it runs: the plan is laid out from today backwards
+    schedule: (() => {
+      const week = ['tpl-push', 'tpl-pull', null, 'tpl-push', 'rest', 'tpl-legs', null];
+      const today = (new Date().getDay() + 6) % 7;         // 0 = Monday
+      return week.map((_, i) => week[(i - today + 7) % 7]);
+    })(),
     habits: [
       { id: 'h_train', name: 'Train', icon: 'dumbbell', type: 'check', target: 1, source: 'workout' },
       { id: 'h_steps', name: 'Steps', icon: 'steps', type: 'count', target: 10000, unit: 'steps', step: 1000 },

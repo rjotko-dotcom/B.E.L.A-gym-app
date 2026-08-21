@@ -1786,3 +1786,20 @@ body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
   color: var(--ink-2); font-size: 0.7rem; font-weight: 600;
 }
 .sc-gap { color: var(--ink-muted); font-size: 0.73rem; line-height: 1.35; margin-top: 5px; }
+
+/* ---------- undo on a toast ---------- */
+.toast-action { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding-right: 8px; }
+.toast-btn {
+  border: none; background: var(--pill-ink); color: var(--pill);
+  font: inherit; font-weight: 800; font-size: 0.78rem;
+  padding: 6px 13px; border-radius: 999px; cursor: pointer;
+}
+
+/* ---------- snapshots ---------- */
+.snap-list { display: flex; flex-direction: column; }
+.snap-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.snap-row:last-child { border-bottom: none; }
+.snap-main { flex: 1; min-width: 0; }
+.snap-when { font-weight: 700; font-size: 0.9rem; }
+.snap-when i { font-style: normal; font-weight: 600; color: var(--ink-2); font-size: 0.8rem; }
+.snap-sub { color: var(--ink-muted); font-size: 0.76rem; margin-top: 2px; }

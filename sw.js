@@ -1,5 +1,5 @@
 /* B.E.L.A Gym — service worker */
-const VERSION = '9.7';
+const VERSION = '9.8';
 const CACHE = 'bela-gym-' + VERSION;
 const ASSETS = [
   '.',

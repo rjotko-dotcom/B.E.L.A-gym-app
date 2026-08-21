@@ -64,6 +64,61 @@ module.exports = async (t) => {
   await page.waitForTimeout(500);
   t.check('confirming discards it', !(await readState(page)).activeWorkout);
   t.equal('no browser dialogs were used', nativeDialogs, 0);
+
+  // ---- deleting offers the thing back ----
+  await page.click('.tab[data-tab="meals"]');
+  await page.waitForTimeout(500);
+  await page.click('#dayPrev');          // the seeded meals are yesterday's
+  await page.waitForTimeout(400);
+  const meals = () => page.evaluate(() => JSON.parse(localStorage.getItem('bela-gym-v1')).nutrition.meals.length);
+  const mealsBefore = await meals();
+  t.check('there is a meal to delete', mealsBefore > 0, String(mealsBefore));
+  await page.click('.si-del');
+  await page.waitForTimeout(450);
+  t.equal('deleting takes it out', await meals(), mealsBefore - 1);
+  const undoTxt = await page.textContent('.toast');
+  t.check('and offers an undo', /Undo/.test(undoTxt), undoTxt);
+  await page.click('.toast-btn');
+  await page.waitForTimeout(500);
+  t.equal('undo puts it back', await meals(), mealsBefore);
+
+  // ---- a snapshot is taken daily and can be restored ----
+  const snapKeys = () => page.evaluate(() => new Promise((res) => {
+    const r = indexedDB.open('bela-snapshots', 1);
+    r.onsuccess = () => {
+      const q = r.result.transaction('snaps', 'readonly').objectStore('snaps').getAll();
+      q.onsuccess = () => res(q.result.map((x) => x.key));
+    };
+    r.onerror = () => res([]);
+  }));
+  const keys = await snapKeys();
+  t.check('the first launch of the day takes a snapshot', keys.length > 0, JSON.stringify(keys));
+  await page.click('.si-del');
+  await page.waitForTimeout(450);
+  await page.evaluate(() => document.querySelectorAll('.toast').forEach((x) => x.remove()));
+  t.equal('a meal is gone again', await meals(), mealsBefore - 1);
+  await page.click('.tab[data-tab="home"]');
+  await page.waitForTimeout(400);
+  await page.click('#homeAvatar');
+  await page.waitForTimeout(450);
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => /settings/i.test(x.getAttribute('aria-label') || ''));
+    if (b) b.click();
+  });
+  await page.waitForTimeout(500);
+  await page.click('#snapBtn');
+  await page.waitForTimeout(550);
+  t.check('the snapshots sheet lists one', await page.evaluate(() => !!document.querySelector('[data-restore]')));
+  await page.click('[data-restore]');
+  await page.waitForTimeout(450);
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('#sheetRoot button')].find((x) => x.textContent.trim() === 'Restore');
+    if (b) b.click();
+  });
+  await page.waitForTimeout(800);
+  t.equal('restoring brings the meal back', await meals(), mealsBefore);
+  t.check('and keeps a copy of what it replaced', (await snapKeys()).length > keys.length);
+  t.equal('no page errors', page.errors.length, 0);
   await page.close();
 
   // ---- a backup written before habits existed still imports ----

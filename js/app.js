@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '9.7';
+  const APP_VERSION = '9.8';
 
   /* ---------------- state ---------------- */
 
@@ -692,13 +692,42 @@
         '<path d="M3.2 8.4l4.4 3.1L12 4.6l4.4 6.9 4.4-3.1-1.9 10.1H5.1Z"/>' +
       '</svg></span>';
 
-  function toast(msg, html = false) {
+  function toast(msg, html = false, action = null) {
     const root = $('#toastRoot');
     const el = document.createElement('div');
-    el.className = 'toast' + (html ? ' toast-rich' : '');
+    el.className = 'toast' + (html ? ' toast-rich' : '') + (action ? ' toast-action' : '');
     if (html) el.innerHTML = msg; else el.textContent = msg;
+    let timer;
+    if (action) {
+      const b = document.createElement('button');
+      b.className = 'toast-btn';
+      b.textContent = action.label;
+      b.addEventListener('click', () => { clearTimeout(timer); el.remove(); action.onClick(); });
+      el.appendChild(b);
+    }
     root.appendChild(el);
-    setTimeout(() => el.remove(), 2600);
+    timer = setTimeout(() => el.remove(), action ? 5200 : 2600);
+  }
+
+  /* Anything that throws work away offers it back for a few seconds. The
+     snapshot is the whole document — it is small, and a partial one is how
+     undo quietly restores half a thing. */
+  function undoable(message, fn) {
+    const before = JSON.stringify(state);
+    fn();
+    save();
+    render();
+    haptic('tap');
+    toast(message, false, {
+      label: 'Undo',
+      onClick: () => {
+        state = normalize(JSON.parse(before), defaultState());
+        save();
+        render();
+        haptic('tick');
+        toast('Put back');
+      },
+    });
   }
 
   /* ---------------- bottom sheet ---------------- */
@@ -1632,8 +1661,10 @@
       toast(prev.length + ' meals copied');
     });
     $$('.si-del', v).forEach((b) => b.addEventListener('click', () => {
-      state.nutrition.meals = state.nutrition.meals.filter((m) => m.id !== b.dataset.del);
-      save(); render();
+      const meal = state.nutrition.meals.find((m) => m.id === b.dataset.del);
+      undoable((meal ? meal.name : 'Meal') + ' deleted', () => {
+        state.nutrition.meals = state.nutrition.meals.filter((m) => m.id !== b.dataset.del);
+      });
     }));
   }
 
@@ -1950,8 +1981,17 @@
       savedBox.addEventListener('click', (e) => {
         const del = e.target.closest('[data-delsaved]');
         if (del) {
+          const gone = JSON.stringify(state.savedMeals);
+          const meal = state.savedMeals.find((m) => m.id === del.dataset.delsaved);
           state.savedMeals = state.savedMeals.filter((m) => m.id !== del.dataset.delsaved);
-          save(); savedBox.innerHTML = savedHtml();
+          save(); savedBox.innerHTML = savedHtml(); haptic('tap');
+          toast((meal ? meal.name : 'Meal') + ' forgotten', false, {
+            label: 'Undo',
+            onClick: () => {
+              state.savedMeals = JSON.parse(gone);
+              save(); savedBox.innerHTML = savedHtml(); haptic('tick');
+            },
+          });
           return;
         }
         const pick = e.target.closest('[data-saved]');
@@ -2178,10 +2218,9 @@
             title: 'Delete routine',
             message: 'Delete "' + (tpl ? tpl.name : 'this routine') + '"? Workouts you already logged from it stay in your history.',
             confirm: 'Delete routine',
-            onConfirm: () => {
+            onConfirm: () => undoable('Routine deleted', () => {
               state.templates = state.templates.filter((t) => t.id !== delBtn.dataset.delTpl);
-              save(); render();
-            },
+            }),
           });
           return;
         }
@@ -3714,14 +3753,13 @@
           message: 'Delete "' + draft.name + '" and everything logged against it?',
           confirm: 'Delete habit',
           onCancel: () => openHabitEditor(draft.id),
-          onConfirm: () => {
+          onConfirm: () => undoable('Habit deleted', () => {
             state.habits = state.habits.filter((x) => x.id !== draft.id);
             Object.keys(state.habitLog || {}).forEach((k) => {
               delete state.habitLog[k][draft.id];
               if (!Object.keys(state.habitLog[k]).length) delete state.habitLog[k];
             });
-            save(); render();
-          },
+          }),
         });
       });
     });
@@ -4458,10 +4496,9 @@
             message: w ? esc(w.name) + ' from ' + fmtDate(w.startedAt) + ' will be removed from your history for good.'
                        : 'This session will be removed from your history for good.',
             confirm: 'Delete workout',
-            onConfirm: () => {
+            onConfirm: () => undoable('Workout deleted', () => {
               state.workouts = state.workouts.filter((x) => x.id !== del.dataset.delete);
-              save(); render();
-            },
+            }),
           });
           return;
         }
@@ -4644,6 +4681,7 @@
         <button class="btn btn-quiet" id="exportBtn">Save backup</button>
         <button class="btn btn-quiet" id="shareBtn">Share backup</button>
       </div>
+      <button class="btn btn-quiet" id="snapBtn" style="margin-top:10px">Snapshots</button>
       <button class="btn btn-quiet" id="importBtn" style="margin-top:10px">Import a backup</button>
       <input id="importFile" type="file" accept="application/json" hidden>
       <button class="btn btn-danger" id="wipeBtn" style="margin-top:12px">Erase all data</button>
@@ -4781,14 +4819,16 @@
         } catch { return; }   // the user dismissed the share sheet
         toast('Sharing is not available here — use Save backup');
       });
+      $('#snapBtn', body).addEventListener('click', () => { closeSheetNow(); openBackups(); });
       $('#importBtn', body).addEventListener('click', () => $('#importFile', body).click());
       $('#importFile', body).addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        file.text().then((text) => {
+        file.text().then(async (text) => {
           try {
             const data = JSON.parse(text);
             if (!data || !Array.isArray(data.workouts)) throw new Error('bad file');
+            await takeSnapshot('an import', dateKey() + ' pre-import');
             state = normalize(data);
             save(); closeSheet(); render();
             toast('Data imported');
@@ -4819,7 +4859,137 @@
           message: 'Every workout, meal, habit, weigh-in and setting on this device will be deleted. Export a backup first if you might want any of it back.',
           confirm: 'Erase all data',
           onCancel: openSettings,
-          onConfirm: () => { state = defaultState(); save(); render(); toast('All data erased'); },
+          onConfirm: async () => {
+            await takeSnapshot('erasing everything', dateKey() + ' pre-erase');
+            state = defaultState(); save(); render(); toast('All data erased');
+          },
+        });
+      });
+    });
+  }
+
+
+  /* ---------------- automatic snapshots ----------------
+     localStorage holds the only copy of everything, and a bad import or a
+     tap in the wrong place can take it. Once a day the document is copied
+     into IndexedDB — a week of them is kept, they cost nothing, and any one
+     can be put back from Settings. Photos are not in them: they live in
+     their own store and are far too big to keep seven copies of. */
+
+  const SNAP_DB = 'bela-snapshots';
+  const plural = (n, word) => n + ' ' + word + (n === 1 ? '' : 's');
+  let snapDbPromise = null;
+  function snapDb() {
+    if (snapDbPromise) return snapDbPromise;
+    snapDbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(SNAP_DB, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('snaps')) db.createObjectStore('snaps', { keyPath: 'key' });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return snapDbPromise;
+  }
+  function snapTx(mode, fn) {
+    return snapDb().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction('snaps', mode);
+      const req = fn(tx.objectStore('snaps'));
+      tx.oncomplete = () => resolve(req && req.result);
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  const snapAll = () => snapTx('readonly', (st) => st.getAll()).then((r) => (r || []).sort((a, b) => b.key.localeCompare(a.key)));
+  const snapDel = (key) => snapTx('readwrite', (st) => st.delete(key));
+
+  const SNAP_KEEP = 10;   // a week of daily ones, with room for a few taken by hand
+  function snapMeta(doc) {
+    return {
+      workouts: (doc.workouts || []).length,
+      meals: ((doc.nutrition || {}).meals || []).length,
+      habits: (doc.habits || []).length,
+      weights: ((doc.nutrition || {}).weights || []).length,
+    };
+  }
+  /* label: 'daily' for the automatic one, or what it was taken before */
+  async function takeSnapshot(label = 'daily', key = dateKey()) {
+    try {
+      const json = JSON.stringify(state);
+      await snapTx('readwrite', (st) => st.put({ key, at: Date.now(), label, size: json.length, meta: snapMeta(state), json }));
+      const all = await snapAll();
+      await Promise.all(all.slice(SNAP_KEEP).map((s) => snapDel(s.key)));
+      return true;
+    } catch (e) {
+      return false;   // no IndexedDB, or no room — never worth breaking a tap over
+    }
+  }
+  /* one a day, taken at the first launch of the day, before anything is
+     changed — so the snapshot is yesterday as you left it */
+  async function snapshotDaily() {
+    if (!('indexedDB' in window)) return;
+    try {
+      const all = await snapAll();
+      if (all.some((s) => s.key === dateKey())) return;
+      await takeSnapshot('daily');
+    } catch (e) { /* nothing to do */ }
+  }
+
+  async function openBackups() {
+    const all = await snapAll().catch(() => []);
+    const kb = (n) => (n > 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+    const when = (s) => {
+      const d = new Date(s.at);
+      const day = s.key === dateKey() ? 'Today' : s.key === dateKey(new Date(Date.now() - 864e5)) ? 'Yesterday'
+        : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      return day + ' · ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    };
+    const rows = all.length ? all.map((s) => '' +
+      '<div class="snap-row">' +
+        '<div class="snap-main">' +
+          '<div class="snap-when">' + esc(when(s)) + (s.label !== 'daily' ? ' <i>before ' + esc(s.label) + '</i>' : '') + '</div>' +
+          '<div class="snap-sub">' + plural(s.meta.workouts, 'workout') + ' · ' + plural(s.meta.meals, 'meal') + ' · ' +
+            plural(s.meta.habits, 'habit') + ' · ' + kb(s.size) + '</div>' +
+        '</div>' +
+        '<button class="chip-btn" data-restore="' + esc(s.key) + '">Restore</button>' +
+      '</div>').join('')
+      : '<p class="empty-note">No snapshots yet — the first one is taken the next time you open the app on a new day.</p>';
+
+    openSheet('Snapshots', '' +
+      '<p class="confirm-msg">One a day, kept for a week, on this phone. Photos are not included.</p>' +
+      '<div class="snap-list">' + rows + '</div>' +
+      '<button class="btn btn-quiet" id="snapNow" style="margin-top:12px">Take one now</button>',
+    (body) => {
+      $('#snapNow', body).addEventListener('click', async () => {
+        const stamp = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+        const ok = await takeSnapshot('a manual save', dateKey() + ' ' + stamp);
+        haptic(ok ? 'tick' : 'warn');
+        toast(ok ? 'Snapshot taken' : 'Could not take a snapshot');
+        if (ok) { closeSheetNow(); openBackups(); }
+      });
+      body.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-restore]');
+        if (!b) return;
+        const snap = all.find((s) => s.key === b.dataset.restore);
+        if (!snap) return;
+        closeSheetNow();
+        confirmAction({
+          title: 'Restore this snapshot',
+          message: 'Everything on this phone goes back to ' + when(snap).toLowerCase() +
+            '. What is here now is saved as a snapshot first, so this can be undone.',
+          confirm: 'Restore',
+          onCancel: openBackups,
+          onConfirm: async () => {
+            await takeSnapshot('a restore', dateKey() + ' pre-restore');
+            try {
+              state = normalize(JSON.parse(snap.json), defaultState());
+              save(); render();
+              haptic('done');
+              toast('Restored');
+            } catch (err) {
+              toast('That snapshot could not be read');
+            }
+          },
         });
       });
     });
@@ -4934,6 +5104,7 @@
 
   if (lastTab && lastTab !== 'home' && TAB_ORDER.includes(lastTab)) goTab(lastTab);
   else render();
+  snapshotDaily();
   checkSharedImport();
   armFullBleed();
 })();
