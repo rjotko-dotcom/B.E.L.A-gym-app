@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '11.5';
+  const APP_VERSION = '11.6';
 
   /* ---------------- state ---------------- */
 
@@ -1040,6 +1040,23 @@
   function syncWorkoutNote(force = false) {
     if (state.activeWorkout) showWorkoutNote(force); else clearWorkoutNote();
   }
+  /* Nothing is running yet, so show what one looks like and take it away
+     again — otherwise turning the switch on appears to do nothing at all. */
+  function sampleWorkoutNote() {
+    if (!('serviceWorker' in navigator)) { toast('This browser cannot show notifications'); return; }
+    navigator.serviceWorker.ready.then((reg) => {
+      reg.showNotification('Barbell Bench Press', {
+        body: 'Set 1/3  ·  80 kg × 8  ·  0 min',
+        tag: 'bela-sample',
+        silent: true,
+        icon: 'icons/notify-192.png?v=' + APP_VERSION,
+        badge: 'icons/badge-96.png?v=' + APP_VERSION,
+      });
+      toast('That is how a session will look');
+      setTimeout(() => reg.getNotifications({ tag: 'bela-sample' }).then((l) => l.forEach((n) => n.close())), 7000);
+    }).catch(() => toast('The browser would not show it'));
+  }
+
   async function askWorkoutNotify() {
     if (!('Notification' in window)) { toast('This phone cannot show notifications'); return false; }
     if (Notification.permission === 'granted') return true;
@@ -5228,7 +5245,11 @@
         if (e.target.checked && !(await askWorkoutNotify())) { e.target.checked = false; return; }
         state.settings.wkNotify = e.target.checked;
         save();
-        if (e.target.checked) syncWorkoutNote(true); else clearWorkoutNote();
+        if (!e.target.checked) { clearWorkoutNote(); toast('Workout notification off'); return; }
+        // show something straight away, so it is obvious it worked — the real
+        // one if a session is running, a sample of it if not
+        if (state.activeWorkout) { syncWorkoutNote(true); toast('It will follow your session'); }
+        else sampleWorkoutNote();
       });
       $('#fullBleed', body).addEventListener('change', (e) => {
         state.settings.fullscreen = e.target.checked;
