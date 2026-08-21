@@ -230,6 +230,45 @@ module.exports = async (t) => {
   await page.waitForTimeout(500);
   t.equal('and does it', await mealCount(), had + 1);
 
+  // the glass that fills the day pours itself into the card
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    const d = new Date();
+    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    st.settings.waterTarget = 8;
+    st.nutrition.water = [{ date: key, glasses: 7 }];
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(650);
+  await page.click('.tab[data-tab="meals"]');
+  await page.waitForTimeout(450);
+  await page.click('#waterPlus');
+  await page.waitForTimeout(150);
+  t.check('the last glass sends a drop across', await page.evaluate(() => !!document.querySelector('.water-drop')));
+  await page.waitForTimeout(1400);
+  t.check('the drop is taken by the card', await page.evaluate(() =>
+    !document.querySelector('.water-drop') && !!document.querySelector('.slot-ico.took-drop')));
+  const dots = await page.evaluate(() => {
+    const d = [...document.querySelectorAll('.wdot')];
+    return { count: d.length, on: d.filter((x) => x.classList.contains('on')).length,
+      hidden: d.filter((x) => Number(getComputedStyle(x).opacity) < 0.9).length };
+  });
+  t.equal('and every dot comes back filled', dots.on, dots.count);
+  t.equal('none left invisible', dots.hidden, 0);
+  await page.click('#waterPlus');
+  await page.waitForTimeout(300);
+  t.check('a glass past the target does not pour again', await page.evaluate(() => !document.querySelector('.water-drop')));
+
+  // deleting several things in a row leaves one message, not a pile
+  for (let i = 0; i < 4; i++) {
+    if (!(await page.evaluate(() => !!document.querySelector('.si-del')))) break;
+    await page.click('.si-del');
+    await page.waitForTimeout(160);
+  }
+  t.equal('only the latest message is on screen',
+    await page.evaluate(() => document.querySelectorAll('.toast').length), 1);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

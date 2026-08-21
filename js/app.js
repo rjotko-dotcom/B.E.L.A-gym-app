@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '10.0';
+  const APP_VERSION = '10.1';
 
   /* ---------------- state ---------------- */
 
@@ -696,6 +696,9 @@
 
   function toast(msg, html = false, action = null) {
     const root = $('#toastRoot');
+    // one at a time: deleting a few things in a row used to stack a message
+    // for each one until they filled the screen
+    root.replaceChildren();
     const el = document.createElement('div');
     el.className = 'toast' + (html ? ' toast-rich' : '') + (action ? ' toast-action' : '');
     if (html) el.innerHTML = msg; else el.textContent = msg;
@@ -1783,7 +1786,14 @@
 
     $('#dayPrev').addEventListener('click', () => { mealDayOffset -= 1; render(); });
     $('#dayNext').addEventListener('click', () => { if (mealDayOffset < 0) { mealDayOffset += 1; render(); } });
-    $('#waterPlus').addEventListener('click', () => { setWater(key, waterFor(key) + 1); haptic('tap'); save(); render(); });
+    $('#waterPlus').addEventListener('click', () => {
+      const was = waterFor(key);
+      setWater(key, was + 1);
+      const filled = was + 1 >= wTarget && was < wTarget;
+      haptic(filled ? 'done' : 'tap');
+      save(); render();
+      if (filled) pourWaterDrop();
+    });
     $('#waterMinus').addEventListener('click', () => { setWater(key, Math.max(0, waterFor(key) - 1)); haptic('tap'); save(); render(); });
     $('#addMeal').addEventListener('click', () => openMealSheet(key));
     $('#editTargets').addEventListener('click', openTargetsSheet);
@@ -1855,6 +1865,59 @@
         }
       });
     });
+  }
+
+  /* The glass that fills the day: the dots gather into one drop, and the drop
+     falls into the water card's droplet, which takes it with a ripple. */
+  function pourWaterDrop() {
+    const dots = $$('.water-dots .wdot');
+    const icon = $('.water-card .slot-ico');
+    if (!dots.length || !icon || reducedMotion() || !dots[0].animate) return;
+
+    const row = $('.water-dots').getBoundingClientRect();
+    const target = icon.getBoundingClientRect();
+    const midX = row.left + row.width / 2;
+    const midY = row.top + row.height / 2;
+
+    // every dot slides to the middle of its row and folds away
+    dots.forEach((d, i) => {
+      const r = d.getBoundingClientRect();
+      d.animate([
+        { transform: 'none', opacity: 1 },
+        { transform: 'translate(' + (midX - (r.left + r.width / 2)) + 'px, ' + (midY - (r.top + r.height / 2)) + 'px) scale(0.5)', opacity: 0 },
+      ], { duration: 340, delay: Math.abs(i - (dots.length - 1) / 2) * 26, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' });
+    });
+
+    // one drop rises out of them and into the icon
+    const drop = document.createElement('div');
+    drop.className = 'water-drop';
+    drop.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6c3.1 3.6 5.3 6.1 5.3 8.8a5.3 5.3 0 1 1-10.6 0c0-2.7 2.2-5.2 5.3-8.8Z"/></svg>';
+    drop.style.left = midX + 'px';
+    drop.style.top = midY + 'px';
+    document.body.appendChild(drop);
+    const dx = (target.left + target.width / 2) - midX;
+    const dy = (target.top + target.height / 2) - midY;
+    const flight = drop.animate([
+      { transform: 'translate(-50%, -50%) scale(0.3)', opacity: 0 },
+      { transform: 'translate(-50%, -50%) scale(1)', opacity: 1, offset: 0.28 },
+      { transform: 'translate(calc(-50% + ' + dx + 'px), calc(-50% + ' + dy + 'px)) scale(0.34)', opacity: 0 },
+    ], { duration: 900, delay: 210, easing: 'cubic-bezier(0.45, 0, 0.25, 1)', fill: 'forwards' });
+    flight.onfinish = () => {
+      drop.remove();
+      icon.classList.remove('took-drop');
+      void icon.offsetWidth;
+      icon.classList.add('took-drop');
+      haptic('tick');
+      // and the row comes back, filled — the dots are the day's record, not
+      // scenery, so they must not be left invisible
+      $$('.water-dots .wdot').forEach((d, i) => {
+        d.getAnimations().forEach((a) => a.cancel());
+        d.animate([
+          { transform: 'scale(0.4)', opacity: 0 },
+          { transform: 'none', opacity: 1 },
+        ], { duration: 320, delay: i * 34, easing: 'cubic-bezier(0.3, 1.3, 0.5, 1)' });
+      });
+    };
   }
 
   /* daily goals, editable straight from the nutrition page */
@@ -5273,6 +5336,12 @@
   let gestureClaimed = false;
   function claimGesture() { gestureClaimed = true; swipeStart = null; }
 
+  /* Whatever the touch lands on decides who owns the gesture, and the decision
+     is made in the capture phase — before anything else sees the touch — so it
+     cannot depend on which listener happens to run first. */
+  const OWN_GESTURE = 'input, textarea, select, .chart-wrap, .cal-grid, .pad-keys,' +
+    ' .hbh-row, .wk-plan, .slot-card, .snap-row, .sheet, [data-swipe-own]';
+
   addEventListener('touchstart', (e) => {
     swipeStart = null;
     gestureClaimed = false;
@@ -5280,11 +5349,12 @@
     // never hijack gestures inside the logger, a sheet, inputs or charts
     if (workoutOpen || scanOpen || $('#sheetRoot').children.length) return;
     // a real swipe cancels the tap, so buttons are fine to start on —
-    // only text fields and horizontally-drawn widgets must keep the gesture
-    if (e.target.closest('input, textarea, select, .chart-wrap, .cal-grid, .pad-keys, .hbh-row, .wk-plan, .slot-items, [data-swipe-own]')) return;
+    // only text fields and things that draw sideways must keep the gesture
+    const el = e.target.nodeType === 1 ? e.target : e.target.parentElement;
+    if (el && el.closest(OWN_GESTURE)) { gestureClaimed = true; return; }
     const t = e.touches[0];
     swipeStart = { x: t.clientX, y: t.clientY, at: Date.now() };
-  }, { passive: true });
+  }, { passive: true, capture: true });
 
   addEventListener('touchend', (e) => {
     if (gestureClaimed) { gestureClaimed = false; swipeStart = null; return; }
@@ -5301,8 +5371,9 @@
     if (i < 0 || next < 0 || next >= TAB_ORDER.length) return;
     slideDir = dx < 0 ? 'slide-left' : 'slide-right';
     window.scrollTo(0, 0);
+    haptic('tap');
     goTab(TAB_ORDER[next]);
-  }, { passive: true });
+  }, { passive: true, capture: true });
 
   // Home must fit one screen on any device and font-scale setting: measure the
   // rendered result and step down through the compact tiers until it fits.
