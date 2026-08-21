@@ -1,5 +1,5 @@
 /* B.E.L.A Gym — service worker */
-const VERSION = '11.3';
+const VERSION = '11.4';
 const CACHE = 'bela-gym-' + VERSION;
 const ASSETS = [
   '.',
@@ -9,10 +9,13 @@ const ASSETS = [
   'js/exercises.js?v=' + VERSION,
   'js/foods.js?v=' + VERSION,
   'manifest.webmanifest',
-  'icons/icon.svg',
-  'icons/icon-192.png',
-  'icons/notify-192.png',      // the workout notification must draw offline too
-  'icons/badge-96.png',
+  /* Icons are versioned like everything else. Without the ?v= the cache-first
+     rule below would keep serving whatever art was cached the first time, and
+     the notification would show last month's icon for good. */
+  'icons/icon.svg?v=' + VERSION,
+  'icons/icon-192.png?v=' + VERSION,
+  'icons/notify-192.png?v=' + VERSION,
+  'icons/badge-96.png?v=' + VERSION,
 ];
 
 self.addEventListener('install', (e) => {

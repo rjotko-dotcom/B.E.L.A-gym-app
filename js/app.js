@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '11.3';
+  const APP_VERSION = '11.4';
 
   /* ---------------- state ---------------- */
 
@@ -1015,8 +1015,10 @@
       renotify: false,
       silent: true,
       requireInteraction: true,
-      icon: 'icons/notify-192.png',      // the mark alone, nothing behind it
-      badge: 'icons/badge-96.png',       // the status bar draws this as a silhouette
+      // versioned, so a new build's art is fetched instead of the copy the
+      // service worker cached the first time this ever ran
+      icon: 'icons/notify-192.png?v=' + APP_VERSION,   // the mark, nothing behind it
+      badge: 'icons/badge-96.png?v=' + APP_VERSION,    // drawn as a silhouette in the status bar
       data: { kind: 'workout' },
     })).catch(() => { /* the browser may refuse: nothing else to do */ });
   }
