@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '10.7';
+  const APP_VERSION = '10.8';
 
   /* ---------------- state ---------------- */
 
@@ -959,14 +959,6 @@
     try { navigator.vibrate(BUZZ[kind] || BUZZ.tap); } catch (e) { /* some browsers refuse */ }
   }
 
-  /* Tapping into a set box selects what is in it, so the first digit you type
-     replaces last session's number instead of being tacked onto it. */
-  addEventListener('focusin', (e) => {
-    if (!e.target.matches || !e.target.matches('.set-input')) return;
-    const el = e.target;
-    setTimeout(() => { try { el.select(); } catch (err) { /* some number inputs refuse */ } }, 0);
-  });
-
   /* ---------------- workout elapsed clock ---------------- */
 
   let elapsedTimer = null;
@@ -1181,25 +1173,27 @@
         }).join('')}</div>` : '<p class="hbh-empty">Add your first habit in the Habits tab.</p>'}
       </div>
 
+      ${active ? '' : `
       <div class="home-actions">
         <button class="ha-btn ha-primary" id="homeStart">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg>
-          ${active ? 'Resume workout' : 'Start workout'}
+          Start workout
         </button>
         <button class="ha-btn" id="homeLog">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg>
           Log meal
         </button>
-      </div>`;
+      </div>`}`;
 
     $('#homeAvatar').addEventListener('click', () => goTab('profile'));
     $('#bwGoal').addEventListener('click', (e) => { e.stopPropagation(); openWeightSheet(); });
     $('#bwCard').addEventListener('click', openWeightSheet);
-    $('#homeStart').addEventListener('click', () => {
+    // both are absent while a workout is running — the mini bar resumes it
+    if ($('#homeStart')) $('#homeStart').addEventListener('click', () => {
       if (state.activeWorkout) { workoutOpen = true; openWkEntry(); }
       goTab('workout');
     });
-    $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
+    if ($('#homeLog')) $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
     $$('.hbh-chip', v).forEach((c) => c.addEventListener('click', () => {
       const h = habitById(c.dataset.h);
       if (!h) return;
@@ -1356,14 +1350,15 @@
         '</div>' +
       '</button>' +
 
-      '<div class="home-actions">' +
-        '<button class="ha-btn ha-primary" id="homeStart">' +
-          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg>' +
-          esc(startLabel) + '</button>' +
-        '<button class="ha-btn" id="homeLog">' +
-          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg>' +
-          'Log meal</button>' +
-      '</div>';
+      (active ? '' :
+        '<div class="home-actions">' +
+          '<button class="ha-btn ha-primary" id="homeStart">' +
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg>' +
+            esc(startLabel) + '</button>' +
+          '<button class="ha-btn" id="homeLog">' +
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/></svg>' +
+            'Log meal</button>' +
+        '</div>');
 
     $('#homeAvatar').addEventListener('click', () => goTab('profile'));
     $$('.wd[data-day]', v).forEach((b) => b.addEventListener('click', () => openDaySummary(b.dataset.day)));
@@ -1377,13 +1372,13 @@
       else if (habitType(h) === 'check') toggleHabit(h);
       else openHabitPad(h, todayKey);
     });
-    $('#homeStart').addEventListener('click', () => {
+    if ($('#homeStart')) $('#homeStart').addEventListener('click', () => {
       if (state.activeWorkout) { workoutOpen = true; openWkEntry(); goTab('workout'); return; }
       // a planned session starts straight from home; anything else goes to the tab
       if (planned && !planned.rest && !trainedToday) { startWorkout(planned.id); return; }
       goTab('workout');
     });
-    $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
+    if ($('#homeLog')) $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
   }
 
   /* How far along the journey to the goal weight — the number that actually
@@ -2643,13 +2638,7 @@
         toast('Filled in ' + fmtNum(h.weight) + ' ' + unit() + ' × ' + h.reps);
       });
       $('.add-set', block).addEventListener('click', () => {
-        const last = ex.sets[ex.sets.length - 1];
-        const fromHistory = prev[ex.sets.length] || prev[prev.length - 1];
-        ex.sets.push({
-          weight: last?.weight ?? fromHistory?.weight ?? null,
-          reps: last?.reps ?? fromHistory?.reps ?? null,
-          done: false,
-        });
+        ex.sets.push({ weight: null, reps: null, done: false });
         save(); render();
       });
       $$('.set-row', block).forEach((row) => {
@@ -2964,7 +2953,9 @@
         <div class="set-grid${rpeOn && !cardio ? ' has-rpe' : ''}">
           <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(u)}</span><span class="hdr">${cardio ? 'min' : 'Reps'}</span>${rpeOn && !cardio ? '<span class="hdr">RPE</span>' : ''}<span class="hdr">✓</span>
           ${ex.sets.map((s, i) => {
-            const p = prev[i];
+            // past the sets you did last time, the faint number carries on
+            // from the last one rather than leaving the box blank
+            const p = prev[i] || prev[prev.length - 1];
             const prevTxt = p ? (cardio ? `${fmtNum(p.weight ?? 0)}·${p.reps}m` : `${fmtNum(p.weight ?? 0)}×${p.reps}`) : '—';
             const t = s.type || 'N';
             return `
@@ -2986,18 +2977,12 @@
       </div>`;
   }
 
-  /* An exercise you have done before comes back with last session's numbers
-     already in the boxes — the same set, or the last one if you have added
-     more this time. They are real values, so the tick logs them as they
-     stand; typing in a box replaces what is there. */
+  /* Sets start empty. What you did last time shows behind the box as a faint
+     number: start typing and it is gone, tick it and it becomes the real one. */
   function newExerciseEntry(exerciseId, setCount, targetReps) {
-    const prev = previousSets(exerciseId);
     const entry = {
       exerciseId,
-      sets: Array.from({ length: setCount }, (_, i) => {
-        const p = prev[i] || prev[prev.length - 1];
-        return { weight: p?.weight ?? null, reps: p?.reps ?? targetReps ?? null, done: false };
-      }),
+      sets: Array.from({ length: setCount }, () => ({ weight: null, reps: null, done: false })),
     };
     if (targetReps) entry.targetReps = targetReps;
     return entry;

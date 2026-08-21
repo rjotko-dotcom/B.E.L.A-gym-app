@@ -277,6 +277,14 @@ body {
   font: inherit; font-weight: 600; font-variant-numeric: tabular-nums;
 }
 .set-input:focus { outline: 2px solid var(--ink-1); outline-offset: 1px; border-color: transparent; }
+/* last session sits behind the box in the same shape as a real number, just
+   dimmer — typing takes it away, the tick makes it real */
+.set-input::placeholder { color: var(--ink-muted); opacity: 0.75; font-weight: 600; }
+.set-input::-webkit-input-placeholder { color: var(--ink-muted); opacity: 0.75; font-weight: 600; }
+/* no highlight box when a field is tapped: the number behind it is a hint,
+   not text to select */
+.set-input::selection { background: transparent; color: inherit; }
+.set-input::-moz-selection { background: transparent; color: inherit; }
 .set-done {
   width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border);
   background: var(--surface-2); color: var(--ink-muted); cursor: pointer;
@@ -596,7 +604,7 @@ body {
 /* ---------- minimized workout mini bar (Hevy-style) ---------- */
 .mini-bar {
   position: fixed; left: 12px; right: 12px;
-  bottom: calc(env(safe-area-inset-bottom) + 76px);
+  bottom: calc(env(safe-area-inset-bottom) + 100px);   /* clear of the nav, not sat on it */
   z-index: 22;
   display: flex; align-items: center; gap: 12px;
   background: var(--surface-1); border: 1px solid var(--border);
@@ -618,7 +626,7 @@ body {
 .mini-title b { font-weight: 800; }
 .mini-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--good); flex-shrink: 0; }
 .mini-sub { color: var(--ink-muted); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
-body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px); }
+body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 194px); }
 
 /* ---------- home greeting header ---------- */
 .home-head { margin: 6px 4px 2px; }

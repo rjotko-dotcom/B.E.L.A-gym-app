@@ -146,6 +146,41 @@ module.exports = async (t) => {
   await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
   await page.waitForTimeout(350);
 
+  // while a workout is running, home drops the two buttons and the mini bar
+  // sits clear of the nav on every tab
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    st.activeWorkout = { id: 'wm', name: 'Push Day', startedAt: Date.now() - 9e5,
+      exercises: [{ exerciseId: 'bench-press', sets: [{ weight: null, reps: null, done: false }] }] };
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
+  await page.waitForTimeout(500);
+  await page.evaluate(() => document.querySelector('.tab[data-tab="home"]').click());
+  await page.waitForTimeout(500);
+  t.check('home drops Resume and Log meal while training', await page.evaluate(() => !document.querySelector('.home-actions')));
+  t.check('and shows the workout bar instead', await page.evaluate(() => !!document.querySelector('.mini-bar')));
+  const gap = () => page.evaluate(() => {
+    const m = document.querySelector('.mini-bar').getBoundingClientRect();
+    const nav = document.querySelector('.tab-bar').getBoundingClientRect();
+    return Math.round(nav.top - m.bottom);
+  });
+  t.check('the bar clears the nav on home', (await gap()) > 12, String(await gap()));
+  for (const tab of ['workout', 'meals', 'habits']) {
+    await page.evaluate((x) => document.querySelector('.tab[data-tab="' + x + '"]').click(), tab);
+    await page.waitForTimeout(450);
+    t.check('the bar clears the nav on ' + tab, (await gap()) > 12, String(await gap()));
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(300);
+    t.check('and nothing hides under it on ' + tab, await page.evaluate(() => {
+      const m = document.querySelector('.mini-bar').getBoundingClientRect();
+      const kids = [...document.querySelectorAll('#view > *')];
+      return kids[kids.length - 1].getBoundingClientRect().bottom <= m.top + 2;
+    }));
+  }
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

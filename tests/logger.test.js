@@ -251,7 +251,10 @@ module.exports = async (t) => {
   await page.waitForTimeout(700);
   const boxes = () => page.evaluate(() => [...document.querySelectorAll('.set-row')]
     .map((r) => r.querySelector('.in-weight').value + 'x' + r.querySelector('.in-reps').value).join(' '));
-  t.equal('the boxes carry last session forward', await boxes(), '90x8 90x7 85x8');
+  t.equal('the boxes stay empty', await boxes(), 'x x x');
+  const ghosts = await page.evaluate(() => [...document.querySelectorAll('.set-row')]
+    .map((r) => r.querySelector('.in-weight').placeholder + 'x' + r.querySelector('.in-reps').placeholder).join(' '));
+  t.equal('with last session showing behind them', ghosts, '90x8 90x7 85x8');
   await page.click('.set-row[data-set="0"] .set-done');
   await page.waitForTimeout(500);
   const logged = await page.evaluate(() => JSON.parse(localStorage.getItem('bela-gym-v1')).activeWorkout.exercises[0].sets[0]);
@@ -261,11 +264,18 @@ module.exports = async (t) => {
   await page.waitForTimeout(250);
   await page.keyboard.type('95');
   await page.waitForTimeout(250);
-  t.equal('typing replaces the number rather than joining it',
+  t.equal('typing gives just what you typed',
     await page.evaluate(() => document.querySelector('.set-row[data-set="1"] .in-weight').value), '95');
+  t.check('and no selection box appears in a set field', await page.evaluate(() =>
+    getComputedStyle(document.querySelector('.set-input'), '::selection').backgroundColor === 'rgba(0, 0, 0, 0)'));
   await page.click('.add-set');
   await page.waitForTimeout(500);
-  t.equal('a new set copies the one above it', await boxes(), '90x8 95x7 85x8 85x8');
+  t.equal('an added set is empty too', await boxes(), '90x8 95x x x');
+  t.check('and shows the last set behind it', await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.set-row')];
+    const last = rows[rows.length - 1];
+    return last.querySelector('.in-weight').placeholder === '85';
+  }));
 
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
