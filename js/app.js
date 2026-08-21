@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '10.1';
+  const APP_VERSION = '10.2';
 
   /* ---------------- state ---------------- */
 
@@ -1874,50 +1874,105 @@
     const icon = $('.water-card .slot-ico');
     if (!dots.length || !icon || reducedMotion() || !dots[0].animate) return;
 
-    const row = $('.water-dots').getBoundingClientRect();
+    // measured off the dots themselves, so the drop starts exactly on the row
+    const first = dots[0].getBoundingClientRect();
+    const last = dots[dots.length - 1].getBoundingClientRect();
+    const midX = (first.left + last.right) / 2;
+    const midY = first.top + first.height / 2;
     const target = icon.getBoundingClientRect();
-    const midX = row.left + row.width / 2;
-    const midY = row.top + row.height / 2;
+    const dx = (target.left + target.width / 2) - midX;
+    const dy = (target.top + target.height / 2) - midY;
 
-    // every dot slides to the middle of its row and folds away
+    const EASE_IN = 'cubic-bezier(0.55, 0, 0.85, 0.35)';
+    const EASE_OUT = 'cubic-bezier(0.2, 0.9, 0.3, 1)';
+
+    // the dots gather inwards, the outer ones leading, and fold away
     dots.forEach((d, i) => {
       const r = d.getBoundingClientRect();
+      const toward = midX - (r.left + r.width / 2);
+      const rank = (dots.length - 1) / 2 - Math.abs(i - (dots.length - 1) / 2);
       d.animate([
-        { transform: 'none', opacity: 1 },
-        { transform: 'translate(' + (midX - (r.left + r.width / 2)) + 'px, ' + (midY - (r.top + r.height / 2)) + 'px) scale(0.5)', opacity: 0 },
-      ], { duration: 340, delay: Math.abs(i - (dots.length - 1) / 2) * 26, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' });
+        { transform: 'translate3d(0,0,0) scale(1)', opacity: 1 },
+        { transform: 'translate3d(' + toward * 0.55 + 'px,0,0) scale(1.25)', opacity: 1, offset: 0.45 },
+        { transform: 'translate3d(' + toward + 'px,0,0) scale(0.2)', opacity: 0 },
+      ], { duration: 260, delay: rank * 18, easing: EASE_IN, fill: 'forwards' });
     });
+    const gathered = 260 + ((dots.length - 1) / 2) * 18;
 
-    // one drop rises out of them and into the icon
+    /* The drop is one element that only ever moves and scales: the arc is two
+       animations back to back rather than one long tween through calc(), which
+       is what made it stutter. */
     const drop = document.createElement('div');
     drop.className = 'water-drop';
     drop.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6c3.1 3.6 5.3 6.1 5.3 8.8a5.3 5.3 0 1 1-10.6 0c0-2.7 2.2-5.2 5.3-8.8Z"/></svg>';
-    drop.style.left = midX + 'px';
-    drop.style.top = midY + 'px';
+    drop.style.left = (midX - 17) + 'px';
+    drop.style.top = (midY - 17) + 'px';
     document.body.appendChild(drop);
-    const dx = (target.left + target.width / 2) - midX;
-    const dy = (target.top + target.height / 2) - midY;
+
+    // it swells out of the gathering dots…
+    drop.animate([
+      { transform: 'translate3d(0,0,0) scale(0.15)', opacity: 0 },
+      { transform: 'translate3d(0,-6px,0) scale(1.15) scaleY(1.2)', opacity: 1, offset: 0.7 },
+      { transform: 'translate3d(0,0,0) scale(1)', opacity: 1 },
+    ], { duration: 220, delay: gathered - 110, easing: EASE_OUT, fill: 'backwards' });
+
+    // …then falls into the card, stretching on the way and squashing on arrival
+    const apexX = dx * 0.42;
+    const apexY = dy * 0.34;
     const flight = drop.animate([
-      { transform: 'translate(-50%, -50%) scale(0.3)', opacity: 0 },
-      { transform: 'translate(-50%, -50%) scale(1)', opacity: 1, offset: 0.28 },
-      { transform: 'translate(calc(-50% + ' + dx + 'px), calc(-50% + ' + dy + 'px)) scale(0.34)', opacity: 0 },
-    ], { duration: 900, delay: 210, easing: 'cubic-bezier(0.45, 0, 0.25, 1)', fill: 'forwards' });
+      { transform: 'translate3d(0,0,0) scale(1)', opacity: 1, easing: EASE_IN },
+      { transform: 'translate3d(' + apexX + 'px,' + apexY + 'px,0) scale(0.92) scaleY(1.3)', opacity: 1, offset: 0.55, easing: EASE_OUT },
+      { transform: 'translate3d(' + dx * 0.94 + 'px,' + dy * 0.94 + 'px,0) scale(0.6) scaleY(0.85)', opacity: 1, offset: 0.9 },
+      { transform: 'translate3d(' + dx + 'px,' + dy + 'px,0) scale(0.34) scaleY(0.62)', opacity: 0 },
+    ], { duration: 480, delay: gathered + 110, fill: 'forwards' });
+
     flight.onfinish = () => {
       drop.remove();
-      icon.classList.remove('took-drop');
-      void icon.offsetWidth;
-      icon.classList.add('took-drop');
+      splashAt(icon);
       haptic('tick');
-      // and the row comes back, filled — the dots are the day's record, not
-      // scenery, so they must not be left invisible
+      // the row comes back filled — the dots are the day's record, not scenery
       $$('.water-dots .wdot').forEach((d, i) => {
         d.getAnimations().forEach((a) => a.cancel());
         d.animate([
-          { transform: 'scale(0.4)', opacity: 0 },
-          { transform: 'none', opacity: 1 },
-        ], { duration: 320, delay: i * 34, easing: 'cubic-bezier(0.3, 1.3, 0.5, 1)' });
+          { transform: 'translate3d(0,0,0) scale(0.3)', opacity: 0 },
+          { transform: 'translate3d(0,0,0) scale(1)', opacity: 1 },
+        ], { duration: 240, delay: i * 26, easing: 'cubic-bezier(0.3, 1.5, 0.5, 1)' });
       });
     };
+  }
+
+  /* The landing: a ring opening out of the icon and three specks thrown off it.
+     Transform and opacity only — a growing box-shadow repaints the card. */
+  function splashAt(icon) {
+    icon.classList.remove('took-drop');
+    void icon.offsetWidth;
+    icon.classList.add('took-drop');
+    const box = icon.getBoundingClientRect();
+    const cx = box.left + box.width / 2;
+    const cy = box.top + box.height / 2;
+
+    const ring = document.createElement('span');
+    ring.className = 'water-ring';
+    ring.style.left = (cx - 22) + 'px';
+    ring.style.top = (cy - 22) + 'px';
+    document.body.appendChild(ring);
+    ring.animate([
+      { transform: 'scale(0.35)', opacity: 0.85 },
+      { transform: 'scale(1.6)', opacity: 0 },
+    ], { duration: 460, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' }).onfinish = () => ring.remove();
+
+    [[-16, -13], [0, -20], [16, -12]].forEach(([sx, sy], i) => {
+      const bit = document.createElement('span');
+      bit.className = 'water-speck';
+      bit.style.left = (cx - 2.5) + 'px';
+      bit.style.top = (cy - 2.5) + 'px';
+      document.body.appendChild(bit);
+      bit.animate([
+        { transform: 'translate3d(0,0,0) scale(1)', opacity: 0.9 },
+        { transform: 'translate3d(' + sx + 'px,' + sy + 'px,0) scale(0.6)', opacity: 0.9, offset: 0.55 },
+        { transform: 'translate3d(' + sx * 1.25 + 'px,' + (sy + 16) + 'px,0) scale(0.3)', opacity: 0 },
+      ], { duration: 480, delay: i * 30, easing: 'cubic-bezier(0.3, 0.6, 0.4, 1)' }).onfinish = () => bit.remove();
+    });
   }
 
   /* daily goals, editable straight from the nutrition page */
