@@ -1,6 +1,6 @@
 {
   "name": "bela-gym",
-  "version": "11.0.0",
+  "version": "11.1.0",
   "private": true,
   "description": "B.E.L.A Gym — workouts, nutrition and habits in one offline app.",
   "scripts": {
