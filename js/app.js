@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '9.8';
+  const APP_VERSION = '9.9';
 
   /* ---------------- state ---------------- */
 
@@ -172,6 +172,7 @@
   const $ = (sel, el = document) => el.querySelector(sel);
   const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
+  const nowTime = () => new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -593,6 +594,7 @@
     return counts;
   }
   function beep() {
+    if (state.settings.sound === false) return;
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const o = ctx.createOscillator(), g = ctx.createGain();
@@ -730,6 +732,33 @@
     });
   }
 
+  /* A figure that changes rolls to its new value rather than jumping. The
+     view is rebuilt wholesale on every action, so the last value is kept by
+     name and the animation runs on the fresh element. */
+  const rollLast = new Map();
+  const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function rollNumbers(root = $('#view')) {
+    $$('[data-roll]', root).forEach((el) => {
+      const name = el.dataset.roll;
+      const to = Number(el.dataset.rollTo);
+      const had = rollLast.has(name);
+      const from = had ? rollLast.get(name) : to;
+      rollLast.set(name, to);
+      if (!had || from === to || !Number.isFinite(to) || reducedMotion()) return;
+      const dec = Number(el.dataset.rollDec || 0);
+      const fmt = (n) => (dec ? fmtNum(Number(n.toFixed(dec))) : Math.round(n).toLocaleString());
+      const started = performance.now();
+      const step = (now) => {
+        const k = Math.min(1, (now - started) / 420);
+        const eased = 1 - Math.pow(1 - k, 3);
+        el.firstChild.textContent = fmt(from + (to - from) * eased);
+        if (k < 1) requestAnimationFrame(step);
+      };
+      el.firstChild.textContent = fmt(from);
+      requestAnimationFrame(step);
+    });
+  }
+
   /* ---------------- bottom sheet ---------------- */
 
   function openSheet(title, bodyHtml, onMount) {
@@ -753,8 +782,97 @@
     backdrop.addEventListener('click', (e) => {
       if (e.target === backdrop || e.target.closest('[data-close]')) closeSheet();
     });
+    armSheetDrag($('.sheet', root));
     if (!sheetHasEntry) { history.pushState({ t: 'sheet' }, ''); sheetHasEntry = true; }
     if (onMount) onMount(body);
+  }
+
+  /* The grab handle at the top of a sheet was decorative. It now drags: the
+     sheet follows your thumb downwards and either flies out or springs back.
+     Only the handle and the title bar start a drag, so a list inside the sheet
+     still scrolls normally. */
+  function armSheetDrag(sheet) {
+    if (!sheet) return;
+    const grip = [$('.sheet-grab', sheet), $('.sheet-head', sheet)].filter(Boolean);
+    let startY = 0, dy = 0, dragging = false, startedAt = 0;
+    const move = (e) => {
+      if (!dragging) return;
+      dy = Math.max(0, e.touches[0].clientY - startY);
+      sheet.style.transform = 'translateY(' + dy + 'px)';
+      sheet.style.transition = 'none';
+    };
+    const end = () => {
+      if (!dragging) return;
+      dragging = false;
+      removeEventListener('touchmove', move);
+      removeEventListener('touchend', end);
+      const quick = Date.now() - startedAt < 350 && dy > 40;
+      sheet.style.transition = '';
+      if (dy > 110 || quick) {
+        sheet.style.transform = 'translateY(110%)';
+        haptic('tap');
+        setTimeout(closeSheet, 130);
+      } else {
+        sheet.style.transform = '';
+      }
+    };
+    grip.forEach((g) => g.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1 || e.target.closest('button')) return;
+      dragging = true; startY = e.touches[0].clientY; dy = 0; startedAt = Date.now();
+      addEventListener('touchmove', move, { passive: true });
+      addEventListener('touchend', end, { passive: true });
+    }, { passive: true }));
+  }
+
+  /* Press and hold. Cancels the moment the thumb travels, so it never fires
+     while you are scrolling a list. */
+  function longPress(el, fn) {
+    let timer = null, sx = 0, sy = 0, fired = false;
+    const cancel = () => { clearTimeout(timer); timer = null; };
+    el.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      fired = false;
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+      timer = setTimeout(() => { fired = true; haptic('tick'); fn(e.target); }, 480);
+    }, { passive: true });
+    el.addEventListener('touchmove', (e) => {
+      if (!timer) return;
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - sx) > 10 || Math.abs(t.clientY - sy) > 10) cancel();
+    }, { passive: true });
+    el.addEventListener('touchend', cancel, { passive: true });
+    el.addEventListener('touchcancel', cancel, { passive: true });
+    // a hold with a mouse works too, and keeps the desktop tests honest
+    el.addEventListener('contextmenu', (e) => { e.preventDefault(); haptic('tick'); fn(e.target); });
+    return () => fired;
+  }
+
+  /* Swipe a row to the left to delete it. The row follows the thumb, and the
+     delete goes through the same undo as the button does. */
+  function swipeToDelete(row, onDelete) {
+    let sx = 0, sy = 0, dx = 0, live = false;
+    row.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; dx = 0; live = true;
+      row.style.transition = 'none';
+    }, { passive: true });
+    row.addEventListener('touchmove', (e) => {
+      if (!live) return;
+      const t = e.touches[0];
+      const ax = t.clientX - sx, ay = t.clientY - sy;
+      if (Math.abs(ay) > Math.abs(ax)) { live = false; row.style.transform = ''; return; }
+      dx = Math.min(0, ax);
+      row.style.transform = 'translateX(' + dx + 'px)';
+      row.classList.toggle('swipe-armed', dx < -80);
+    }, { passive: true });
+    row.addEventListener('touchend', () => {
+      if (!live) return;
+      live = false;
+      row.style.transition = '';
+      row.classList.remove('swipe-armed');
+      if (dx < -80) { row.style.transform = 'translateX(-110%)'; onDelete(); }
+      else row.style.transform = '';
+    }, { passive: true });
   }
   /* Every destructive action asks here rather than through window.confirm,
      which renders as an unstyled system box titled with the domain name.
@@ -876,6 +994,7 @@
     rest.total = seconds;
     rest.endsAt = Date.now() + seconds * 1000;
     rest.noted = false;
+    restCounted = 0;
     $('#restBar').hidden = false;
     document.body.classList.add('is-resting');
     placeRestBar();
@@ -892,8 +1011,15 @@
     clearTimeout(rest.alarm);
     rest.alarm = setTimeout(() => { if (restLeft() <= 0) finishRest(); }, Math.max(0, rest.endsAt - Date.now()) + 40);
   }
+  let restCounted = 0;     // the last whole second we buzzed on
   function tickRest() {
-    if (restLeft() > 0) { renderRest(); return; }
+    const left = restLeft();
+    if (left > 0) {
+      // three light taps on the run-in, so the end can be felt without looking
+      if (left <= 3 && left !== restCounted) { restCounted = left; haptic('tap'); }
+      renderRest();
+      return;
+    }
     finishRest();
   }
   function finishRest() {
@@ -915,6 +1041,7 @@
   }
   function renderRest() {
     const left = restLeft();
+    $('#restBar').classList.toggle('is-final', left > 0 && left <= 5);
     $('#restTime').textContent = fmtClock(left);
     const mini = $('#wkRestMini');
     if (mini) mini.textContent = fmtClock(left);
@@ -963,6 +1090,61 @@
     if (res !== 'granted') { toast('Not allowed — nothing will be sent'); return false; }
     return true;
   }
+
+  /* ---------------- stepper bar ----------------
+     A number under a thumb is easier to nudge than to type. While a set
+     field has focus a small bar sits above the nav with the steps that
+     field actually uses — 2.5 on a bar, 1 on reps, 0.1 on a bodyweight. */
+
+  let stepBar = null;
+  function stepsFor(input) {
+    if (input.classList.contains('in-reps')) return [1, 5];
+    if (input.dataset.step) return input.dataset.step.split(',').map(Number);
+    return [2.5, 5];
+  }
+  function showStepBar(input) {
+    hideStepBar();
+    const steps = stepsFor(input);
+    const bar = document.createElement('div');
+    bar.className = 'step-bar';
+    bar.innerHTML = steps.slice().reverse().map((v) => '<button data-by="-' + v + '">−' + fmtNum(v) + '</button>').join('') +
+      steps.map((v) => '<button data-by="' + v + '">+' + fmtNum(v) + '</button>').join('');
+    bar.addEventListener('mousedown', (e) => e.preventDefault());   // never steal focus
+    bar.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+    bar.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-by]');
+      if (!b) return;
+      const by = Number(b.dataset.by);
+      const now = Number(input.value || input.placeholder || 0);
+      const next = Math.max(0, Math.round((now + by) * 100) / 100);
+      input.value = next ? fmtNum(next) : '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      haptic('tap');
+    });
+    document.body.appendChild(bar);
+    stepBar = bar;
+  }
+  function hideStepBar() {
+    if (stepBar) { stepBar.remove(); stepBar = null; }
+  }
+  let fieldLeftAt = 0;      // when a set field last had the keyboard
+  addEventListener('focusin', (e) => {
+    const el = e.target;
+    if (el.matches && el.matches('.set-input, [data-stepper]')) showStepBar(el);
+    else hideStepBar();
+  });
+  addEventListener('focusout', (e) => {
+    if (e.target.matches && e.target.matches('.set-input')) fieldLeftAt = Date.now();
+  });
+  /* Tapping the tick blurs the field first, so "is a field focused right now"
+     is always false by the time the row is rebuilt — recency is the honest test. */
+  const wasTyping = () => (document.activeElement && document.activeElement.matches && document.activeElement.matches('.set-input')) ||
+    Date.now() - fieldLeftAt < 1500;
+  addEventListener('focusout', (e) => {
+    // a tap on the bar itself must not take it away
+    setTimeout(() => { if (!document.activeElement || !document.activeElement.matches('.set-input, [data-stepper]')) hideStepBar(); }, 60);
+  });
 
   /* ---------------- workout elapsed clock ---------------- */
 
@@ -1109,7 +1291,7 @@
         <div class="bw-main">
           <div class="bw-left">
             <span class="micro">Bodyweight</span>
-            <div class="bw-value">${lw ? fmtNum(lw.value) : '—'}<span class="t-unit">${esc(unit())}</span></div>
+            <div class="bw-value"${lw ? ` data-roll="bw" data-roll-to="${lw.value}" data-roll-dec="1"` : ''}>${lw ? fmtNum(lw.value) : '—'}<span class="t-unit">${esc(unit())}</span></div>
             <div class="bw-delta">${
               stats && stats.week != null
                 ? `<span class="bw-arrow">${stats.week > 0 ? '↑' : stats.week < 0 ? '↓' : '→'}</span> <b>${Math.abs(stats.week).toFixed(1)} ${esc(unit())}</b> this week`
@@ -1146,7 +1328,7 @@
           </div>
           <div class="kl-right">
             <div class="macro-track kl-track"><div class="macro-fill ${kSt}" style="width:${Math.min(100, frac * 100)}%"></div></div>
-            <div class="kl-total"><b class="${kSt}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()} <span>kcal</span></div>
+            <div class="kl-total"><b class="${kSt}" data-roll="home-kcal" data-roll-to="${Math.round(totals.kcal)}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()} <span>kcal</span></div>
             <div class="kl-left ${kSt}">${kSt === 'done' ? 'Goal reached' : kSt === 'over' ? `${Math.round(totals.kcal - targets.kcal)} kcal over` : `${Math.round(targets.kcal - totals.kcal)} kcal left`}</div>
           </div>
         </div>
@@ -1299,7 +1481,8 @@
       '<div class="home-pair">' +
         '<button class="card hstat" id="bwCard">' +
           '<span class="micro">Bodyweight</span>' +
-          '<div class="hstat-val">' + (lw ? fmtNum(lw.value) : '—') + '<i>' + esc(unit()) + '</i></div>' +
+          '<div class="hstat-val"' + (lw ? ' data-roll="bw" data-roll-to="' + lw.value + '" data-roll-dec="1"' : '') + '>' +
+            (lw ? fmtNum(lw.value) : '—') + '<i>' + esc(unit()) + '</i></div>' +
           '<div class="hstat-sub">' + (st && st.week != null
             ? (st.week > 0 ? '↑' : st.week < 0 ? '↓' : '→') + ' ' + Math.abs(st.week).toFixed(1) + ' ' + esc(unit()) + ' this week'
             : 'Tap to log today') + '</div>' +
@@ -1326,7 +1509,8 @@
         '<div class="kl-top">' +
           '<div class="kl-col">' +
             '<span class="micro">Calories</span>' +
-            '<div class="kl-total"><b class="' + kSt + '">' + Math.round(totals.kcal).toLocaleString() + '</b> / ' + targets.kcal.toLocaleString() + ' <span>kcal</span></div>' +
+            '<div class="kl-total"><b class="' + kSt + '" data-roll="home-kcal" data-roll-to="' + Math.round(totals.kcal) + '">' +
+              Math.round(totals.kcal).toLocaleString() + '</b> / ' + targets.kcal.toLocaleString() + ' <span>kcal</span></div>' +
             '<div class="kl-left ' + kSt + '">' + (kSt === 'done' ? 'Goal reached'
               : kSt === 'over' ? Math.round(totals.kcal - targets.kcal).toLocaleString() + ' kcal over'
               : Math.round(targets.kcal - totals.kcal).toLocaleString() + ' kcal left') + '</div>' +
@@ -1436,7 +1620,8 @@
       <div class="field">
         <label for="bwInput">Today's weight (${esc(unit())})</label>
         <input id="bwInput" type="number" inputmode="decimal" step="0.1" min="0"
-               value="${existing ? existing.value : latestWeight()?.value ?? ''}" placeholder="e.g. 77.9">
+               value="${existing ? existing.value : latestWeight()?.value ?? ''}" placeholder="e.g. 77.9"
+               data-stepper data-step="0.1,0.5">
       </div>
       <div class="field">
         <label for="bwGoalInput">Goal weight (optional)</label>
@@ -1568,7 +1753,8 @@
         (kSt === 'done'
           ? '<div class="nh-num done nh-hit">Goal reached</div>' +
             '<div class="nh-sub">' + Math.round(totals.kcal).toLocaleString() + ' of ' + targets.kcal.toLocaleString() + ' kcal</div>'
-          : '<div class="nh-num ' + (over ? 'over' : '') + '">' + Math.abs(left).toLocaleString() + '<span>kcal</span></div>' +
+          : '<div class="nh-num ' + (over ? 'over' : '') + '" data-roll="nut-left" data-roll-to="' + Math.abs(left) + '">' +
+              Math.abs(left).toLocaleString() + '<span>kcal</span></div>' +
             '<div class="nh-sub">' + (over ? 'over your goal' : 'left for today') + '</div>') +
       '</div>' +
 
@@ -1660,12 +1846,58 @@
       save(); render();
       toast(prev.length + ' meals copied');
     });
-    $$('.si-del', v).forEach((b) => b.addEventListener('click', () => {
-      const meal = state.nutrition.meals.find((m) => m.id === b.dataset.del);
+    const delMeal = (id) => {
+      const meal = state.nutrition.meals.find((m) => m.id === id);
       undoable((meal ? meal.name : 'Meal') + ' deleted', () => {
-        state.nutrition.meals = state.nutrition.meals.filter((m) => m.id !== b.dataset.del);
+        state.nutrition.meals = state.nutrition.meals.filter((m) => m.id !== id);
       });
-    }));
+    };
+    $$('.si-del', v).forEach((b) => b.addEventListener('click', () => delMeal(b.dataset.del)));
+    $$('.slot-item', v).forEach((row) => {
+      const id = $('.si-del', row)?.dataset.del;
+      if (!id) return;
+      swipeToDelete(row, () => delMeal(id));
+      longPress(row, () => openMealMenu(id));
+    });
+  }
+
+  /* Holding a logged meal: the things you actually want from one that is
+     already in the day. */
+  function openMealMenu(id) {
+    const meal = state.nutrition.meals.find((m) => m.id === id);
+    if (!meal) return;
+    const today = dateKey();
+    openSheet(meal.name, '' +
+      '<div class="menu-list">' +
+        '<button class="menu-item" data-act="again">＋ &nbsp;Log it again</button>' +
+        (meal.date !== today ? '<button class="menu-item" data-act="today">→ &nbsp;Copy to today</button>' : '') +
+        '<button class="menu-item" data-act="save">☆ &nbsp;Save as a meal</button>' +
+        '<button class="menu-item danger" data-act="del">🗑 &nbsp;Delete</button>' +
+      '</div>',
+    (body) => {
+      body.addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-act]');
+        if (!b) return;
+        const act = b.dataset.act;
+        closeSheet();
+        if (act === 'again') {
+          state.nutrition.meals.push({ ...meal, id: uid(), time: nowTime() });
+          haptic('tick'); save(); render(); toast(meal.name + ' logged again');
+        } else if (act === 'today') {
+          state.nutrition.meals.push({ ...meal, id: uid(), date: today, time: nowTime() });
+          haptic('tick'); save(); render(); toast('Copied to today');
+        } else if (act === 'save') {
+          state.savedMeals = state.savedMeals || [];
+          state.savedMeals.push({ id: uid(), name: meal.name, items: [{ ...meal, id: uid() }] });
+          haptic('tick'); save(); toast('Saved — it is in the ☆ list now');
+        } else if (act === 'del') {
+          const gone = meal;
+          undoable(gone.name + ' deleted', () => {
+            state.nutrition.meals = state.nutrition.meals.filter((m) => m.id !== id);
+          });
+        }
+      });
+    });
   }
 
   /* daily goals, editable straight from the nutrition page */
@@ -2138,7 +2370,7 @@
 
       '<div class="card wk-vol">' +
         '<div><span class="micro">Volume lifted</span><span class="wv-sub">Last 7 days · ' + count7 + ' session' + (count7 === 1 ? '' : 's') + '</span></div>' +
-        '<div class="wv-num">' + Math.round(vol7).toLocaleString() + '<i>' + esc(unit()) + '</i></div>' +
+        '<div class="wv-num" data-roll="vol7" data-roll-to="' + Math.round(vol7) + '">' + Math.round(vol7).toLocaleString() + '<i>' + esc(unit()) + '</i></div>' +
       '</div>' +
 
       '<div class="card wk-plan week-wrap">' +
@@ -2255,6 +2487,17 @@
 
   let wkScrollTo = null;   // index of an exercise to bring into view after a rebuild
   let flashSet = null;     // 'exIdx:setIdx' of a set just logged, so its row can light up
+  let focusSet = null;     // 'exIdx:setIdx' to put the cursor in after the rebuild
+
+  /* Ticking a set moves you on: the next unfinished set in the same exercise
+     takes the cursor, carrying the numbers you just did as its placeholder. */
+  function focusNextSet(exIdx, setIdx) {
+    const ex = state.activeWorkout?.exercises[exIdx];
+    if (!ex) return;
+    const next = ex.sets.findIndex((s, i) => i > setIdx && !s.done);
+    if (next === -1) return;
+    focusSet = exIdx + ':' + next;
+  }
 
   function renderWorkoutOverlay() {
     const root = $('#workoutRoot');
@@ -2335,6 +2578,15 @@
       const row = $('.ex-block[data-ex="' + ei + '"] .set-row[data-set="' + si + '"]', root);
       if (row) row.classList.add('just-logged');
       flashSet = null;
+    }
+    if (focusSet) {
+      const [ei, si] = focusSet.split(':');
+      const row = $('.ex-block[data-ex="' + ei + '"] .set-row[data-set="' + si + '"]', root);
+      const field = row && $('.in-weight', row);
+      // only take the keyboard if it is already up — jumping the keyboard open
+      // on a phone that was resting between sets would be worse than helpful
+      if (field && wasTyping()) field.focus();
+      focusSet = null;
     }
     if (wkScrollTo != null && wkBody) {
       // a brand new exercise: bring it into view instead of holding the old spot
@@ -2418,8 +2670,11 @@
                 toast(prIcon('pr-mark toast-pr') + ` New record — ${fmtNum(set.weight)} ${unit()} × ${set.reps}`, true);
               }
             }
+            focusNextSet(exIdx, setIdx);   // marked before the rebuild consumes it
             save(); render();
-            const restSecs = ex.rest === 0 ? 0 : (ex.rest ?? state.settings.restSeconds);
+            // a warm-up does not earn a rest: 20 kg for five does not need 90s
+            const restSecs = (set.type || 'N') === 'W' ? 0
+              : ex.rest === 0 ? 0 : (ex.rest ?? state.settings.restSeconds);
             if (restSecs) startRest(restSecs);
           } else {
             set.done = false;
@@ -3348,6 +3603,12 @@
     }));
 
     $$('.hb-row', v).forEach((row) => {
+      // hold a habit to open its settings instead of logging it
+      longPress(row, () => {
+        if (habitReorder) return;
+        const h = habitById(row.dataset.habit);
+        if (h) openHabitEditor(h.id);
+      });
       row.addEventListener('click', (e) => {
         if (habitReorder) return;
         const h = habitById(row.dataset.habit);
@@ -4641,6 +4902,10 @@
         <input type="checkbox" id="hapticSw" ${s.haptics === false ? '' : 'checked'}>
       </label>
       <label class="switch-row">
+        <span><b>Sound</b><i>The beep when the rest timer runs out — the buzz is separate</i></span>
+        <input type="checkbox" id="soundSw" ${s.sound === false ? '' : 'checked'}>
+      </label>
+      <label class="switch-row">
         <span><b>Tell me when rest is over</b><i>A notification when the timer finishes with the app in the background</i></span>
         <input type="checkbox" id="restNotify" ${s.restNotify ? 'checked' : ''}>
       </label>
@@ -4786,6 +5051,11 @@
       $('#keepAwake', body).addEventListener('change', (e) => {
         state.settings.keepAwake = e.target.checked;
         save(); syncWakeLock();
+      });
+      $('#soundSw', body).addEventListener('change', (e) => {
+        state.settings.sound = e.target.checked;
+        save();
+        if (e.target.checked) beep();
       });
       $('#hapticSw', body).addEventListener('change', (e) => {
         state.settings.haptics = e.target.checked;
@@ -4997,6 +5267,43 @@
 
   /* ================= router ================= */
 
+  /* When the last habit of the day goes in, say so once — a green sweep over
+     the card that carries them and a finishing buzz. Once a day, not once a
+     render, and never for a day with nothing due. */
+  let celebratedDay = null;
+  function celebrateIfDue() {
+    const key = dateKey();
+    const { done, total } = habitsDone(key);
+    if (!total || done < total) { if (celebratedDay === key) celebratedDay = null; return; }
+    if (celebratedDay === key) return;
+    celebratedDay = key;
+    const card = $('.hb-home') || $('.hb-today-card');
+    if (card && !reducedMotion()) {
+      card.classList.remove('celebrate');
+      void card.offsetWidth;
+      card.classList.add('celebrate');
+    }
+    haptic('done');
+  }
+
+  /* Holding the app icon on Android offers these; each one lands here with a
+     ?go= and is taken straight to the thing rather than to home. */
+  function checkShortcut() {
+    const go = new URLSearchParams(location.search).get('go');
+    if (!go) return;
+    history.replaceState(history.state, '', location.pathname);
+    if (go === 'workout') {
+      goTab('workout');
+      if (!state.activeWorkout) setTimeout(() => $('#startEmpty')?.click(), 60);
+    } else if (go === 'meal') {
+      goTab('meals');
+      setTimeout(() => $('#addMeal')?.click(), 60);
+    } else if (go === 'weight') {
+      goTab('home');
+      setTimeout(() => openWeightSheet(), 60);
+    }
+  }
+
   /* ---------------- swipe between tabs ---------------- */
 
   const TAB_ORDER = ['home', 'workout', 'meals', 'habits'];
@@ -5010,7 +5317,7 @@
     if (workoutOpen || scanOpen || $('#sheetRoot').children.length) return;
     // a real swipe cancels the tap, so buttons are fine to start on —
     // only text fields and horizontally-drawn widgets must keep the gesture
-    if (e.target.closest('input, textarea, select, .chart-wrap, .cal-grid, .pad-keys, .hbh-row, .wk-plan')) return;
+    if (e.target.closest('input, textarea, select, .chart-wrap, .cal-grid, .pad-keys, .hbh-row, .wk-plan, .slot-item')) return;
     const t = e.touches[0];
     swipeStart = { x: t.clientX, y: t.clientY, at: Date.now() };
   }, { passive: true });
@@ -5095,6 +5402,13 @@
       slideDir = null;
     }
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === currentTab));
+    rollNumbers();
+    celebrateIfDue();
+    // a long page: the title is the way back up
+    const head = $('#view h2');
+    if (head) head.addEventListener('click', () => {
+      if (window.scrollY > 200) window.scrollTo({ top: 0, behavior: reducedMotion() ? 'auto' : 'smooth' });
+    });
   }
 
   $$('.tab').forEach((t) => t.addEventListener('click', () => {
@@ -5105,6 +5419,7 @@
   if (lastTab && lastTab !== 'home' && TAB_ORDER.includes(lastTab)) goTab(lastTab);
   else render();
   snapshotDaily();
+  checkShortcut();
   checkSharedImport();
   armFullBleed();
 })();

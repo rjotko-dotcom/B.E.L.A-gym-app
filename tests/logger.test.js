@@ -247,6 +247,40 @@ module.exports = async (t) => {
   await page.waitForTimeout(450);
   t.equal('vibration can be switched off', await page.evaluate(() => window.__buzz.length), 0);
 
+  // the stepper bar, a warm-up not earning a rest, and focus moving on
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    st.activeWorkout = { id: 'wq', name: 'Push day', startedAt: Date.now() - 6e5,
+      exercises: [{ exerciseId: 'bench-press', sets: [
+        { weight: 40, reps: 10, done: false, type: 'W' },
+        { weight: 80, reps: 8, done: false },
+        { weight: 80, reps: 8, done: false }] }] };
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('.set-row[data-set="1"] .in-weight');
+  await page.waitForTimeout(300);
+  const stepLabels = await page.evaluate(() => [...document.querySelectorAll('.step-bar button')].map((b) => b.textContent).join(' '));
+  t.check('a weight field brings up its steps', /2\.5/.test(stepLabels), stepLabels);
+  await page.click('.step-bar button[data-by="2.5"]');
+  await page.waitForTimeout(250);
+  t.equal('a step moves the value', await page.evaluate(() => document.querySelector('.set-row[data-set="1"] .in-weight').value), '82.5');
+  await page.click('.set-row[data-set="1"] .in-reps');
+  await page.waitForTimeout(250);
+  const repLabels = await page.evaluate(() => [...document.querySelectorAll('.step-bar button')].map((b) => b.textContent).join(' '));
+  t.check('reps step by one, not by 2.5', /\+1/.test(repLabels) && !/2\.5/.test(repLabels), repLabels);
+  await page.click('.set-row[data-set="0"] .set-done');
+  await page.waitForTimeout(450);
+  t.check('a warm-up does not start the rest timer', await page.evaluate(() => document.querySelector('#restBar').hidden));
+  await page.click('.set-row[data-set="1"] .in-weight');
+  await page.waitForTimeout(200);
+  await page.click('.set-row[data-set="1"] .set-done');
+  await page.waitForTimeout(500);
+  t.check('a working set does', await page.evaluate(() => !document.querySelector('#restBar').hidden));
+  t.equal('and the cursor moves to the next set',
+    await page.evaluate(() => document.activeElement?.closest?.('.set-row')?.dataset.set ?? 'none'), '2');
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

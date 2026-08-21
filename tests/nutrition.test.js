@@ -194,6 +194,40 @@ module.exports = async (t) => {
   t.equal('while carbs are still done', fatBad.carbs, 'done');
   t.equal('and protein too', fatBad.protein, 'done');
 
+  // swiping a meal row deletes it, holding one offers what to do with it
+  // the earlier checks leave the page on some day; step until one has meals
+  for (let i = 0; i < 4; i++) {
+    if (await page.evaluate(() => !!document.querySelector('.slot-item'))) break;
+    await page.click('#dayPrev');
+    await page.waitForTimeout(400);
+  }
+  const mealCount = () => page.evaluate(() => JSON.parse(localStorage.getItem('bela-gym-v1')).nutrition.meals.length);
+  const had = await mealCount();
+  await page.evaluate(() => {
+    const el = document.querySelector('.slot-item');
+    const r = el.getBoundingClientRect(), y = r.top + r.height / 2;
+    const t = (x) => new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
+    el.dispatchEvent(new TouchEvent('touchstart', { touches: [t(300)], changedTouches: [t(300)], bubbles: true }));
+    el.dispatchEvent(new TouchEvent('touchmove', { touches: [t(200)], changedTouches: [t(200)], bubbles: true }));
+    el.dispatchEvent(new TouchEvent('touchmove', { touches: [t(80)], changedTouches: [t(80)], bubbles: true }));
+    el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [t(80)], bubbles: true }));
+  });
+  await page.waitForTimeout(450);
+  t.equal('a swipe deletes the row', await mealCount(), had - 1);
+  await page.click('.toast-btn');
+  await page.waitForTimeout(450);
+  t.equal('and undo brings it back', await mealCount(), had);
+  await page.evaluate(() => document.querySelector('.slot-item').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+  await page.waitForTimeout(450);
+  const held = await page.evaluate(() => document.querySelector('#sheetRoot')?.textContent || '');
+  t.check('holding a meal offers to log it again', /Log it again/.test(held), held.slice(0, 60));
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('#sheetRoot button')].find((x) => /Log it again/.test(x.textContent));
+    if (b) b.click();
+  });
+  await page.waitForTimeout(500);
+  t.equal('and does it', await mealCount(), had + 1);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

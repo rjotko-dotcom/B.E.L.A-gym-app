@@ -258,6 +258,36 @@ module.exports = async (t) => {
   t.check('the ring closes and takes a tick', autoRows.protein.tick && autoRows.protein.full);
   t.check('a habit still short of its goal keeps its open ring', !autoRows.kcal.done && !autoRows.kcal.tick);
 
+  // holding a habit opens its settings instead of logging it
+  await page.evaluate(() => document.querySelector('.hb-row').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+  await page.waitForTimeout(450);
+  t.check('a long press opens the editor', /Edit habit/.test(await page.evaluate(() => document.querySelector('#sheetRoot')?.textContent || '')));
+  await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
+  await page.waitForTimeout(350);
+
+  // closing the last habit of the day is marked once
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    const d = new Date();
+    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    st.habits = [
+      { id: 'c1', name: 'Stretch', icon: 'heart', type: 'check', target: 1, step: 1, due: 'daily' },
+      { id: 'c2', name: 'Sleep 8h', icon: 'sleep', type: 'check', target: 1, step: 1, due: 'daily' },
+    ];
+    st.habitLog = { [key]: { c1: 1 } };
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(650);
+  await page.click('.tab[data-tab="habits"]');
+  await page.waitForTimeout(450);
+  await page.click('.hb-row:not(.is-done)');
+  await page.waitForTimeout(300);
+  t.check('the last habit of the day is celebrated', await page.evaluate(() => !!document.querySelector('.celebrate')));
+  await page.click('.tab[data-tab="home"]');
+  await page.waitForTimeout(400);
+  t.check('and only once', await page.evaluate(() => !document.querySelector('.celebrate')));
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();
