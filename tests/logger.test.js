@@ -227,6 +227,46 @@ module.exports = async (t) => {
   t.equal('and nothing takes the keyboard',
     await page.evaluate(() => document.activeElement?.closest?.('.set-row')?.dataset.set ?? 'none'), 'none');
 
+  // an exercise comes back with last session's numbers already in the boxes
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    st.workouts = [{ id: 'wp', name: 'Push day', startedAt: Date.now() - 3 * 864e5, finishedAt: Date.now() - 3 * 864e5 + 3.6e6,
+      exercises: [{ exerciseId: 'bench-press', sets: [
+        { weight: 90, reps: 8, done: true, type: 'N' },
+        { weight: 90, reps: 7, done: true, type: 'N' },
+        { weight: 85, reps: 8, done: true, type: 'N' }] }] }];
+    st.activeWorkout = null;
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.click('.tab[data-tab="workout"]');
+  await page.waitForTimeout(450);
+  await page.click('#startEmpty');
+  await page.waitForTimeout(700);
+  await page.evaluate(() => {
+    const it = [...document.querySelectorAll('.lib-item')].find((x) => /Barbell Bench Press/.test(x.textContent));
+    if (it) it.click();
+  });
+  await page.waitForTimeout(700);
+  const boxes = () => page.evaluate(() => [...document.querySelectorAll('.set-row')]
+    .map((r) => r.querySelector('.in-weight').value + 'x' + r.querySelector('.in-reps').value).join(' '));
+  t.equal('the boxes carry last session forward', await boxes(), '90x8 90x7 85x8');
+  await page.click('.set-row[data-set="0"] .set-done');
+  await page.waitForTimeout(500);
+  const logged = await page.evaluate(() => JSON.parse(localStorage.getItem('bela-gym-v1')).activeWorkout.exercises[0].sets[0]);
+  t.equal('ticking logs what is shown — weight', logged.weight, 90);
+  t.equal('and reps', logged.reps, 8);
+  await page.click('.set-row[data-set="1"] .in-weight');
+  await page.waitForTimeout(250);
+  await page.keyboard.type('95');
+  await page.waitForTimeout(250);
+  t.equal('typing replaces the number rather than joining it',
+    await page.evaluate(() => document.querySelector('.set-row[data-set="1"] .in-weight').value), '95');
+  await page.click('.add-set');
+  await page.waitForTimeout(500);
+  t.equal('a new set copies the one above it', await boxes(), '90x8 95x7 85x8 85x8');
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

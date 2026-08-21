@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '10.6';
+  const APP_VERSION = '10.7';
 
   /* ---------------- state ---------------- */
 
@@ -958,6 +958,14 @@
     if (state.settings.haptics === false || !navigator.vibrate) return;
     try { navigator.vibrate(BUZZ[kind] || BUZZ.tap); } catch (e) { /* some browsers refuse */ }
   }
+
+  /* Tapping into a set box selects what is in it, so the first digit you type
+     replaces last session's number instead of being tacked onto it. */
+  addEventListener('focusin', (e) => {
+    if (!e.target.matches || !e.target.matches('.set-input')) return;
+    const el = e.target;
+    setTimeout(() => { try { el.select(); } catch (err) { /* some number inputs refuse */ } }, 0);
+  });
 
   /* ---------------- workout elapsed clock ---------------- */
 
@@ -2616,6 +2624,7 @@
       const exIdx = Number(block.dataset.ex);
       const ex = w.exercises[exIdx];
       const cardio = isCardio(ex.exerciseId);
+      const prev = previousSets(ex.exerciseId);
 
       $('.ex-name', block).addEventListener('click', () => openExerciseDetail(ex.exerciseId));
       $('.ex-menu', block).addEventListener('click', () => openExerciseMenu(exIdx));
@@ -2635,7 +2644,12 @@
       });
       $('.add-set', block).addEventListener('click', () => {
         const last = ex.sets[ex.sets.length - 1];
-        ex.sets.push({ weight: last?.weight ?? null, reps: last?.reps ?? null, done: false });
+        const fromHistory = prev[ex.sets.length] || prev[prev.length - 1];
+        ex.sets.push({
+          weight: last?.weight ?? fromHistory?.weight ?? null,
+          reps: last?.reps ?? fromHistory?.reps ?? null,
+          done: false,
+        });
         save(); render();
       });
       $$('.set-row', block).forEach((row) => {
@@ -2972,10 +2986,18 @@
       </div>`;
   }
 
+  /* An exercise you have done before comes back with last session's numbers
+     already in the boxes — the same set, or the last one if you have added
+     more this time. They are real values, so the tick logs them as they
+     stand; typing in a box replaces what is there. */
   function newExerciseEntry(exerciseId, setCount, targetReps) {
+    const prev = previousSets(exerciseId);
     const entry = {
       exerciseId,
-      sets: Array.from({ length: setCount }, () => ({ weight: null, reps: null, done: false })),
+      sets: Array.from({ length: setCount }, (_, i) => {
+        const p = prev[i] || prev[prev.length - 1];
+        return { weight: p?.weight ?? null, reps: p?.reps ?? targetReps ?? null, done: false };
+      }),
     };
     if (targetReps) entry.targetReps = targetReps;
     return entry;
