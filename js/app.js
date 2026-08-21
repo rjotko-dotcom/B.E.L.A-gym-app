@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '10.3';
+  const APP_VERSION = '10.4';
 
   /* ---------------- state ---------------- */
 
@@ -1096,16 +1096,6 @@
     if (res !== 'granted') { toast('Not allowed — nothing will be sent'); return false; }
     return true;
   }
-
-  /* The keyboard's own recency, kept because ticking a set blurs the field
-     before the handler runs: "was the keyboard up a moment ago" is the only
-     honest test of whether to move the cursor on. */
-  let fieldLeftAt = 0;
-  addEventListener('focusout', (e) => {
-    if (e.target.matches && e.target.matches('.set-input')) fieldLeftAt = Date.now();
-  });
-  const wasTyping = () => (document.activeElement && document.activeElement.matches && document.activeElement.matches('.set-input')) ||
-    Date.now() - fieldLeftAt < 1500;
 
   /* ---------------- workout elapsed clock ---------------- */
 
@@ -2511,17 +2501,6 @@
 
   let wkScrollTo = null;   // index of an exercise to bring into view after a rebuild
   let flashSet = null;     // 'exIdx:setIdx' of a set just logged, so its row can light up
-  let focusSet = null;     // 'exIdx:setIdx' to put the cursor in after the rebuild
-
-  /* Ticking a set moves you on: the next unfinished set in the same exercise
-     takes the cursor, carrying the numbers you just did as its placeholder. */
-  function focusNextSet(exIdx, setIdx) {
-    const ex = state.activeWorkout?.exercises[exIdx];
-    if (!ex) return;
-    const next = ex.sets.findIndex((s, i) => i > setIdx && !s.done);
-    if (next === -1) return;
-    focusSet = exIdx + ':' + next;
-  }
 
   function renderWorkoutOverlay() {
     const root = $('#workoutRoot');
@@ -2602,15 +2581,6 @@
       const row = $('.ex-block[data-ex="' + ei + '"] .set-row[data-set="' + si + '"]', root);
       if (row) row.classList.add('just-logged');
       flashSet = null;
-    }
-    if (focusSet) {
-      const [ei, si] = focusSet.split(':');
-      const row = $('.ex-block[data-ex="' + ei + '"] .set-row[data-set="' + si + '"]', root);
-      const field = row && $('.in-weight', row);
-      // only take the keyboard if it is already up — jumping the keyboard open
-      // on a phone that was resting between sets would be worse than helpful
-      if (field && wasTyping()) field.focus();
-      focusSet = null;
     }
     if (wkScrollTo != null && wkBody) {
       // a brand new exercise: bring it into view instead of holding the old spot
@@ -2694,7 +2664,6 @@
                 toast(prIcon('pr-mark toast-pr') + ` New record — ${fmtNum(set.weight)} ${unit()} × ${set.reps}`, true);
               }
             }
-            focusNextSet(exIdx, setIdx);   // marked before the rebuild consumes it
             save(); render();
             // a warm-up does not earn a rest: 20 kg for five does not need 90s
             const restSecs = (set.type || 'N') === 'W' ? 0

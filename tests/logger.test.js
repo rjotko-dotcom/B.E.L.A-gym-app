@@ -267,8 +267,8 @@ module.exports = async (t) => {
   await page.click('.set-row[data-set="1"] .set-done');
   await page.waitForTimeout(500);
   t.check('a working set does', await page.evaluate(() => !document.querySelector('#restBar').hidden));
-  t.equal('and the cursor moves to the next set',
-    await page.evaluate(() => document.activeElement?.closest?.('.set-row')?.dataset.set ?? 'none'), '2');
+  t.equal('and nothing else takes the keyboard',
+    await page.evaluate(() => document.activeElement?.closest?.('.set-row')?.dataset.set ?? 'none'), 'none');
 
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
