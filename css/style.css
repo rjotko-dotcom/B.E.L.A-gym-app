@@ -389,22 +389,6 @@ body {
 .amount-row .field { flex: 1; margin-bottom: 12px; }
 .seg-unit { flex: 0 0 auto; width: 148px; margin-bottom: 12px; }
 
-/* ---------- rest bar ---------- */
-.rest-bar {
-  position: fixed; left: 12px; right: 12px;
-  bottom: calc(env(safe-area-inset-bottom) + 80px);
-  z-index: 30;
-  background: var(--surface-1); border: 1px solid var(--border); border-radius: 20px;
-  padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,0.22);
-  max-width: 616px; margin: 0 auto;
-}
-.rest-progress { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-bottom: 8px; }
-.rest-fill { height: 100%; width: 100%; background: var(--ink-1); border-radius: 999px; transition: width 0.9s linear; }
-.rest-info { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-.rest-label { color: var(--ink-2); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
-.rest-time { font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; }
-.rest-actions { display: flex; gap: 8px; }
-.rest-actions .chip-btn { flex: 1; }
 
 /* ---------- tab bar — bare icons over a fade of the page color ---------- */
 .tab-bar {
@@ -456,7 +440,7 @@ body {
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .sheet, .sheet-backdrop { animation: none; }
-  .macro-fill, .rest-fill { transition: none; }
+  .macro-fill { transition: none; }
 }
 
 /* ---------- forms in sheets ---------- */
@@ -634,8 +618,6 @@ body {
 .mini-title b { font-weight: 800; }
 .mini-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--good); flex-shrink: 0; }
 .mini-sub { color: var(--ink-muted); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
-/* keep the rest timer clear of the mini bar */
-body.has-mini .rest-bar { bottom: calc(env(safe-area-inset-bottom) + 146px); }
 body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px); }
 
 /* ---------- home greeting header ---------- */
@@ -1590,25 +1572,6 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 170px);
 .ph-compare figcaption b { display: block; color: var(--ink-1); font-size: 0.86rem; margin-top: 2px; }
 .ph-summary { text-align: center; color: var(--ink-2); font-size: 0.84rem; font-weight: 600; margin: 16px 0 14px; }
 
-/* ---------- rest timer, docked into the logger header ----------
-   it used to float over the middle of the screen, covering the set you were
-   about to fill in */
-.rest-bar.rest-docked {
-  position: static; left: auto; right: auto; bottom: auto; max-width: none; margin: 0;
-  border: none; border-radius: 0; box-shadow: none;
-  background: var(--surface-2);
-  padding: 9px 14px 11px;
-}
-.rest-docked .rest-progress { height: 3px; margin-bottom: 8px; }
-.rest-docked .rest-info { display: none; }          /* the countdown sits in the stats row */
-.rest-docked .rest-actions { display: flex; gap: 8px; }
-.rest-docked .rest-actions .chip-btn { flex: 1; min-height: 34px; font-size: 0.8rem; }
-/* the stats row swaps volume for the countdown while resting */
-.wk-rest-cell { display: none; }
-body.is-resting .wk-rest-cell { display: block; }
-body.is-resting .wk-vol-cell { display: none; }
-body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
-
 /* ---------- record marker ---------- */
 .pr-mark { display: inline-grid; place-items: center; vertical-align: -2px; }
 /* filled, not outlined: at 13px in a set row a hollow shape turns to mush,
@@ -1739,8 +1702,6 @@ body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
 .hb-mini .hb-tick { animation: mark-in 0.32s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .toast .pr-mark { animation: mark-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
 
-/* the rest bar drains smoothly instead of stepping every quarter second */
-.rest-fill { transition: width 0.26s linear; }
 
 /* nutrition draws itself in: the consumed bar grows, the rings sweep round */
 @keyframes bar-grow { from { transform: scaleX(0); } to { transform: none; } }
@@ -1766,7 +1727,6 @@ body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
   .card:active, .btn:active, .ha-btn:active, .lib-item:active, .tpl-item:active,
   .plan-day:active, .wd:active, .hb-row:active, .icon-btn:active, .set-done:active,
   .tab.active svg { transform: none; }
-  .rest-fill { transition: none; }
 }
 
 /* ---------- today's score, spelled out ----------
@@ -1810,10 +1770,6 @@ body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
 .slot-item { transition: transform 0.18s ease, background 0.18s ease; }
 .slot-item.swipe-armed { background: color-mix(in srgb, var(--critical) 18%, transparent); }
 
-/* ---------- the last seconds of a rest ---------- */
-.rest-bar.is-final .rest-time { font-variant-numeric: tabular-nums; animation: rest-beat 1s ease-in-out infinite; }
-.rest-bar.is-final .rest-fill { background: var(--critical); }
-@keyframes rest-beat { 0%, 100% { transform: none; } 50% { transform: scale(1.12); } }
 
 /* ---------- a day of habits, closed ---------- */
 .celebrate { animation: celebrate 0.9s ease; }
@@ -1824,14 +1780,14 @@ body.is-resting .wk-rest-cell b { font-variant-numeric: tabular-nums; }
 }
 
 /* ---------- the logger rises rather than appearing ---------- */
-.wk-overlay { animation: wk-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.wk-overlay.wk-enter { animation: wk-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1); }
 @keyframes wk-in { from { transform: translateY(26px) scale(0.985); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* ---------- the tab you land on ---------- */
 .tab.active svg { animation: tick-pop 0.26s ease; }
 
 @media (prefers-reduced-motion: reduce) {
-  .celebrate, .wk-overlay, .tab.active svg, .rest-bar.is-final .rest-time { animation: none; }
+  .celebrate, .wk-overlay.wk-enter, .tab.active svg { animation: none; }
 }
 
 /* ---------- the day's water, poured in ---------- */

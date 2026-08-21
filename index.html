@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest?v=9" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="css/style.css?v=10.4" />
+  <link rel="stylesheet" href="css/style.css?v=10.5" />
   <script>
     // apply saved appearance before first paint (default: follow the device)
     try {
@@ -29,20 +29,6 @@
 </head>
 <body>
   <main id="view" class="view" tabindex="-1"><!-- views are rendered here --></main>
-
-  <!-- Rest timer bar (hidden until a set is logged) -->
-  <div id="restBar" class="rest-bar" hidden>
-    <div class="rest-progress"><div id="restFill" class="rest-fill"></div></div>
-    <div class="rest-info">
-      <span class="rest-label">Rest</span>
-      <span id="restTime" class="rest-time">1:30</span>
-    </div>
-    <div class="rest-actions">
-      <button id="restMinus" class="chip-btn" aria-label="Subtract 15 seconds">−15</button>
-      <button id="restPlus" class="chip-btn" aria-label="Add 15 seconds">+15</button>
-      <button id="restSkip" class="chip-btn chip-strong" aria-label="Skip rest">Skip</button>
-    </div>
-  </div>
 
   <nav class="tab-bar" aria-label="Main">
     <button class="tab active" data-tab="home" aria-label="Home">
@@ -67,9 +53,9 @@
   <div id="scanRoot"></div>
   <div id="toastRoot" class="toast-root" aria-live="polite"></div>
 
-  <script src="js/exercises.js?v=10.4"></script>
-  <script src="js/foods.js?v=10.4"></script>
-  <script src="js/app.js?v=10.4"></script>
+  <script src="js/exercises.js?v=10.5"></script>
+  <script src="js/foods.js?v=10.5"></script>
+  <script src="js/app.js?v=10.5"></script>
   <script>
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       addEventListener('load', () => {

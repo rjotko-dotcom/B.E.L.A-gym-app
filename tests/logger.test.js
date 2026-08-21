@@ -46,26 +46,15 @@ module.exports = async (t) => {
   await page.waitForTimeout(400);
   t.equal('a set can be removed', (await readState(page)).activeWorkout.exercises[0].sets.length, before - 1);
 
-  // the rest timer belongs with the session stats, not over the sets
+  // logging a set keeps the page where it was
   await page.fill('.ex-block .in-weight', '80');
   await page.fill('.ex-block .in-reps', '8');
   await page.click('.ex-block .set-done');
   await page.waitForTimeout(600);
-  const rest = await page.evaluate(() => {
-    const rb = document.querySelector('#restBar');
-    if (rb.hidden) return null;
-    const r = rb.getBoundingClientRect();
-    const stats = document.querySelector('.wk-stats').getBoundingClientRect();
-    const firstCard = document.querySelector('.ex-block').getBoundingClientRect();
-    return { gapUnderStats: Math.round(r.top - stats.bottom), coversCard: r.bottom - firstCard.top > 2 };
-  });
-  t.check('rest timer runs after a set is logged', !!rest);
-  if (rest) {
-    t.near('rest timer sits under the session stats', rest.gapUnderStats, 0, 4);
-    t.check('rest timer does not cover the first exercise', !rest.coversCard);
-  }
-  await page.click('#restSkip');
-  await page.waitForTimeout(300);
+  t.check('a logged set is marked', await page.evaluate(() =>
+    !!document.querySelector('.set-row.logged, .set-done.logged')));
+  t.check('and nothing is left counting down', await page.evaluate(() =>
+    !document.querySelector('#restBar, .rest-bar')));
 
   // progressive overload hint
   const hint = await page.evaluate(() => document.querySelector('.ex-hint')?.textContent || '');
@@ -117,21 +106,6 @@ module.exports = async (t) => {
   t.check('a record buzzes the phone', buzzes.some((b) => JSON.parse(b).length > 1), JSON.stringify(buzzes));
   t.check('the record marker is drawn, not an emoji', await page.evaluate(() => !!document.querySelector('.toast svg') && !/🏆/.test(document.body.innerHTML)));
 
-  // the rest timer belongs in the header, never over the sets
-  const rest2 = await page.evaluate(() => {
-    const rb = document.querySelector('#restBar');
-    const stats = document.querySelector('.wk-stats').getBoundingClientRect();
-    const card = document.querySelector('.ex-block').getBoundingClientRect();
-    const r = rb.getBoundingClientRect();
-    return { docked: rb.classList.contains('rest-docked'), inHeader: !!rb.closest('.wk-overlay'),
-      under: Math.round(r.top - stats.bottom), covers: r.bottom > card.top + 2,
-      countdown: document.querySelector('#wkRestMini')?.textContent };
-  });
-  t.check('the rest timer is docked into the header', rest2.docked && rest2.inHeader);
-  t.near('directly under the session stats', rest2.under, 0, 4);
-  t.check('and never covers the first exercise', !rest2.covers);
-  t.check('the countdown shows next to the duration', /^\d+:\d\d$/.test(rest2.countdown || ''), rest2.countdown);
-
   // logging a set must not throw the list back to the top
   await page.evaluate(() => {
     const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
@@ -171,24 +145,6 @@ module.exports = async (t) => {
   });
   t.equal('the exercise is added', added.count, 6);
   t.check('and scrolled into view', added.visible);
-
-  // the rest timer follows the clock, so a frozen phone cannot stall it
-  await page.evaluate(() => {
-    const rows = document.querySelectorAll('.set-row');
-    const open = [...rows].find((r) => !r.querySelector('.set-done').classList.contains('is-on')) || rows[0];
-    open.querySelector('.set-done').click();
-  });
-  await page.waitForTimeout(500);
-  const started = await page.textContent('#restTime');
-  t.check('logging a set starts the rest timer', /^\d+:\d\d$/.test(started.trim()), started);
-  await page.evaluate(() => { const real = Date.now; window.__real = real; Date.now = () => real() + 60000; });
-  await page.waitForTimeout(400);
-  const jumped = await page.textContent('#restTime');
-  t.check('a minute of frozen ticks still takes a minute off', jumped !== started, started + ' -> ' + jumped);
-  await page.evaluate(() => { const real = window.__real; Date.now = () => real() + 600000; });
-  await page.waitForTimeout(500);
-  t.check('and the timer settles when its time is up', await page.evaluate(() => document.querySelector('#restBar').hidden));
-  await page.evaluate(() => { Date.now = window.__real; });
 
   // a full storage box says so instead of swallowing the tap
   await page.evaluate(() => {
@@ -247,7 +203,7 @@ module.exports = async (t) => {
   await page.waitForTimeout(450);
   t.equal('vibration can be switched off', await page.evaluate(() => window.__buzz.length), 0);
 
-  // a warm-up not earning a rest, and the cursor moving on
+  // logging a set leaves the page and the keyboard alone
   await page.evaluate(() => {
     const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
     st.activeWorkout = { id: 'wq', name: 'Push day', startedAt: Date.now() - 6e5,
@@ -259,15 +215,16 @@ module.exports = async (t) => {
   });
   await page.reload();
   await page.waitForTimeout(700);
-  await page.click('.set-row[data-set="0"] .set-done');
-  await page.waitForTimeout(450);
-  t.check('a warm-up does not start the rest timer', await page.evaluate(() => document.querySelector('#restBar').hidden));
+  const scrollBefore = await page.evaluate(() => document.querySelector('.wk-body').scrollTop);
   await page.click('.set-row[data-set="1"] .in-weight');
   await page.waitForTimeout(200);
   await page.click('.set-row[data-set="1"] .set-done');
   await page.waitForTimeout(500);
-  t.check('a working set does', await page.evaluate(() => !document.querySelector('#restBar').hidden));
-  t.equal('and nothing else takes the keyboard',
+  t.equal('logging a set does not move the page',
+    await page.evaluate(() => document.querySelector('.wk-body').scrollTop), scrollBefore);
+  t.check('and the logger does not replay its entrance', await page.evaluate(() =>
+    !document.querySelector('.wk-overlay.wk-enter')));
+  t.equal('and nothing takes the keyboard',
     await page.evaluate(() => document.activeElement?.closest?.('.set-row')?.dataset.set ?? 'none'), 'none');
 
   t.equal('no page errors', page.errors.length, 0);

@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '10.4';
+  const APP_VERSION = '10.5';
 
   /* ---------------- state ---------------- */
 
@@ -593,18 +593,6 @@
     }
     return counts;
   }
-  function beep() {
-    if (state.settings.sound === false) return;
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.connect(g); g.connect(ctx.destination);
-      o.frequency.value = 880;
-      g.gain.setValueAtTime(0.25, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-      o.start(); o.stop(ctx.currentTime + 0.4);
-    } catch { /* audio unavailable without user gesture — vibration still fires */ }
-  }
 
   /* ---- bodyweight stats & weekly chart ---- */
   function weightStats() {
@@ -955,22 +943,6 @@
     if (document.visibilityState === 'visible') syncWakeLock();
   });
 
-  /* The rest timer is one element that lives in two places: docked under the
-     session stats while the logger is open, and floating above the nav when it
-     is not, so it never covers the sets you are filling in. */
-  function placeRestBar() {
-    const bar = $('#restBar');
-    if (!bar) return;
-    const slot = $('#restSlot');
-    if (slot && document.body.classList.contains('wk-open')) {
-      if (bar.parentElement !== slot) slot.appendChild(bar);
-      bar.classList.add('rest-docked');
-    } else {
-      if (bar.parentElement !== document.body) document.body.appendChild(bar);
-      bar.classList.remove('rest-docked');
-    }
-  }
-
   /* ---------------- haptics ----------------
      One place for every buzz, so they stay in the same family and can be
      turned off in one switch. Anything the phone does not support is a no-op. */
@@ -985,116 +957,6 @@
   function haptic(kind = 'tap') {
     if (state.settings.haptics === false || !navigator.vibrate) return;
     try { navigator.vibrate(BUZZ[kind] || BUZZ.tap); } catch (e) { /* some browsers refuse */ }
-  }
-
-  /* ---------------- rest timer ----------------
-     The countdown runs off a finish time, not a tally of ticks: Android
-     freezes timers the moment the screen locks or the app goes to the
-     background, and a tick-counting timer comes back late or stopped. */
-
-  const rest = { endsAt: 0, total: 0, timer: null, alarm: null, noted: false };
-  const restLeft = () => Math.max(0, Math.ceil((rest.endsAt - Date.now()) / 1000));
-
-  function startRest(seconds = state.settings.restSeconds) {
-    stopRest();
-    rest.total = seconds;
-    rest.endsAt = Date.now() + seconds * 1000;
-    rest.noted = false;
-    restCounted = 0;
-    $('#restBar').hidden = false;
-    document.body.classList.add('is-resting');
-    placeRestBar();
-    renderRest();
-    // a quarter-second beat keeps the display honest without costing anything;
-    // the value it shows comes from the clock either way
-    rest.timer = setInterval(tickRest, 250);
-    armRestAlarm();
-  }
-  /* One long timeout for the finish itself. A background phone clamps
-     repeating timers to about a wake a minute, but a single timeout set
-     before that still lands near its time — so the buzz is not a minute late. */
-  function armRestAlarm() {
-    clearTimeout(rest.alarm);
-    rest.alarm = setTimeout(() => { if (restLeft() <= 0) finishRest(); }, Math.max(0, rest.endsAt - Date.now()) + 40);
-  }
-  let restCounted = 0;     // the last whole second we buzzed on
-  function tickRest() {
-    const left = restLeft();
-    if (left > 0) {
-      // three light taps on the run-in, so the end can be felt without looking
-      if (left <= 3 && left !== restCounted) { restCounted = left; haptic('tap'); }
-      renderRest();
-      return;
-    }
-    finishRest();
-  }
-  function finishRest() {
-    const away = document.visibilityState !== 'visible';
-    stopRest();
-    if (away) notifyRestOver();
-    toast('Rest over — next set!');
-    beep();
-    haptic('alert');
-  }
-  function stopRest() {
-    clearInterval(rest.timer);
-    clearTimeout(rest.alarm);
-    rest.timer = null;
-    rest.alarm = null;
-    rest.endsAt = 0;
-    $('#restBar').hidden = true;
-    document.body.classList.remove('is-resting');
-  }
-  function renderRest() {
-    const left = restLeft();
-    $('#restBar').classList.toggle('is-final', left > 0 && left <= 5);
-    $('#restTime').textContent = fmtClock(left);
-    const mini = $('#wkRestMini');
-    if (mini) mini.textContent = fmtClock(left);
-    $('#restFill').style.width = (rest.total ? (left / rest.total) * 100 : 0) + '%';
-  }
-  const shiftRest = (secs) => {
-    if (!rest.timer) return;
-    haptic('tap');
-    rest.endsAt += secs * 1000;
-    if (restLeft() <= 0) { stopRest(); return; }
-    rest.total = Math.max(rest.total, restLeft());
-    rest.noted = false;
-    armRestAlarm();
-    renderRest();
-  };
-  $('#restSkip').addEventListener('click', () => { haptic('tap'); stopRest(); });
-  $('#restPlus').addEventListener('click', () => shiftRest(15));
-  $('#restMinus').addEventListener('click', () => shiftRest(-15));
-
-  /* Coming back to a rest that ran out while the app was away: settle it
-     immediately rather than showing a stale number for a beat. */
-  addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible' || !rest.timer) return;
-    if (restLeft() > 0) renderRest(); else finishRest();
-  });
-
-  /* Rest ending while the app is in the background is exactly when a phone in
-     a pocket is no use, so it can raise a notification instead. Android only
-     grants that off a gesture, so it is a switch in settings. */
-  function restNotifyReady() {
-    return state.settings.restNotify && 'Notification' in window && Notification.permission === 'granted';
-  }
-  function notifyRestOver() {
-    if (rest.noted || !restNotifyReady()) return;
-    rest.noted = true;
-    const body = 'Next set.';
-    navigator.serviceWorker?.ready
-      .then((reg) => reg.showNotification('Rest over', { body, tag: 'bela-rest', icon: 'icons/icon-192.png', vibrate: [200, 100, 200] }))
-      .catch(() => { try { new Notification('Rest over', { body }); } catch (e) { /* nothing else to try */ } });
-  }
-  async function askRestNotify() {
-    if (!('Notification' in window)) { toast('This phone cannot show notifications'); return false; }
-    if (Notification.permission === 'granted') return true;
-    if (Notification.permission === 'denied') { toast('Notifications are blocked for this app in Android settings'); return false; }
-    const res = await Notification.requestPermission();
-    if (res !== 'granted') { toast('Not allowed — nothing will be sent'); return false; }
-    return true;
   }
 
   /* ---------------- workout elapsed clock ---------------- */
@@ -2492,7 +2354,7 @@
         state.activeWorkout = null;
         workoutOpen = false;
         if (fromLogger) closeWkEntry();
-        stopRest(); save(); render();
+        save(); render();
       },
     });
   }
@@ -2507,14 +2369,13 @@
     const w = state.activeWorkout;
     document.body.classList.toggle('has-mini', !!w && !workoutOpen);
     document.body.classList.toggle('wk-open', !!w && workoutOpen);
-    // the rest bar is a single shared element: park it on <body> before the
-    // overlay is rebuilt, or innerHTML takes it down with the old DOM
-    const restBar = $('#restBar');
-    if (restBar && restBar.parentElement !== document.body) document.body.appendChild(restBar);
     // every tick, every added set rebuilds this overlay — remember where the
     // list was so logging a set does not throw you back to the first exercise
     const openBody = $('.wk-body', root);
     const keptScroll = openBody ? openBody.scrollTop : null;
+    // the overlay is rebuilt on every tick, so its entrance must only play the
+    // first time — replaying it on each logged set is what made the screen jump
+    const wasShowing = !!openBody;
     syncWakeLock();
     if (!w) { root.innerHTML = ''; return; }
     if (!workoutOpen) {
@@ -2548,7 +2409,7 @@
     const done = loggedSets(w);
     const vol = workoutVolume(w);
     root.innerHTML = `
-      <div class="wk-overlay">
+      <div class="wk-overlay${wasShowing ? '' : ' wk-enter'}">
         <div class="wk-bar">
           <button class="icon-btn" id="wkMin" aria-label="Minimize workout">
             <svg viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></svg>
@@ -2558,11 +2419,9 @@
         </div>
         <div class="wk-stats">
           <div><span class="micro">Duration</span><b id="wkDur">${w.editingId ? fmtDuration((w.finishedAt || w.startedAt) - w.startedAt) : fmtElapsed(Date.now() - w.startedAt)}</b></div>
-          <div class="wk-rest-cell"><span class="micro">Rest</span><b id="wkRestMini">—</b></div>
           <div class="wk-vol-cell"><span class="micro">Volume</span><b>${fmtNum(Math.round(vol))} ${esc(unit())}</b></div>
           <div><span class="micro">Sets</span><b>${done.length}</b></div>
         </div>
-        <div id="restSlot"></div>
         <div class="wk-body">
           ${w.exercises.map((ex, exIdx) => renderExerciseBlock(ex, exIdx)).join('')}
           <button class="btn btn-ghost" id="addExercise" style="margin-bottom:12px">+ Add exercise</button>
@@ -2606,7 +2465,6 @@
       $('.ex-name', block).addEventListener('click', () => openExerciseDetail(ex.exerciseId));
       $('.ex-menu', block).addEventListener('click', () => openExerciseMenu(exIdx));
       $('.ex-note-line', block).addEventListener('click', () => openNoteSheet(ex));
-      $('.ex-rest', block).addEventListener('click', () => openRestSheet(ex));
       const hintBtn = $('.ex-hint', block);
       if (hintBtn) hintBtn.addEventListener('click', () => {
         const h = overloadHint(ex);
@@ -2665,10 +2523,6 @@
               }
             }
             save(); render();
-            // a warm-up does not earn a rest: 20 kg for five does not need 90s
-            const restSecs = (set.type || 'N') === 'W' ? 0
-              : ex.rest === 0 ? 0 : (ex.rest ?? state.settings.restSeconds);
-            if (restSecs) startRest(restSecs);
           } else {
             set.done = false;
             delete set.pr;
@@ -2678,7 +2532,6 @@
         });
       });
     });
-    placeRestBar();
   }
 
   /* -------- exercise options menu (Hevy-style) -------- */
@@ -2794,27 +2647,6 @@
     });
   }
 
-  function openRestSheet(ex) {
-    const current = ex.rest === 0 ? 0 : (ex.rest ?? null);
-    const options = [
-      [null, `Default (${state.settings.restSeconds}s)`],
-      [0, 'Off'], [30, '30s'], [60, '60s'], [90, '90s'], [120, '2 min'], [180, '3 min'],
-    ];
-    openSheet('Rest timer for this exercise', `
-      <div class="menu-list">
-        ${options.map(([val, label]) => `
-          <button class="menu-item ${val === current ? 'on' : ''}" data-rest="${val === null ? 'default' : val}">${esc(label)}${val === current ? ' ✓' : ''}</button>`).join('')}
-      </div>
-    `, (body) => {
-      body.addEventListener('click', (e) => {
-        const b = e.target.closest('button[data-rest]');
-        if (!b) return;
-        if (b.dataset.rest === 'default') delete ex.rest;
-        else ex.rest = Number(b.dataset.rest);
-        save(); closeSheet(); render();
-      });
-    });
-  }
 
   function openNoteSheet(ex) {
     openSheet('Exercise note', `
@@ -2955,7 +2787,6 @@
           </button>
         </div>
         <button class="ex-line ex-note-line ${ex.note ? 'has' : ''}">${ex.note ? '📝 ' + esc(ex.note) : 'Add notes here…'}</button>
-        <button class="ex-line ex-rest">⏱ Rest timer: <b>${ex.rest === 0 ? 'Off' : (ex.rest ?? state.settings.restSeconds) + 's'}</b></button>
         ${(() => {
           const h = overloadHint(ex);
           if (!h) return '';
@@ -3063,7 +2894,6 @@
         }
         state.activeWorkout = null;
         workoutOpen = false;
-        stopRest();
         haptic('done');
         save(); closeSheet(); closeWkEntry(); render();
         toast(w.editingId ? 'Changes saved'
@@ -4895,14 +4725,6 @@
         <input type="checkbox" id="hapticSw" ${s.haptics === false ? '' : 'checked'}>
       </label>
       <label class="switch-row">
-        <span><b>Sound</b><i>The beep when the rest timer runs out — the buzz is separate</i></span>
-        <input type="checkbox" id="soundSw" ${s.sound === false ? '' : 'checked'}>
-      </label>
-      <label class="switch-row">
-        <span><b>Tell me when rest is over</b><i>A notification when the timer finishes with the app in the background</i></span>
-        <input type="checkbox" id="restNotify" ${s.restNotify ? 'checked' : ''}>
-      </label>
-      <label class="switch-row">
         <span><b>Full screen</b><i>Hides the Android status bar — and the grey hairline the browser draws under it</i></span>
         <input type="checkbox" id="fullBleed" ${s.fullscreen ? 'checked' : ''}>
       </label>
@@ -4910,10 +4732,6 @@
         <span><b>Track effort (RPE)</b><i>An extra column on every set</i></span>
         <input type="checkbox" id="trackRpe" ${s.trackRpe === false ? '' : 'checked'}>
       </label>
-      <div class="field">
-        <label for="restSecs">Default rest timer (seconds)</label>
-        <input id="restSecs" type="number" inputmode="numeric" min="15" step="15" value="${s.restSeconds}">
-      </div>
       <div class="field">
         <label>Home layout</label>
         <div class="seg" id="homeLayoutSeg">
@@ -5005,10 +4823,6 @@
           onConfirm: apply,
         });
       });
-      $('#restSecs', body).addEventListener('change', (e) => {
-        state.settings.restSeconds = Math.max(15, Number(e.target.value) || 90);
-        save();
-      });
       $$('#homeLayoutSeg button', body).forEach((b) => b.addEventListener('click', () => {
         state.settings.homeLayout = b.dataset.hl === 'classic' ? 'classic' : 'dash';
         $$('#homeLayoutSeg button', body).forEach((x) => x.classList.toggle('is-on', x === b));
@@ -5045,20 +4859,10 @@
         state.settings.keepAwake = e.target.checked;
         save(); syncWakeLock();
       });
-      $('#soundSw', body).addEventListener('change', (e) => {
-        state.settings.sound = e.target.checked;
-        save();
-        if (e.target.checked) beep();
-      });
       $('#hapticSw', body).addEventListener('change', (e) => {
         state.settings.haptics = e.target.checked;
         save();
         if (e.target.checked) haptic('tick');
-      });
-      $('#restNotify', body).addEventListener('change', async (e) => {
-        if (e.target.checked && !(await askRestNotify())) { e.target.checked = false; return; }
-        state.settings.restNotify = e.target.checked;
-        save();
       });
       $('#fullBleed', body).addEventListener('change', (e) => {
         state.settings.fullscreen = e.target.checked;
