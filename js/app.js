@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '11.4';
+  const APP_VERSION = '11.5';
 
   /* ---------------- state ---------------- */
 
@@ -974,27 +974,34 @@
     return state.settings.wkNotify && 'Notification' in window &&
       Notification.permission === 'granted' && navigator.serviceWorker;
   }
+  /* Android's collapsed notification gives you one line of title and one of
+     body, so the exercise leads and everything else fits on the second line.
+     A title like "Workout · 0 min" spent the whole line saying nothing and
+     still got cut off. */
   function wkNoteLines() {
     const w = state.activeWorkout;
     if (!w) return null;
-    const done = loggedSets(w).length;
-    const current = w.exercises.find((ex) => ex.sets.some((s) => !s.done)) || w.exercises[w.exercises.length - 1];
-    const name = current ? (exerciseById(current.exerciseId)?.name ?? 'Workout') : 'No exercises yet';
-    let where = '';
-    if (current) {
-      const idx = current.sets.findIndex((s) => !s.done);
-      const at = idx === -1 ? current.sets.length : idx + 1;
-      const set = current.sets[Math.min(at, current.sets.length) - 1];
-      const numbers = set && set.weight ? ' · ' + fmtNum(set.weight) + ' ' + unit() + (set.reps ? ' × ' + set.reps : '') : '';
-      where = 'Set ' + at + '/' + current.sets.length + numbers;
-    }
-    // minutes, not seconds: a notification only changes when it is posted
-    // again, and once a minute is both enough to read and cheap to keep up
     const mins = Math.floor((Date.now() - w.startedAt) / 60000);
     const clock = mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h ' + String(mins % 60).padStart(2, '0');
+    const current = w.exercises.find((ex) => ex.sets.some((s) => !s.done));
+    if (!current) {
+      const done = loggedSets(w).length;
+      return {
+        title: w.name,
+        body: (done ? done + (done === 1 ? ' set done' : ' sets done') : 'Nothing logged yet') + ' · ' + clock,
+      };
+    }
+    const idx = current.sets.findIndex((s) => !s.done);
+    const set = current.sets[idx];
+    const bits = ['Set ' + (idx + 1) + '/' + current.sets.length];
+    // whatever is in the box, typed or carried over from last time
+    const weight = set.weight ?? previousSets(current.exerciseId)[idx]?.weight;
+    const reps = set.reps ?? previousSets(current.exerciseId)[idx]?.reps;
+    if (weight) bits.push(fmtNum(weight) + ' ' + unit() + (reps ? ' × ' + reps : ''));
+    bits.push(clock);
     return {
-      title: w.name + ' · ' + clock,
-      body: name + (where ? '\n' + where : ''),
+      title: exerciseById(current.exerciseId)?.name ?? w.name,
+      body: bits.join('  ·  '),
     };
   }
   function showWorkoutNote(force = false) {
