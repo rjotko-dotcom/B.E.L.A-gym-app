@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '11.2';
+  const APP_VERSION = '11.3';
 
   /* ---------------- state ---------------- */
 
@@ -988,21 +988,27 @@
       const numbers = set && set.weight ? ' · ' + fmtNum(set.weight) + ' ' + unit() + (set.reps ? ' × ' + set.reps : '') : '';
       where = 'Set ' + at + '/' + current.sets.length + numbers;
     }
+    // minutes, not seconds: a notification only changes when it is posted
+    // again, and once a minute is both enough to read and cheap to keep up
+    const mins = Math.floor((Date.now() - w.startedAt) / 60000);
+    const clock = mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h ' + String(mins % 60).padStart(2, '0');
     return {
-      title: w.name + ' · ' + fmtElapsed(Date.now() - w.startedAt),
-      body: name + (where ? '\n' + where : '') + (done ? '\n' + done + (done === 1 ? ' set logged' : ' sets logged') : ''),
+      title: w.name + ' · ' + clock,
+      body: name + (where ? '\n' + where : ''),
     };
   }
   function showWorkoutNote(force = false) {
     if (!wkNoteReady() || !state.activeWorkout) return;
     const lines = wkNoteLines();
     if (!lines) return;
-    // rewrite it whenever what it says changes; otherwise leave it alone
-    const changed = lines.body !== wkNoteText;
-    if (!force && !changed && Date.now() - wkNoteAt < 30000) return;
-    if (Date.now() - wkNoteAt < 600 && !force) return;
+    // rewrite it whenever anything it shows changes — the clock included, so
+    // the minute on it keeps up rather than freezing where you left the app
+    const text = lines.title + '|' + lines.body;
+    const changed = text !== wkNoteText;
+    if (!force && !changed) return;
+    if (!force && Date.now() - wkNoteAt < 600) return;
     wkNoteAt = Date.now();
-    wkNoteText = lines.body;
+    wkNoteText = text;
     navigator.serviceWorker.ready.then((reg) => reg.showNotification(lines.title, {
       body: lines.body,
       tag: WK_NOTE_TAG,
@@ -1043,7 +1049,9 @@
   let elapsedTimer = null;
   function tickElapsed() {
     if (!state.activeWorkout) return;
-    if (document.visibilityState !== 'visible') showWorkoutNote();   // keep the clock honest while away
+    // a notification's text is fixed once posted: the only way its clock moves
+    // is to post it again, which happens as the minute turns over
+    showWorkoutNote();
     const txt = fmtElapsed(Date.now() - state.activeWorkout.startedAt);
     const el = $('#wkDur');
     if (el) el.textContent = txt;
