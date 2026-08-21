@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '10.8';
+  const APP_VERSION = '10.9';
 
   /* ---------------- state ---------------- */
 
@@ -959,11 +959,91 @@
     try { navigator.vibrate(BUZZ[kind] || BUZZ.tap); } catch (e) { /* some browsers refuse */ }
   }
 
+  /* ---------------- workout notification ----------------
+     A live session posts a notification that says where you are, the way a
+     gym app should — it survives switching apps and taps back into the
+     logger. A browser cannot hold a foreground service, so it is a normal
+     silent notification kept up to date while the app is alive, and cleared
+     the moment the workout ends. */
+
+  const WK_NOTE_TAG = 'bela-workout';
+  let wkNoteAt = 0;
+  let wkNoteText = '';
+
+  function wkNoteReady() {
+    return state.settings.wkNotify && 'Notification' in window &&
+      Notification.permission === 'granted' && navigator.serviceWorker;
+  }
+  function wkNoteLines() {
+    const w = state.activeWorkout;
+    if (!w) return null;
+    const done = loggedSets(w).length;
+    const current = w.exercises.find((ex) => ex.sets.some((s) => !s.done)) || w.exercises[w.exercises.length - 1];
+    const name = current ? (exerciseById(current.exerciseId)?.name ?? 'Workout') : 'No exercises yet';
+    let where = '';
+    if (current) {
+      const idx = current.sets.findIndex((s) => !s.done);
+      const at = idx === -1 ? current.sets.length : idx + 1;
+      const set = current.sets[Math.min(at, current.sets.length) - 1];
+      const numbers = set && set.weight ? ' · ' + fmtNum(set.weight) + ' ' + unit() + (set.reps ? ' × ' + set.reps : '') : '';
+      where = 'Set ' + at + '/' + current.sets.length + numbers;
+    }
+    return {
+      title: w.name + ' · ' + fmtElapsed(Date.now() - w.startedAt),
+      body: name + (where ? '\n' + where : '') + (done ? '\n' + done + (done === 1 ? ' set logged' : ' sets logged') : ''),
+    };
+  }
+  function showWorkoutNote(force = false) {
+    if (!wkNoteReady() || !state.activeWorkout) return;
+    const lines = wkNoteLines();
+    if (!lines) return;
+    // rewrite it whenever what it says changes; otherwise leave it alone
+    const changed = lines.body !== wkNoteText;
+    if (!force && !changed && Date.now() - wkNoteAt < 30000) return;
+    if (Date.now() - wkNoteAt < 600 && !force) return;
+    wkNoteAt = Date.now();
+    wkNoteText = lines.body;
+    navigator.serviceWorker.ready.then((reg) => reg.showNotification(lines.title, {
+      body: lines.body,
+      tag: WK_NOTE_TAG,
+      renotify: false,
+      silent: true,
+      requireInteraction: true,
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png',
+      data: { kind: 'workout' },
+    })).catch(() => { /* the browser may refuse: nothing else to do */ });
+  }
+  function clearWorkoutNote() {
+    wkNoteText = '';
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready
+      .then((reg) => reg.getNotifications({ tag: WK_NOTE_TAG }))
+      .then((list) => list.forEach((n) => n.close()))
+      .catch(() => { /* nothing to clear */ });
+  }
+  function syncWorkoutNote(force = false) {
+    if (state.activeWorkout) showWorkoutNote(force); else clearWorkoutNote();
+  }
+  async function askWorkoutNotify() {
+    if (!('Notification' in window)) { toast('This phone cannot show notifications'); return false; }
+    if (Notification.permission === 'granted') return true;
+    if (Notification.permission === 'denied') { toast('Notifications are blocked for this app in Android settings'); return false; }
+    const res = await Notification.requestPermission();
+    if (res !== 'granted') { toast('Not allowed — nothing will be shown'); return false; }
+    return true;
+  }
+  // going away is exactly when the notification earns its keep
+  addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') syncWorkoutNote(true);
+  });
+
   /* ---------------- workout elapsed clock ---------------- */
 
   let elapsedTimer = null;
   function tickElapsed() {
     if (!state.activeWorkout) return;
+    if (document.visibilityState !== 'visible') showWorkoutNote();   // keep the clock honest while away
     const txt = fmtElapsed(Date.now() - state.activeWorkout.startedAt);
     const el = $('#wkDur');
     if (el) el.textContent = txt;
@@ -1640,8 +1720,12 @@
           '<button class="chip-btn chip-strong" id="waterPlus" aria-label="Add a glass">+</button>' +
         '</div>' +
       '</div>' +
-      '<div class="water-dots">' + Array.from({ length: wTarget }, (_, i) =>
-        '<span class="wdot ' + (i < glasses ? 'on' : '') + '"></span>').join('') + '</div>' +
+      // anything past the target gets its own dot: dashed and hollow, so a
+      // ninth and tenth glass are plainly extra rather than part of the eight
+      '<div class="water-dots">' + Array.from({ length: Math.max(wTarget, glasses) }, (_, i) =>
+        (i < wTarget
+          ? '<span class="wdot ' + (i < glasses ? 'on' : '') + '"></span>'
+          : '<span class="wdot extra"></span>')).join('') + '</div>' +
       nutWeekHTML(key);
 
     $('#dayPrev').addEventListener('click', () => { mealDayOffset -= 1; render(); });
@@ -2321,8 +2405,13 @@
       const k = dateKey(new Date(y, m, i));
       out += '<span class="dot ' + (days.has(k) ? 'on' : '') + (k === todayK ? ' today' : '') + '"></span>';
     }
+    // how many sessions that month, next to its name
+    let count = 0;
+    for (let i = 1; i <= total; i++) if (days.has(dateKey(new Date(y, m, i)))) count++;
     return '<div class="dot-month"><span class="dm-label">' +
-      monthDate.toLocaleDateString(undefined, { month: 'short' }) + '</span><div class="dm-grid">' + out + '</div></div>';
+      monthDate.toLocaleDateString(undefined, { month: 'short' }) +
+      (count ? ' · <b class="dm-count">' + count + '</b>' : '') +
+      '</span><div class="dm-grid">' + out + '</div></div>';
   }
 
   /* what a session actually contained, for the card that stands in for it */
@@ -2527,6 +2616,7 @@
     const w = state.activeWorkout;
     document.body.classList.toggle('has-mini', !!w && !workoutOpen);
     document.body.classList.toggle('wk-open', !!w && workoutOpen);
+    syncWorkoutNote();
     // every tick, every added set rebuilds this overlay — remember where the
     // list was so logging a set does not throw you back to the first exercise
     const openBody = $('.wk-body', root);
@@ -4974,6 +5064,10 @@
         <input type="checkbox" id="hapticSw" ${s.haptics === false ? '' : 'checked'}>
       </label>
       <label class="switch-row">
+        <span><b>Workout notification</b><i>While a session is running, a notification shows where you are and taps back into it</i></span>
+        <input type="checkbox" id="wkNotify" ${s.wkNotify ? 'checked' : ''}>
+      </label>
+      <label class="switch-row">
         <span><b>Full screen</b><i>Hides the Android status bar — and the grey hairline the browser draws under it</i></span>
         <input type="checkbox" id="fullBleed" ${s.fullscreen ? 'checked' : ''}>
       </label>
@@ -5112,6 +5206,12 @@
         state.settings.haptics = e.target.checked;
         save();
         if (e.target.checked) haptic('tick');
+      });
+      $('#wkNotify', body).addEventListener('change', async (e) => {
+        if (e.target.checked && !(await askWorkoutNotify())) { e.target.checked = false; return; }
+        state.settings.wkNotify = e.target.checked;
+        save();
+        if (e.target.checked) syncWorkoutNote(true); else clearWorkoutNote();
       });
       $('#fullBleed', body).addEventListener('change', (e) => {
         state.settings.fullscreen = e.target.checked;

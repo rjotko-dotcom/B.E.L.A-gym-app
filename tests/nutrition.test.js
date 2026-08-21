@@ -324,6 +324,38 @@ module.exports = async (t) => {
   t.check('the week card sums the last seven days', /Last 7 days/.test(week) && /Avg kcal/.test(week), week.slice(0, 70));
   t.equal('with a bar per day', await page.evaluate(() => document.querySelectorAll('.nw-day').length), 7);
 
+  // past the target, extra glasses get their own hollow dashed dot
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    const d = new Date();
+    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    st.settings.waterTarget = 8;
+    st.nutrition.water = [{ date: key, glasses: 10 }];
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(650);
+  await page.click('.tab[data-tab="meals"]');
+  await page.waitForTimeout(450);
+  const wd = await page.evaluate(() => ({
+    total: document.querySelectorAll('.wdot').length,
+    filled: document.querySelectorAll('.wdot.on').length,
+    extra: document.querySelectorAll('.wdot.extra').length,
+    dashed: getComputedStyle(document.querySelector('.wdot.extra')).borderStyle,
+    hollow: getComputedStyle(document.querySelector('.wdot.extra')).backgroundColor,
+  }));
+  t.equal('ten glasses draw ten dots', wd.total, 10);
+  t.equal('eight of them are the target', wd.filled, 8);
+  t.equal('and two are extra', wd.extra, 2);
+  t.equal('drawn dashed', wd.dashed, 'dashed');
+  t.equal('and hollow', wd.hollow, 'rgba(0, 0, 0, 0)');
+  await page.click('#waterMinus');
+  await page.click('#waterMinus');
+  await page.click('#waterMinus');
+  await page.waitForTimeout(450);
+  t.equal('dropping back to the target leaves eight', await page.evaluate(() => document.querySelectorAll('.wdot').length), 8);
+  t.equal('with none extra', await page.evaluate(() => document.querySelectorAll('.wdot.extra').length), 0);
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

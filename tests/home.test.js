@@ -168,10 +168,26 @@ module.exports = async (t) => {
     return Math.round(nav.top - m.bottom);
   });
   t.check('the bar clears the nav on home', (await gap()) > 12, String(await gap()));
+  const above = await page.evaluate(() => {
+    const m = document.querySelector('.mini-bar').getBoundingClientRect();
+    const kids = [...document.querySelectorAll('#view > *')].filter((k) => getComputedStyle(k).position !== 'absolute');
+    return Math.round(m.top - kids[kids.length - 1].getBoundingClientRect().bottom);
+  });
+  t.near('and sits between the page and the nav evenly', above, await gap(), 3);
+  t.check('nothing in the app selects as text', await page.evaluate(() =>
+    getComputedStyle(document.querySelector('h2')).webkitUserSelect === 'none'));
+  t.check('but a field you type in still does', await page.evaluate(() => {
+    const i = document.createElement('input');
+    document.body.appendChild(i);
+    const ok = getComputedStyle(i).webkitUserSelect === 'text';
+    i.remove();
+    return ok;
+  }));
   for (const tab of ['workout', 'meals', 'habits']) {
     await page.evaluate((x) => document.querySelector('.tab[data-tab="' + x + '"]').click(), tab);
     await page.waitForTimeout(450);
     t.check('the bar clears the nav on ' + tab, (await gap()) > 12, String(await gap()));
+    t.near('by the same margin as on home', await gap(), 21, 3);
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(300);
     t.check('and nothing hides under it on ' + tab, await page.evaluate(() => {

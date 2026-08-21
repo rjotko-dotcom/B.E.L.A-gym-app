@@ -277,6 +277,15 @@ module.exports = async (t) => {
     return last.querySelector('.in-weight').placeholder === '85';
   }));
 
+  // the bolts on auto habits line up
+  await page.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
+  await page.waitForTimeout(450);
+  await page.evaluate(() => document.querySelector('.tab[data-tab="habits"]').click());
+  await page.waitForTimeout(500);
+  const bolts = await page.evaluate(() => [...document.querySelectorAll('.hb-auto')]
+    .map((b) => Math.round(b.getBoundingClientRect().left)));
+  t.check('every auto marker sits in the same column', new Set(bolts).size <= 1, JSON.stringify(bolts));
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

@@ -118,6 +118,18 @@ module.exports = async (t) => {
   await page.waitForTimeout(800);
   t.equal('restoring brings the meal back', await meals(), mealsBefore);
   t.check('and keeps a copy of what it replaced', (await snapKeys()).length > keys.length);
+  // a trained day is actually lit in the consistency card
+  await page.click('.tab[data-tab="workout"]');
+  await page.waitForTimeout(450);
+  const dots = await page.evaluate(() => {
+    const all = [...document.querySelectorAll('.dm-grid .dot')];
+    const on = all.filter((d) => d.classList.contains('on'));
+    return { total: all.length, on: on.length, colour: on.length ? getComputedStyle(on[0]).backgroundColor : 'none' };
+  });
+  t.check('the calendar of dots is drawn', dots.total > 80, String(dots.total));
+  t.check('sessions light their day', dots.on > 0, String(dots.on));
+  t.check('and are actually painted light', dots.colour !== 'rgb(43, 43, 43)', dots.colour);
+
   // past sessions can be searched
   await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
   await page.waitForTimeout(300);

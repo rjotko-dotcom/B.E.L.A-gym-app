@@ -89,9 +89,12 @@ html { -webkit-text-size-adjust: 100%; }
    ring afterwards, and a long press can select the label text — three
    different blue rectangles. None of them belong in an app. */
 * { -webkit-tap-highlight-color: transparent; }
-button, [role="button"], label, .tab, .seg, .micro, .hdr, .wd, .hc-day, .hs-cell, .plan-day, .set-num, .set-rpe, .set-done {
-  -webkit-user-select: none; user-select: none;
-}
+/* Nothing in the app is text to select. Holding a stat or a label used to
+   highlight it and raise Android's "tap to see search results" bar, which is
+   what a web page does, not an app. Fields you type in are the exception,
+   since selecting inside them is how editing works. */
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, select, [contenteditable] { -webkit-user-select: text; user-select: text; }
 button:focus, [role="button"]:focus, .tab:focus { outline: none; }
 /* keyboard users still get a ring */
 button:focus-visible, [role="button"]:focus-visible, .tab:focus-visible {
@@ -626,7 +629,15 @@ body {
 .mini-title b { font-weight: 800; }
 .mini-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--good); flex-shrink: 0; }
 .mini-sub { color: var(--ink-muted); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
-body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 194px); }
+/* the bar sits between the page and the nav with the same gap either side:
+   nav + its own height + two equal gaps */
+body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 185px); }
+/* home is pinned to one screen and any slack is left under the last card, so
+   the blocks spread into it — otherwise the gap above the bar reads double */
+body.has-mini .view.home-screen {
+  justify-content: space-between;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 185px);
+}
 
 /* ---------- home greeting header ---------- */
 .home-head { margin: 6px 4px 2px; }
@@ -1059,7 +1070,7 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 194px);
 .hb-body { flex: 1; min-width: 0; }
 .hb-name { font-size: 0.96rem; font-weight: 600; }
 .hb-sub { color: var(--ink-muted); font-size: 0.76rem; margin-top: 2px; }
-.hb-check { width: 30px; height: 30px; border-radius: 10px; border: 1.6px solid var(--baseline); display: grid; place-items: center; flex-shrink: 0; }
+.hb-check { width: 34px; height: 34px; border-radius: 11px; border: 1.6px solid var(--baseline); display: grid; place-items: center; flex-shrink: 0; }
 .hb-check svg { width: 17px; height: 17px; fill: none; stroke: transparent; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
 .hb-row.is-done .hb-check { background: var(--ink-1); border-color: var(--ink-1); }
 .hb-row.is-done .hb-check svg { stroke: var(--page); }
@@ -1162,6 +1173,8 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 194px);
 .water-dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; padding: 10px 4px 6px; }
 .water-dots .wdot { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--baseline); }
 .water-dots .wdot.on { background: var(--ink-1); border-color: var(--ink-1); }
+/* past the target: hollow, dashed, so the extras count without blending in */
+.water-dots .wdot.extra { background: transparent; border: 1.5px dashed var(--ink-2); }
 
 /* ---------- workouts dashboard ---------- */
 .wk-active { padding: 15px 16px 16px; }
@@ -1184,11 +1197,16 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 194px);
 .wc-note { color: var(--ink-2); font-size: 0.76rem; font-weight: 600; }
 .dot-months { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 .dm-label { display: block; color: var(--ink-muted); font-size: 0.68rem; font-weight: 600; text-align: center; margin-bottom: 8px; }
-.dm-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; justify-items: center; }
-.dm-grid .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--surface-2); }
-:root:not([data-theme="light"]) .dm-grid .dot { background: #303030; }
-.dm-grid .dot.on { background: var(--ink-1); }
-.dm-grid .dot.today { outline: 1.5px solid var(--baseline); outline-offset: 1.5px; }
+.dm-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; justify-items: center; }
+.dm-grid .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--surface-2); }
+:root:not([data-theme="light"]) .dm-grid .dot { background: #2b2b2b; }
+/* the dark-mode rule above is more specific than a plain .dot.on, which is
+   why a trained day never lit up — matched here so it wins */
+.dm-grid .dot.on, :root:not([data-theme="light"]) .dm-grid .dot.on { background: var(--ink-1); }
+.dm-grid .dot.today, :root:not([data-theme="light"]) .dm-grid .dot.today {
+  outline: 1.5px solid var(--ink-2); outline-offset: 2px;
+}
+.dm-count { color: var(--ink-1); font-weight: 700; }
 .wk-vol { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 16px; }
 .wv-sub { display: block; color: var(--ink-2); font-size: 0.8rem; margin-top: 3px; }
 .wv-num { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
@@ -1245,7 +1263,9 @@ body.has-mini .view { padding-bottom: calc(env(safe-area-inset-bottom) + 194px);
 .ha-primary:active { background: var(--ink-1); filter: brightness(0.88); }
 
 /* linked habits: filled in from workouts / nutrition instead of by hand */
-.hb-auto { display: grid; place-items: center; width: 22px; flex-shrink: 0; }
+/* the marker keeps its own column so the bolts line up down the card, whatever
+   sits beside them — a 30px tick, a 34px ring, or a ring and a plus */
+.hb-auto { display: grid; place-items: center; width: 26px; flex-shrink: 0; margin-right: 2px; }
 .hb-auto svg { width: 15px; height: 15px; fill: none; stroke: var(--ink-muted); stroke-width: 1.6; stroke-linejoin: round; }
 .hb-row.is-auto .hb-check { border-style: dashed; }
 .hb-row.is-auto.is-done .hb-check { border-style: solid; }
