@@ -1911,3 +1911,6 @@ body.has-mini .view.home-screen {
 .rv-pr-list span { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-pr-list b { font-variant-numeric: tabular-nums; flex: none; }
 .rv-pr-more { color: var(--ink-muted); font-size: 0.78rem; justify-content: center !important; }
+
+/* asked after an improbable amount of water */
+.water-joke { text-align: center; color: var(--ink-muted); font-size: 0.82rem; font-weight: 600; margin: 8px 0 0; }

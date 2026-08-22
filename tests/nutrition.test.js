@@ -388,6 +388,25 @@ module.exports = async (t) => {
   t.equal('and the protein', food.protein, 11);
   t.equal('and the portion the + logs', food.serving, 500);
 
+  // an improbable amount of water gets a question
+  const askAt = async (glasses) => {
+    await page.evaluate((g) => {
+      const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+      const d = new Date();
+      const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      st.settings.waterTarget = 8;
+      st.nutrition.water = [{ date: key, glasses: g }];
+      localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+    }, glasses);
+    await page.reload();
+    await page.waitForTimeout(600);
+    await page.evaluate(() => document.querySelector('.tab[data-tab="meals"]').click());
+    await page.waitForTimeout(450);
+    return page.evaluate(() => document.querySelector('.water-joke')?.textContent || '');
+  };
+  t.equal('twelve glasses passes without comment', await askAt(12), '');
+  t.equal('thirty-four asks after you', await askAt(34), 'u ok?');
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();

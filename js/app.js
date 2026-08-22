@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '11.9';
+  const APP_VERSION = '12.0';
 
   /* ---------------- state ---------------- */
 
@@ -981,14 +981,12 @@
   function wkNoteLines() {
     const w = state.activeWorkout;
     if (!w) return null;
-    const mins = Math.floor((Date.now() - w.startedAt) / 60000);
-    const clock = mins < 60 ? mins + ' min' : Math.floor(mins / 60) + ' h ' + String(mins % 60).padStart(2, '0');
     const current = w.exercises.find((ex) => ex.sets.some((s) => !s.done));
     if (!current) {
       const done = loggedSets(w).length;
       return {
         title: w.name,
-        body: (done ? done + (done === 1 ? ' set done' : ' sets done') : 'Nothing logged yet') + ' · ' + clock,
+        body: done ? done + (done === 1 ? ' set done' : ' sets done') : 'Nothing logged yet',
       };
     }
     const idx = current.sets.findIndex((s) => !s.done);
@@ -998,7 +996,6 @@
     const weight = set.weight ?? previousSets(current.exerciseId)[idx]?.weight;
     const reps = set.reps ?? previousSets(current.exerciseId)[idx]?.reps;
     if (weight) bits.push(fmtNum(weight) + ' ' + unit() + (reps ? ' × ' + reps : ''));
-    bits.push(clock);
     return {
       title: exerciseById(current.exerciseId)?.name ?? w.name,
       body: bits.join('  ·  '),
@@ -1012,7 +1009,7 @@
     // the minute on it keeps up rather than freezing where you left the app
     const text = lines.title + '|' + lines.body;
     const changed = text !== wkNoteText;
-    if (!force && !changed) return;
+    if (!force && !changed) { restoreWorkoutNote(); return; }
     if (!force && Date.now() - wkNoteAt < 600) return;
     wkNoteAt = Date.now();
     wkNoteText = text;
@@ -1031,6 +1028,21 @@
       data: { kind: 'workout' },
     })).catch(() => { /* the browser may refuse: nothing else to do */ });
   }
+  /* A web notification cannot be marked ongoing the way a native one can, so
+     it can always be swiped away. If it goes while a session is still running,
+     put it back — checked on the same beat that moves the clock, and no more
+     often than every few seconds. */
+  let wkNoteChecked = 0;
+  function restoreWorkoutNote() {
+    if (!wkNoteReady() || !state.activeWorkout) return;
+    if (Date.now() - wkNoteChecked < 4000) return;
+    wkNoteChecked = Date.now();
+    navigator.serviceWorker.ready
+      .then((reg) => reg.getNotifications({ tag: WK_NOTE_TAG }))
+      .then((list) => { if (!list.length) showWorkoutNote(true); })
+      .catch(() => { /* nothing to restore it from */ });
+  }
+
   function clearWorkoutNote() {
     wkNoteText = '';
     if (!('serviceWorker' in navigator)) return;
@@ -1762,6 +1774,8 @@
         (i < wTarget
           ? '<span class="wdot ' + (i < glasses ? 'on' : '') + '"></span>'
           : '<span class="wdot extra"></span>')).join('') + '</div>' +
+      // twice the target is a lot of water for one day
+      (glasses >= Math.max(16, wTarget * 2) ? '<p class="water-joke">u ok?</p>' : '') +
       nutWeekHTML(key);
 
     $('#dayPrev').addEventListener('click', () => { mealDayOffset -= 1; render(); });

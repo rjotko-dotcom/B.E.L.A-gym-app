@@ -286,6 +286,22 @@ module.exports = async (t) => {
     .map((b) => Math.round(b.getBoundingClientRect().left)));
   t.check('every auto marker sits in the same column', new Set(bolts).size <= 1, JSON.stringify(bolts));
 
+  /* The workout notification puts itself back when swiped away. Only checked
+     where a service worker actually exists — most suites run without one, and
+     navigator.serviceWorker.ready never settles there, which hangs the run. */
+  if (await page.evaluate(() => !!(navigator.serviceWorker && navigator.serviceWorker.controller))) {
+    const notes = () => page.evaluate(() => navigator.serviceWorker.ready
+      .then((r) => r.getNotifications({ tag: 'bela-workout' })).then((l) => l.length).catch(() => -1));
+    if ((await notes()) > 0) {
+      await page.evaluate(() => navigator.serviceWorker.ready
+        .then((r) => r.getNotifications({ tag: 'bela-workout' })).then((l) => l.forEach((n) => n.close())));
+      await page.waitForTimeout(300);
+      t.equal('dismissing it takes it away', await notes(), 0);
+      await page.waitForTimeout(6000);
+      t.equal('and it puts itself back', await notes(), 1);
+    }
+  }
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
   await server.close();
