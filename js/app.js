@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '11.6';
+  const APP_VERSION = '11.7';
 
   /* ---------------- state ---------------- */
 
@@ -1022,10 +1022,11 @@
       renotify: false,
       silent: true,
       requireInteraction: true,
-      // versioned, so a new build's art is fetched instead of the copy the
-      // service worker cached the first time this ever ran
-      icon: 'icons/notify-192.png?v=' + APP_VERSION,   // the mark, nothing behind it
-      badge: 'icons/badge-96.png?v=' + APP_VERSION,    // drawn as a silhouette in the status bar
+      /* No `icon`: on One UI the large icon is the picture on the right of the
+         notification, and the mark is already on the left as the badge. Only
+         the badge is set, versioned so a new build's art is actually fetched
+         rather than whatever the service worker cached first. */
+      badge: 'icons/badge-96.png?v=' + APP_VERSION,
       data: { kind: 'workout' },
     })).catch(() => { /* the browser may refuse: nothing else to do */ });
   }
@@ -1049,7 +1050,6 @@
         body: 'Set 1/3  ·  80 kg × 8  ·  0 min',
         tag: 'bela-sample',
         silent: true,
-        icon: 'icons/notify-192.png?v=' + APP_VERSION,
         badge: 'icons/badge-96.png?v=' + APP_VERSION,
       });
       toast('That is how a session will look');
