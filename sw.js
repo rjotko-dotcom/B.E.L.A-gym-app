@@ -1,5 +1,5 @@
 /* B.E.L.A Gym — service worker */
-const VERSION = '11.7';
+const VERSION = '11.8';
 const CACHE = 'bela-gym-' + VERSION;
 const ASSETS = [
   '.',
@@ -16,6 +16,7 @@ const ASSETS = [
   'icons/icon-192.png?v=' + VERSION,
   'icons/notify-192.png?v=' + VERSION,
   'icons/badge-96.png?v=' + VERSION,
+  'icons/blank-192.png?v=' + VERSION,
 ];
 
 self.addEventListener('install', (e) => {

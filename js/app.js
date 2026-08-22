@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '11.7';
+  const APP_VERSION = '11.8';
 
   /* ---------------- state ---------------- */
 
@@ -1022,10 +1022,11 @@
       renotify: false,
       silent: true,
       requireInteraction: true,
-      /* No `icon`: on One UI the large icon is the picture on the right of the
-         notification, and the mark is already on the left as the badge. Only
-         the badge is set, versioned so a new build's art is actually fetched
-         rather than whatever the service worker cached first. */
+      /* The large icon is the picture on One UI's right-hand side. Leaving it
+         out does not leave it empty — Android draws a letter avatar from the
+         address instead — so it is a transparent image, which draws nothing.
+         The mark is on the left, as the badge. */
+      icon: 'icons/blank-192.png?v=' + APP_VERSION,
       badge: 'icons/badge-96.png?v=' + APP_VERSION,
       data: { kind: 'workout' },
     })).catch(() => { /* the browser may refuse: nothing else to do */ });
@@ -1050,6 +1051,7 @@
         body: 'Set 1/3  ·  80 kg × 8  ·  0 min',
         tag: 'bela-sample',
         silent: true,
+        icon: 'icons/blank-192.png?v=' + APP_VERSION,
         badge: 'icons/badge-96.png?v=' + APP_VERSION,
       });
       toast('That is how a session will look');
