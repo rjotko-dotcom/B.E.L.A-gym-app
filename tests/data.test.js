@@ -196,6 +196,46 @@ module.exports = async (t) => {
   await page.waitForTimeout(450);
   t.equal('clearing brings them all back', await cards(), all);
 
+  // the flat exports a spreadsheet or the desktop app can read
+  await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => document.querySelector('.tab[data-tab="home"]').click());
+  await page.waitForTimeout(400);
+  await page.click('#homeAvatar');
+  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => /settings/i.test(x.getAttribute('aria-label') || ''));
+    if (b) b.click();
+  });
+  await page.waitForTimeout(600);
+  t.check('settings offer a CSV export', await page.evaluate(() => !!document.querySelector('#csvBtn')));
+  await page.click('#csvBtn');
+  await page.waitForTimeout(600);
+  const kinds = await page.evaluate(() => [...document.querySelectorAll('[data-csv]')].map((b) => b.dataset.csv));
+  t.equal('four of them', kinds.length, 4);
+  t.check('one per kind of data', kinds.join(',') === 'workouts,meals,bodyweight,habits', kinds.join(','));
+  // check the text itself rather than the download, which the harness cannot catch
+  const csv = await page.evaluate(() => {
+    const out = {};
+    const grab = (label) => {
+      let text = '';
+      const real = URL.createObjectURL;
+      URL.createObjectURL = (blob) => { text = blob; return 'blob:stub'; };
+      const click = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function () {};
+      document.querySelector('[data-csv="' + label + '"]').click();
+      HTMLAnchorElement.prototype.click = click;
+      URL.createObjectURL = real;
+      return text;
+    };
+    return Promise.all(['workouts', 'meals'].map((k) => grab(k).text().then((t) => { out[k] = t; })))
+      .then(() => out);
+  });
+  t.check('workouts come out one row per set',
+    /^date,time,workout,exercise/.test(csv.workouts) && csv.workouts.trim().split('\r\n').length > 1, csv.workouts.slice(0, 40));
+  t.check('meals come out one row per food',
+    /^date,meal,time,food,kcal/.test(csv.meals), csv.meals.slice(0, 40));
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
 

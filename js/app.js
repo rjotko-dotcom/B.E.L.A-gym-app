@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '12.0';
+  const APP_VERSION = '12.1';
 
   /* ---------------- state ---------------- */
 
@@ -957,6 +957,278 @@
   function haptic(kind = 'tap') {
     if (state.settings.haptics === false || !navigator.vibrate) return;
     try { navigator.vibrate(BUZZ[kind] || BUZZ.tap); } catch (e) { /* some browsers refuse */ }
+  }
+
+  /* ---------------- CSV ----------------
+     The JSON backup is for putting this app back together. A spreadsheet —
+     or the B.E.L.A app on a PC — wants rows, so the same data comes out flat
+     as well: one line per set, per meal, per habit and day. */
+
+  function toCsv(header, rows) {
+    const cell = (v) => {
+      const s = v == null ? '' : String(v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    return [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
+  }
+
+  function downloadFile(name, text, type = 'text/csv') {
+    const blob = new Blob([text], { type: type + ';charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  function workoutsCsv() {
+    const rows = [];
+    [...state.workouts].reverse().forEach((w) => {
+      const d = new Date(w.startedAt);
+      w.exercises.forEach((ex) => {
+        const info = exerciseById(ex.exerciseId);
+        ex.sets.forEach((s, i) => {
+          if (!s.done) return;
+          rows.push([
+            dateKey(d), d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+            w.name, info?.name ?? ex.exerciseId, info?.muscle ?? '', info?.equipment ?? '',
+            i + 1, s.type || 'N', s.weight ?? '', unit(), s.reps ?? '', s.rpe ?? '', s.pr ? 'yes' : '',
+            Math.round((Number(s.weight) || 0) * (Number(s.reps) || 0)), w.note || '',
+          ]);
+        });
+      });
+    });
+    return toCsv(['date', 'time', 'workout', 'exercise', 'muscle', 'equipment', 'set', 'type',
+      'weight', 'unit', 'reps', 'rpe', 'record', 'volume', 'note'], rows);
+  }
+
+  function mealsCsv() {
+    const rows = [...state.nutrition.meals]
+      .sort((a, b) => (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')))
+      .map((m) => [m.date, m.slot || '', m.time || '', m.name,
+        Math.round(m.kcal || 0), round1(m.protein || 0), round1(m.carbs || 0), round1(m.fat || 0),
+        m.amount ?? '', m.base ? m.base.unit : '']);
+    return toCsv(['date', 'meal', 'time', 'food', 'kcal', 'protein', 'carbs', 'fat', 'amount', 'unit'], rows);
+  }
+
+  function bodyCsv() {
+    const rows = [...state.nutrition.weights]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((w) => [w.date, round1(w.value), unit()]);
+    (state.nutrition.measurements || []).forEach((m) => rows.push([m.date, round1(m.value), m.name || 'measurement']));
+    return toCsv(['date', 'value', 'what'], rows);
+  }
+
+  function habitsCsv() {
+    const rows = [];
+    const log = state.habitLog || {};
+    Object.keys(log).sort().forEach((day) => {
+      habitsList().forEach((h) => {
+        const value = habitValue(h.id, day);
+        if (!value && !habitDueOn(h, day)) return;
+        rows.push([day, h.name, value, habitTarget(h), habitUnit(h) || '',
+          habitDueOn(h, day) ? 'yes' : 'no', habitDone(h, day) ? 'yes' : 'no']);
+      });
+    });
+    return toCsv(['date', 'habit', 'value', 'target', 'unit', 'due', 'done'], rows);
+  }
+
+  function openCsvSheet() {
+    const files = [
+      ['workouts', 'Workouts', 'one row per logged set', workoutsCsv],
+      ['meals', 'Meals', 'one row per food logged', mealsCsv],
+      ['bodyweight', 'Bodyweight', 'every weigh-in and measurement', bodyCsv],
+      ['habits', 'Habits', 'one row per habit per day', habitsCsv],
+    ];
+    openSheet('Export as CSV', '' +
+      '<p class="confirm-msg">Rows a spreadsheet can read. The JSON backup is still the one to use for restoring the app.</p>' +
+      '<div class="menu-list">' +
+        files.map(([id, name, sub]) => '<button class="menu-item csv-item" data-csv="' + id + '">' +
+          '<span><b>' + name + '</b><i>' + sub + '</i></span></button>').join('') +
+      '</div>',
+    (body) => {
+      body.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-csv]');
+        if (!b) return;
+        const file = files.find((f) => f[0] === b.dataset.csv);
+        if (!file) return;
+        const text = file[3]();
+        const lines = text.trim().split('\r\n').length - 1;
+        if (!lines) { toast('Nothing logged there yet'); return; }
+        downloadFile('bela-' + file[0] + '-' + dateKey() + '.csv', text);
+        haptic('tick');
+        toast(lines + (lines === 1 ? ' row saved' : ' rows saved'));
+      });
+    });
+  }
+
+  /* ---------------- first run ----------------
+     A fresh install knows nothing: no name, no weight, no targets, no plan,
+     and every screen shows zeroes. Three short steps fix that, and it never
+     appears again — Settings keeps a way back to it. */
+
+  let setupStep = 0;
+  const setupDraft = {};
+
+  function needsSetup() {
+    const s = state.settings;
+    if (s.setupDone) return false;
+    // anything already logged means this is not a fresh install
+    return !s.name && !state.workouts.length && !state.nutrition.meals.length && !state.nutrition.weights.length;
+  }
+
+  /* Rough, honest starting points rather than blanks: about 31 kcal per kg,
+     2 g of protein and 0.9 g of fat per kg, carbohydrate takes the rest. */
+  function suggestTargets(weightKg) {
+    const w = Number(weightKg) || 75;
+    const kcal = Math.round((w * 31) / 50) * 50;
+    const protein = Math.round(w * 2);
+    const fat = Math.round(w * 0.9);
+    const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4));
+    return { kcal, protein, carbs, fat };
+  }
+
+  const SETUP_SPLITS = [
+    { id: 'none', name: 'Not yet', sub: 'Set it later', days: [] },
+    { id: 'full', name: 'Full body', sub: '3 days · Mon, Wed, Fri', days: [['tpl-full', 0], ['tpl-full', 2], ['tpl-full', 4]] },
+    { id: 'ppl', name: 'Push · Pull · Legs', sub: '3 days · Mon, Wed, Fri',
+      days: [['tpl-push', 0], ['tpl-pull', 2], ['tpl-legs', 4]] },
+    { id: 'ppl6', name: 'Push · Pull · Legs ×2', sub: '6 days · Mon to Sat',
+      days: [['tpl-push', 0], ['tpl-pull', 1], ['tpl-legs', 2], ['tpl-push', 3], ['tpl-pull', 4], ['tpl-legs', 5]] },
+    { id: 'ul', name: 'Upper · Lower', sub: '4 days · Mon, Tue, Thu, Fri',
+      days: [['tpl-push', 0], ['tpl-legs', 1], ['tpl-pull', 3], ['tpl-legs', 4]] },
+  ];
+
+  function openSetup() {
+    setupStep = 0;
+    Object.assign(setupDraft, {
+      name: state.settings.name || '',
+      unit: state.settings.unit || 'kg',
+      weight: '',
+      goal: '',
+      split: 'none',
+      ...suggestTargets(75),
+      touchedTargets: false,
+    });
+    paintSetup();
+  }
+
+  function setupSaveAndClose() {
+    const s = state.settings;
+    s.name = String(setupDraft.name || '').trim();
+    s.unit = setupDraft.unit;
+    s.setupDone = true;
+    const w = Number(setupDraft.weight);
+    if (w > 0) {
+      const today = dateKey();
+      state.nutrition.weights = state.nutrition.weights.filter((x) => x.date !== today);
+      state.nutrition.weights.push({ date: today, value: Math.round(w * 10) / 10 });
+    }
+    const goal = Number(setupDraft.goal);
+    if (goal > 0) s.goalWeight = Math.round(goal * 10) / 10;
+    state.nutrition.targets = {
+      kcal: Math.max(0, Math.round(Number(setupDraft.kcal) || 0)),
+      protein: Math.max(0, Math.round(Number(setupDraft.protein) || 0)),
+      carbs: Math.max(0, Math.round(Number(setupDraft.carbs) || 0)),
+      fat: Math.max(0, Math.round(Number(setupDraft.fat) || 0)),
+    };
+    const split = SETUP_SPLITS.find((x) => x.id === setupDraft.split);
+    if (split && split.days.length) {
+      const week = [null, null, null, null, null, null, null];
+      split.days.forEach(([tpl, i]) => { week[i] = tpl; });
+      // the days it does not cover are rest days, so habits know the difference
+      state.schedule = week.map((x) => x || 'rest');
+    }
+    save();
+    closeSheet();
+    render();
+    haptic('done');
+    toast(s.name ? 'Ready, ' + s.name : 'Ready');
+  }
+
+  function skipSetup() {
+    state.settings.setupDone = true;
+    save();
+    closeSheet();
+  }
+
+  function paintSetup() {
+    const u = setupDraft.unit;
+    const dots = '<div class="su-dots">' + [0, 1, 2].map((i) =>
+      '<span class="' + (i === setupStep ? 'on' : '') + '"></span>').join('') + '</div>';
+
+    const step1 = '' +
+      '<p class="confirm-msg">A few things and the app is yours. All of it can be changed later.</p>' +
+      '<div class="field"><label for="suName">What should it call you?</label>' +
+        '<input id="suName" type="text" autocomplete="given-name" placeholder="Your name" value="' + esc(setupDraft.name) + '"></div>' +
+      '<div class="field"><label>Weights in</label>' +
+        '<div class="seg" id="suUnit">' +
+          ['kg', 'lb'].map((k) => '<button data-u="' + k + '" class="' + (k === u ? 'is-on' : '') + '">' + k + '</button>').join('') +
+        '</div></div>' +
+      '<div class="field"><label for="suWeight">What do you weigh now? (' + u + ')</label>' +
+        '<input id="suWeight" type="number" inputmode="decimal" min="0" step="0.1" placeholder="' + (u === 'kg' ? '78.5' : '173') + '" value="' + esc(setupDraft.weight) + '"></div>';
+
+    const step2 = '' +
+      '<p class="confirm-msg">Where you are heading, and what a day should look like.</p>' +
+      '<div class="field"><label for="suGoal">Goal weight (' + u + ')</label>' +
+        '<input id="suGoal" type="number" inputmode="decimal" min="0" step="0.1" placeholder="optional" value="' + esc(setupDraft.goal) + '"></div>' +
+      '<p class="su-note" id="suNote">Worked out from your weight — change anything that looks wrong.</p>' +
+      '<div class="macro-fields">' +
+        '<div class="field"><label for="suKcal">Calories</label><input id="suKcal" type="number" inputmode="numeric" min="0" value="' + setupDraft.kcal + '"></div>' +
+        '<div class="field"><label for="suProtein">Protein</label><input id="suProtein" type="number" inputmode="numeric" min="0" value="' + setupDraft.protein + '"></div>' +
+        '<div class="field"><label for="suCarbs">Carbs</label><input id="suCarbs" type="number" inputmode="numeric" min="0" value="' + setupDraft.carbs + '"></div>' +
+        '<div class="field"><label for="suFat">Fat</label><input id="suFat" type="number" inputmode="numeric" min="0" value="' + setupDraft.fat + '"></div>' +
+      '</div>';
+
+    const step3 = '' +
+      '<p class="confirm-msg">Pick a week and the plan fills itself in. Any day can be changed on the Workouts page.</p>' +
+      '<div class="su-splits" id="suSplits">' +
+        SETUP_SPLITS.map((s) => '<button class="su-split ' + (s.id === setupDraft.split ? 'is-on' : '') + '" data-split="' + s.id + '">' +
+          '<b>' + esc(s.name) + '</b><i>' + esc(s.sub) + '</i></button>').join('') +
+      '</div>';
+
+    const body = [step1, step2, step3][setupStep] + dots +
+      '<button class="btn btn-primary" id="suNext" style="margin-top:14px">' + (setupStep === 2 ? 'Start' : 'Next') + '</button>' +
+      (setupStep === 0
+        ? '<button class="btn btn-quiet" id="suSkip" style="margin-top:10px">Skip for now</button>'
+        : '<button class="btn btn-quiet" id="suBack" style="margin-top:10px">Back</button>');
+
+    openSheet(['Welcome', 'Your day', 'Your week'][setupStep], body, (el) => {
+      if (setupStep === 0) {
+        $('#suName', el).addEventListener('input', (e) => { setupDraft.name = e.target.value; });
+        $('#suWeight', el).addEventListener('input', (e) => { setupDraft.weight = e.target.value; });
+        $$('#suUnit button', el).forEach((b) => b.addEventListener('click', () => {
+          setupDraft.unit = b.dataset.u;
+          $$('#suUnit button', el).forEach((x) => x.classList.toggle('is-on', x === b));
+          paintSetup();          // the labels carry the unit, so redraw the step
+        }));
+        $('#suSkip', el).addEventListener('click', skipSetup);
+      } else if (setupStep === 1) {
+        $('#suGoal', el).addEventListener('input', (e) => { setupDraft.goal = e.target.value; });
+        ['kcal', 'protein', 'carbs', 'fat'].forEach((k) => {
+          const id = '#su' + k.charAt(0).toUpperCase() + k.slice(1);
+          $(id, el).addEventListener('input', (e) => { setupDraft[k] = e.target.value; setupDraft.touchedTargets = true; });
+        });
+      } else {
+        $$('#suSplits .su-split', el).forEach((b) => b.addEventListener('click', () => {
+          setupDraft.split = b.dataset.split;
+          $$('#suSplits .su-split', el).forEach((x) => x.classList.toggle('is-on', x === b));
+          haptic('tap');
+        }));
+      }
+      const back = $('#suBack', el);
+      if (back) back.addEventListener('click', () => { setupStep -= 1; paintSetup(); });
+      $('#suNext', el).addEventListener('click', () => {
+        if (setupStep === 0 && !setupDraft.touchedTargets) {
+          // the suggestion follows the weight until it is edited by hand
+          const kg = setupDraft.unit === 'kg' ? Number(setupDraft.weight) : Number(setupDraft.weight) / LB_PER_KG;
+          Object.assign(setupDraft, suggestTargets(kg || 75));
+        }
+        if (setupStep === 2) { setupSaveAndClose(); return; }
+        setupStep += 1;
+        paintSetup();
+      });
+    });
   }
 
   /* ---------------- workout notification ----------------
@@ -5270,6 +5542,8 @@
         <button class="btn btn-quiet" id="exportBtn">Save backup</button>
         <button class="btn btn-quiet" id="shareBtn">Share backup</button>
       </div>
+      <button class="btn btn-quiet" id="csvBtn" style="margin-top:10px">Export as CSV</button>
+      <button class="btn btn-quiet" id="setupBtn" style="margin-top:10px">Run setup again</button>
       <button class="btn btn-quiet" id="snapBtn" style="margin-top:10px">Snapshots</button>
       <button class="btn btn-quiet" id="importBtn" style="margin-top:10px">Import a backup</button>
       <input id="importFile" type="file" accept="application/json" hidden>
@@ -5409,6 +5683,8 @@
         } catch { return; }   // the user dismissed the share sheet
         toast('Sharing is not available here — use Save backup');
       });
+      $('#csvBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openCsvSheet); });
+      $('#setupBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openSetup); });
       $('#snapBtn', body).addEventListener('click', () => { closeSheetNow(); openBackups(); });
       $('#importBtn', body).addEventListener('click', () => $('#importFile', body).click());
       $('#importFile', body).addEventListener('change', (e) => {
@@ -5754,6 +6030,7 @@
   if (lastTab && lastTab !== 'home' && TAB_ORDER.includes(lastTab)) goTab(lastTab);
   else render();
   snapshotDaily();
+  if (needsSetup()) setTimeout(openSetup, 350);
   checkShortcut();
   checkSharedImport();
   armFullBleed();

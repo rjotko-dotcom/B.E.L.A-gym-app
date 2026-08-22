@@ -1914,3 +1914,22 @@ body.has-mini .view.home-screen {
 
 /* asked after an improbable amount of water */
 .water-joke { text-align: center; color: var(--ink-muted); font-size: 0.82rem; font-weight: 600; margin: 8px 0 0; }
+
+/* ---------- first run ---------- */
+.su-dots { display: flex; justify-content: center; gap: 7px; margin-top: 18px; }
+.su-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--baseline); }
+.su-dots span.on { background: var(--ink-1); }
+.su-note { color: var(--ink-muted); font-size: 0.78rem; margin: -4px 0 12px; }
+.su-splits { display: flex; flex-direction: column; gap: 8px; }
+.su-split {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  border: 1px solid var(--border); background: var(--surface-1); color: var(--ink-1);
+  border-radius: 16px; padding: 13px 16px; font: inherit; text-align: left; cursor: pointer;
+}
+.su-split b { font-weight: 700; font-size: 0.95rem; }
+.su-split i { font-style: normal; color: var(--ink-muted); font-size: 0.8rem; }
+.su-split.is-on { border-color: var(--ink-1); background: var(--surface-2); }
+
+/* rows in the CSV picker carry a line of explanation */
+.csv-item span { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.csv-item i { font-style: normal; color: var(--ink-muted); font-size: 0.78rem; font-weight: 500; }

@@ -28,6 +28,12 @@ module.exports = async (t) => {
 
   t.check('the service worker takes control', await page.evaluate(() => !!navigator.serviceWorker.controller));
 
+  // a fresh install opens setup over everything; this suite is about updates
+  if (await page.evaluate(() => !!document.querySelector('#suSkip'))) {
+    await page.click('#suSkip');
+    await page.waitForTimeout(400);
+  }
+
   // every page must scroll — body was once turned into a dead scroll container
   for (const tab of ['workout', 'meals']) {
     await page.click('.tab[data-tab="' + tab + '"]');

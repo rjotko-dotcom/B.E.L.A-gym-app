@@ -200,6 +200,37 @@ module.exports = async (t) => {
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
 
+  // a brand new install is walked through setup instead of shown zeroes
+  const fresh = await openApp(t.browser, { url: server.url });
+  await fresh.waitForTimeout(900);
+  t.check('a fresh install opens setup', await fresh.evaluate(() => !!document.querySelector('#suName')));
+  await fresh.fill('#suName', 'Rimvydas');
+  await fresh.fill('#suWeight', '78.5');
+  await fresh.click('#suNext');
+  await fresh.waitForTimeout(450);
+  const suggested = await fresh.evaluate(() => Number(document.querySelector('#suKcal').value));
+  t.check('it suggests targets from the weight', suggested > 1500 && suggested < 4000, String(suggested));
+  await fresh.fill('#suGoal', '75');
+  await fresh.click('#suNext');
+  await fresh.waitForTimeout(450);
+  await fresh.evaluate(() => {
+    const b = [...document.querySelectorAll('.su-split')].find((x) => /Push · Pull · Legs$/.test(x.querySelector('b').textContent));
+    if (b) b.click();
+  });
+  await fresh.click('#suNext');
+  await fresh.waitForTimeout(700);
+  const set = await fresh.evaluate(() => JSON.parse(localStorage.getItem('bela-gym-v1')));
+  t.equal('the name is kept', set.settings.name, 'Rimvydas');
+  t.equal('the weight is logged', set.nutrition.weights.length, 1);
+  t.equal('the goal is set', set.settings.goalWeight, 75);
+  t.check('targets are filled in', set.nutrition.targets.kcal > 0 && set.nutrition.targets.protein > 0);
+  t.check('the week is planned', set.schedule.filter(Boolean).length === 7, JSON.stringify(set.schedule));
+  await fresh.reload();
+  await fresh.waitForTimeout(900);
+  t.check('and it never asks again', await fresh.evaluate(() => !document.querySelector('#suName')));
+  t.equal('no page errors during setup', fresh.errors.length, 0);
+  await fresh.close();
+
   /* Light mode was never actually exercised: the seed pins appearance to dark,
      so a page opened with colorScheme light still rendered dark. */
   const lightSeed = build();
