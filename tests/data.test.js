@@ -130,6 +130,44 @@ module.exports = async (t) => {
   t.check('sessions light their day', dots.on > 0, String(dots.on));
   t.check('and are actually painted light', dots.colour !== 'rgb(43, 43, 43)', dots.colour);
 
+  // the week reads against the week before it, and lists the week's records
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    const at = (back) => { const d = new Date(); d.setDate(d.getDate() - back); return d.getTime(); };
+    st.workouts = [
+      { id: 'lw', name: 'Push', startedAt: at(9), finishedAt: at(9) + 3.6e6,
+        exercises: [{ exerciseId: 'bench-press', sets: [{ weight: 80, reps: 8, done: true }] }] },
+      { id: 'tw1', name: 'Push', startedAt: at(2), finishedAt: at(2) + 3.6e6,
+        exercises: [{ exerciseId: 'bench-press', sets: [{ weight: 95, reps: 8, done: true, pr: true }] }] },
+      { id: 'tw2', name: 'Legs', startedAt: at(1), finishedAt: at(1) + 3.6e6,
+        exercises: [{ exerciseId: 'squat', sets: [{ weight: 120, reps: 5, done: true }] }] },
+    ];
+    st.activeWorkout = null;
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(700);
+  await page.evaluate(() => document.querySelector('.tab[data-tab="home"]').click());
+  await page.waitForTimeout(400);
+  await page.click('#homeAvatar');
+  await page.waitForTimeout(600);
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('[data-seg]')].find((x) => x.dataset.seg === 'week');
+    if (b) b.click();
+  });
+  await page.waitForTimeout(600);
+  const stats = await page.evaluate(() => [...document.querySelectorAll('.rv-stat')]
+    .map((s) => s.querySelector('.micro').textContent + '=' + (s.querySelector('u')?.textContent || '')).join(' | '));
+  t.check('sessions are compared with last week', /Sessions=↑ 1 vs last week/.test(stats), stats.slice(0, 80));
+  t.check('so is volume', /Volume=↑/.test(stats), stats);
+  t.check('the records set this week are listed', await page.evaluate(() =>
+    /Bench Press/.test(document.querySelector('.rv-prs')?.textContent || '')));
+  t.equal('one of them', await page.evaluate(() => document.querySelectorAll('.rv-pr-list li').length), 1);
+  await page.evaluate(() => { const b = document.querySelector('#rvPrev'); if (b) b.click(); });
+  await page.waitForTimeout(500);
+  t.check('stepping back a week keeps the comparison', await page.evaluate(() =>
+    !!document.querySelector('.rv-stat u')));
+
   // past sessions can be searched
   await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
   await page.waitForTimeout(300);

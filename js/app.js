@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '11.8';
+  const APP_VERSION = '11.9';
 
   /* ---------------- state ---------------- */
 
@@ -2156,6 +2156,69 @@
     if (same) Object.assign(same, rec); else state.foods.push(rec);
     return rec;
   }
+  /* One of your own foods, corrected: the numbers a scan got wrong, a better
+     name, or the portion the "+" should log. Built-in foods are read-only. */
+  function openFoodEditor(id, after) {
+    const f = (state.foods || []).find((x) => x.id === id);
+    if (!f) return;
+    const u = foodUnit(f);
+    const per = foodBase(f);
+    const piece = u === 'piece';
+    openSheet('Edit ' + f.name, '' +
+      '<div class="field"><label for="feName">Name</label>' +
+        '<input id="feName" type="text" value="' + esc(f.name) + '"></div>' +
+      '<div class="seg" id="feUnit">' +
+        [['g', 'Grams'], ['ml', 'Millilitres'], ['piece', 'Per piece']].map(([k, label]) =>
+          '<button data-u="' + k + '" class="' + (k === u ? 'is-on' : '') + '">' + label + '</button>').join('') +
+      '</div>' +
+      '<p class="confirm-msg" id="feBasis">The numbers below are for ' + (piece ? 'one piece' : per + ' ' + u) + '.</p>' +
+      '<div class="macro-fields">' +
+        '<div class="field"><label for="feKcal">kcal</label><input id="feKcal" type="number" inputmode="decimal" min="0" value="' + round1(f.kcal) + '"></div>' +
+        '<div class="field"><label for="feP">Protein</label><input id="feP" type="number" inputmode="decimal" min="0" value="' + round1(f.protein) + '"></div>' +
+        '<div class="field"><label for="feC">Carbs</label><input id="feC" type="number" inputmode="decimal" min="0" value="' + round1(f.carbs) + '"></div>' +
+        '<div class="field"><label for="feF">Fat</label><input id="feF" type="number" inputmode="decimal" min="0" value="' + round1(f.fat) + '"></div>' +
+      '</div>' +
+      '<div class="field"><label for="feServing">Usual portion</label>' +
+        '<input id="feServing" type="number" inputmode="decimal" min="0" value="' + foodServing(f) + '"></div>' +
+      '<button class="btn btn-primary" id="feSave" style="margin-top:14px">Save</button>' +
+      '<button class="btn btn-danger" id="feDel" style="margin-top:10px">Forget this food</button>',
+    (body) => {
+      let unitNow = u;
+      $$('#feUnit button', body).forEach((b) => b.addEventListener('click', () => {
+        unitNow = b.dataset.u;
+        $$('#feUnit button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+        $('#feBasis', body).textContent = 'The numbers below are for ' +
+          (unitNow === 'piece' ? 'one piece' : '100 ' + unitNow) + '.';
+      }));
+      $('#feSave', body).addEventListener('click', () => {
+        const name = $('#feName', body).value.trim();
+        if (!name) { toast('Give it a name'); return; }
+        const num = (sel) => Math.max(0, Number($(sel, body).value) || 0);
+        Object.assign(f, {
+          name,
+          unit: unitNow,
+          per: unitNow === 'piece' ? 1 : 100,
+          serving: Math.max(0, Number($('#feServing', body).value) || (unitNow === 'piece' ? 1 : 100)),
+          kcal: num('#feKcal'), protein: num('#feP'), carbs: num('#feC'), fat: num('#feF'),
+        });
+        haptic('tick');
+        save(); closeSheet();
+        toast('Saved');
+        if (after) queueMicrotask(after);
+      });
+      $('#feDel', body).addEventListener('click', () => {
+        const gone = JSON.stringify(state.foods);
+        state.foods = state.foods.filter((x) => x.id !== id);
+        save(); closeSheet(); haptic('tap');
+        if (after) queueMicrotask(after);
+        toast(f.name + ' forgotten', false, {
+          label: 'Undo',
+          onClick: () => { state.foods = JSON.parse(gone); save(); haptic('tick'); if (after) after(); },
+        });
+      });
+    });
+  }
+
   function touchFood(id) {
     const mine = (state.foods || []).find((x) => x.id === id);
     if (mine) mine.used = Date.now();
@@ -2245,7 +2308,8 @@
         '<div><div class="li-name">' + esc(f.name) + '</div>' +
           '<div class="li-sub">' + Math.round(f.kcal) + ' kcal ' + perLabel(f) + ' · P ' + round1(f.protein) + ' C ' + round1(f.carbs) + ' F ' + round1(f.fat) + '</div></div>' +
         '<div class="li-actions">' +
-          (mine ? '<button class="saved-del" data-delfood="' + esc(f.id) + '" aria-label="Forget this food">×</button>' : '') +
+          (mine ? '<button class="saved-edit" data-editfood="' + esc(f.id) + '" aria-label="Edit ' + esc(f.name) + '">' +
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/></svg></button>' : '') +
           '<button class="li-add" data-quick="' + data + '" aria-label="Log ' + esc(amountLabel(f, foodServing(f))) + '">+ ' + esc(amountLabel(f, foodServing(f))) + '</button>' +
         '</div></div>';
     };
@@ -2342,10 +2406,11 @@
       const list = $('#foodList', body);
       search.addEventListener('input', () => { list.innerHTML = listHtml(search.value); });
       list.addEventListener('click', (e) => {
-        const del = e.target.closest('[data-delfood]');
-        if (del) {
-          state.foods = (state.foods || []).filter((f) => f.id !== del.dataset.delfood);
-          save(); list.innerHTML = listHtml(search.value);
+        const edit = e.target.closest('[data-editfood]');
+        if (edit) {
+          const id = edit.dataset.editfood;
+          closeSheetNow();
+          queueMicrotask(() => openFoodEditor(id, () => { closeSheetNow(); openMealSheet(key, slot); }));
           return;
         }
         const quick = e.target.closest('[data-quick]');
@@ -4388,9 +4453,46 @@
     const label = reviewOffset === 0 ? 'This week' : reviewOffset === -1 ? 'Last week'
       : monday.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
-    const stat = (label2, value, sub) =>
+    /* The same figures for the week before. A week on its own says what you
+       did; next to the one before it, it says whether that is more or less.
+       Only the days that had run their course by this point last week count,
+       so a Tuesday is not measured against a whole week. */
+    const prevMonday = new Date(monday); prevMonday.setDate(prevMonday.getDate() - 7);
+    const prevDays = Array.from({ length: past.length }, (_, i) => {
+      const d = new Date(prevMonday); d.setDate(d.getDate() + i);
+      return dateKey(d);
+    });
+    const prevSessions = state.workouts.filter((w) => prevDays.includes(dateKey(new Date(w.startedAt))));
+    const prevVolume = prevSessions.reduce((sum, w) => sum + workoutVolume(w), 0);
+    const prevMealDays = prevDays.filter((k) => mealsForDay(k).length);
+    const prevKcal = prevMealDays.length
+      ? Math.round(prevMealDays.reduce((sum, k) => sum + dayTotals(k).kcal, 0) / prevMealDays.length) : 0;
+    const prevProtein = prevMealDays.length
+      ? Math.round(prevMealDays.reduce((sum, k) => sum + dayTotals(k).protein, 0) / prevMealDays.length) : 0;
+    const prevHabitSlots = list.length * prevDays.length;
+    const prevHabitHits = list.reduce((sum, h) => sum + prevDays.filter((k) => habitDone(h, k)).length, 0);
+    const prevHabitPct = prevHabitSlots ? Math.round((prevHabitHits / prevHabitSlots) * 100) : 0;
+
+    /* Records set this week, which is the part of a week worth remembering. */
+    const prs = sessions.flatMap((w) => workoutPRs(w).map((set) => ({
+      name: exerciseById(set.exerciseId)?.name ?? 'Exercise', weight: set.weight, reps: set.reps,
+    })));
+
+    // "+3 sessions", "−120 kcal a day": the change, in the unit it belongs to
+    const delta = (now, before, opts = {}) => {
+      if (!before && !now) return opts.none || '';
+      if (!before) return opts.first || 'first week';
+      const diff = now - before;
+      if (!diff) return 'same as last week';
+      const n = opts.round ? Math.round(Math.abs(diff)).toLocaleString() : fmtNum(Math.round(Math.abs(diff) * 10) / 10);
+      return (diff > 0 ? '↑ ' : '↓ ') + n + (opts.suffix || '') + ' vs last week';
+    };
+
+    const stat = (label2, value, sub, trend) =>
       '<div class="rv-stat"><span class="micro">' + label2 + '</span><b>' + value + '</b>' +
-        (sub ? '<i>' + sub + '</i>' : '') + '</div>';
+        (sub ? '<i>' + sub + '</i>' : '') +
+        (trend ? '<u class="' + (/↑/.test(trend) ? 'up' : /↓/.test(trend) ? 'down' : '') + '">' + trend + '</u>' : '') +
+      '</div>';
 
     el.innerHTML =
       '<div class="day-nav rv-nav">' +
@@ -4411,15 +4513,33 @@
       '</div>' +
 
       '<div class="rv-grid">' +
-        stat('Sessions', sessions.length, sessions.length ? Math.round(volume).toLocaleString() + ' ' + esc(unit()) + ' lifted' : 'None yet') +
-        stat('Habits', habitPct + '%', habitHits + ' of ' + habitSlots) +
-        stat('Avg calories', avgKcal ? avgKcal.toLocaleString() : '—', t.kcal ? 'target ' + t.kcal.toLocaleString() : '') +
-        stat('Avg protein', avgProtein ? avgProtein + 'g' : '—', t.protein ? 'target ' + t.protein + 'g' : '') +
+        stat('Sessions', sessions.length,
+          sessions.length ? sessions.map((w) => w.name).slice(0, 2).join(' · ') + (sessions.length > 2 ? ' …' : '') : 'None yet',
+          delta(sessions.length, prevSessions.length, { none: '' })) +
+        stat('Volume', Math.round(volume).toLocaleString(), esc(unit()) + ' lifted',
+          delta(volume, prevVolume, { round: true, suffix: ' ' + unit() })) +
+        stat('Habits', habitPct + '%', habitHits + ' of ' + habitSlots,
+          delta(habitPct, prevHabitPct, { suffix: ' points' })) +
+        stat('Avg calories', avgKcal ? avgKcal.toLocaleString() : '—', t.kcal ? 'target ' + t.kcal.toLocaleString() : '',
+          delta(avgKcal, prevKcal, { round: true, suffix: ' kcal a day' })) +
+        stat('Avg protein', avgProtein ? avgProtein + 'g' : '—', t.protein ? 'target ' + t.protein + 'g' : '',
+          delta(avgProtein, prevProtein, { suffix: 'g a day' })) +
         stat('Bodyweight', wEnd ? fmtNum(wEnd.value) + ' ' + esc(unit()) : '—',
           wDelta != null ? (wDelta > 0 ? '+' : '') + wDelta.toFixed(1) + ' ' + esc(unit()) + ' this week' : 'Log twice to compare') +
         stat('Days logged', past.filter((k) => mealsForDay(k).length || weightOn(k) ||
           state.workouts.some((w) => dateKey(new Date(w.startedAt)) === k)).length + ' / ' + past.length, 'so far') +
-      '</div>';
+      '</div>' +
+
+      (prs.length
+        ? '<div class="card rv-prs">' +
+            '<div class="rv-head"><span class="micro">Records this week</span>' +
+              '<span class="rv-pr-count">' + prIcon('pr-mark pr-inline') + ' ' + prs.length + '</span></div>' +
+            '<ul class="rv-pr-list">' + prs.slice(0, 6).map((p) =>
+              '<li><span>' + esc(p.name) + '</span><b>' + fmtNum(p.weight) + ' ' + esc(unit()) + ' × ' + p.reps + '</b></li>').join('') +
+            (prs.length > 6 ? '<li class="rv-pr-more">and ' + (prs.length - 6) + ' more</li>' : '') +
+            '</ul>' +
+          '</div>'
+        : '');
 
     $('#rvPrev', el).addEventListener('click', () => { reviewOffset -= 1; render(); });
     $('#rvNext', el).addEventListener('click', () => { if (reviewOffset < 0) { reviewOffset += 1; render(); } });

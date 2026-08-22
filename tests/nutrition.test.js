@@ -123,12 +123,17 @@ module.exports = async (t) => {
   t.equal('a food sold by the piece is counted', eggs.name, 'Whole egg · 3×');
   t.equal('three eggs are three times one', eggs.kcal, 216);
 
-  // and a remembered food can be forgotten again
+  // and a remembered food can be forgotten again, from inside its editor
   await page.click('.slot-add[data-slot="dinner"]');
   await page.waitForTimeout(450);
-  await page.click('[data-delfood]');
-  await page.waitForTimeout(400);
+  await page.click('[data-editfood]');
+  await page.waitForTimeout(550);
+  await page.click('#feDel');
+  await page.waitForTimeout(500);
   t.equal('a food can be forgotten', (await readState(page)).foods.length, 0);
+  await page.click('.toast-btn');
+  await page.waitForTimeout(400);
+  t.equal('and undone', (await readState(page)).foods.length, 1);
   await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
   await page.waitForTimeout(350);
 
@@ -355,6 +360,33 @@ module.exports = async (t) => {
   await page.waitForTimeout(450);
   t.equal('dropping back to the target leaves eight', await page.evaluate(() => document.querySelectorAll('.wdot').length), 8);
   t.equal('with none extra', await page.evaluate(() => document.querySelectorAll('.wdot.extra').length), 0);
+
+  // a food of your own can be corrected instead of forgotten and retyped
+  await page.evaluate(() => {
+    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    st.foods = [{ id: 'f1', name: 'Protein shake', unit: 'ml', per: 100, serving: 400,
+      kcal: 52, protein: 9, carbs: 2, fat: 0.6, used: Date.now() }];
+    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+  });
+  await page.reload();
+  await page.waitForTimeout(650);
+  await page.click('.tab[data-tab="meals"]');
+  await page.waitForTimeout(450);
+  await page.click('#addMeal');
+  await page.waitForTimeout(500);
+  t.check('your own foods carry a pencil', await page.evaluate(() => !!document.querySelector('[data-editfood]')));
+  await page.click('[data-editfood]');
+  await page.waitForTimeout(600);
+  t.check('which opens the food', await page.evaluate(() => !!document.querySelector('#feKcal')));
+  await page.fill('#feKcal', '60');
+  await page.fill('#feP', '11');
+  await page.fill('#feServing', '500');
+  await page.click('#feSave');
+  await page.waitForTimeout(700);
+  const food = await page.evaluate(() => JSON.parse(localStorage.getItem('bela-gym-v1')).foods[0]);
+  t.equal('the calories are corrected', food.kcal, 60);
+  t.equal('and the protein', food.protein, 11);
+  t.equal('and the portion the + logs', food.serving, 500);
 
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
