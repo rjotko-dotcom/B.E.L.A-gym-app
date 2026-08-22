@@ -199,5 +199,32 @@ module.exports = async (t) => {
 
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
+
+  /* Light mode was never actually exercised: the seed pins appearance to dark,
+     so a page opened with colorScheme light still rendered dark. */
+  const lightSeed = build();
+  lightSeed.settings.appearance = 'light';
+  const light = await openApp(t.browser, { url: server.url, seed: lightSeed, theme: 'light' });
+  const paper = await light.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  t.check('light mode paints a light page', paper !== 'rgb(0, 0, 0)', paper);
+  for (const tab of ['workout', 'meals', 'habits', 'home']) {
+    await light.evaluate((x) => document.querySelector('.tab[data-tab="' + x + '"]').click(), tab);
+    await light.waitForTimeout(400);
+    const view = await light.evaluate(() => ({
+      text: document.querySelector('#view').textContent.trim().length,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    }));
+    t.check(tab + ' renders in light mode', view.text > 40, String(view.text));
+    t.equal(tab + ' does not scroll sideways in light mode', view.overflow, 0);
+  }
+  t.check('home still fits one screen in light mode', await light.evaluate(() => {
+    const v = document.querySelector('#view');
+    const kids = [...v.children].filter((k) => getComputedStyle(k).position !== 'absolute');
+    const last = kids[kids.length - 1].getBoundingClientRect();
+    return last.bottom <= document.querySelector('.tab-bar').getBoundingClientRect().top;
+  }));
+  t.equal('no page errors in light mode', light.errors.length, 0);
+  await light.close();
+
   await server.close();
 };
