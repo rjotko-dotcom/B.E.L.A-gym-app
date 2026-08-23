@@ -1,2 +1,13 @@
 node_modules/
-package-lock.json
+
+# built by tools/build-web.mjs and copied into the shell by `cap sync`
+dist/
+android/app/src/main/assets/public/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/release/
+android/keystore.properties
+*.keystore
+*.jks

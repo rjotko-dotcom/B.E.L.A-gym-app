@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '12.2';
+  const APP_VERSION = '12.3';
 
   /* ---------------- state ---------------- */
 
@@ -1231,6 +1231,81 @@
     });
   }
 
+  /* ---------------- native shell ----------------
+     The same code runs as a web app and, wrapped in Capacitor, as an installed
+     Android app. Where the browser is limited — a notification that cannot be
+     marked ongoing, and one that always carries the address it came from — the
+     native build uses Android's own, and everything else is identical. */
+
+  const native = () => !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  const nativePlugin = (name) => (window.Capacitor && window.Capacitor.Plugins ? window.Capacitor.Plugins[name] : null);
+  const WK_NOTE_ID = 8801;
+
+  async function nativeNotifyAllowed() {
+    const LN = nativePlugin('LocalNotifications');
+    if (!LN) return false;
+    try {
+      const now = await LN.checkPermissions();
+      if (now.display === 'granted') return true;
+      const asked = await LN.requestPermissions();
+      return asked.display === 'granted';
+    } catch (e) { return false; }
+  }
+
+  async function nativeShowWorkoutNote(lines) {
+    const LN = nativePlugin('LocalNotifications');
+    if (!LN) return;
+    try {
+      await LN.schedule({
+        notifications: [{
+          id: WK_NOTE_ID,
+          title: lines.title,
+          body: lines.body,
+          ongoing: true,          // Android will not let it be swiped away
+          autoCancel: false,
+          smallIcon: 'ic_stat_bela',
+          channelId: 'workout',
+        }],
+      });
+    } catch (e) { /* the shell may be older than the plugin */ }
+  }
+
+  async function nativeClearWorkoutNote() {
+    const LN = nativePlugin('LocalNotifications');
+    if (!LN) return;
+    try { await LN.cancel({ notifications: [{ id: WK_NOTE_ID }] }); } catch (e) { /* nothing posted */ }
+  }
+
+  /* A quiet channel, so the notification never makes a sound or a heads-up
+     banner — it is a status line, not an alert. */
+  async function nativeChannel() {
+    const LN = nativePlugin('LocalNotifications');
+    if (!LN || !LN.createChannel) return;
+    try {
+      await LN.createChannel({
+        id: 'workout', name: 'Workout in progress',
+        description: 'Shows the exercise and set while a session is running',
+        importance: 2, visibility: 1, sound: '', vibration: false,
+      });
+    } catch (e) { /* channels are Android-only */ }
+  }
+  if (native()) nativeChannel();
+
+  /* Android's back gesture. Without this the shell closes the app on the
+     first swipe, which would end a session you are in the middle of. Instead
+     it walks back through the layers the app already pushed, and at the top
+     it puts the app in the background the way every other app does — the
+     workout keeps running. */
+  if (native()) {
+    const App = nativePlugin('App');
+    if (App && App.addListener) {
+      App.addListener('backButton', ({ canGoBack }) => {
+        if (canGoBack) history.back();
+        else if (App.minimizeApp) App.minimizeApp();
+      });
+    }
+  }
+
   /* ---------------- workout notification ----------------
      A live session posts a notification that says where you are, the way a
      gym app should — it survives switching apps and taps back into the
@@ -1243,8 +1318,9 @@
   let wkNoteText = '';
 
   function wkNoteReady() {
-    return state.settings.wkNotify && 'Notification' in window &&
-      Notification.permission === 'granted' && navigator.serviceWorker;
+    if (!state.settings.wkNotify) return false;
+    if (native()) return !!nativePlugin('LocalNotifications');
+    return 'Notification' in window && Notification.permission === 'granted' && !!navigator.serviceWorker;
   }
   /* Android's collapsed notification gives you one line of title and one of
      body, so the exercise leads and everything else fits on the second line.
@@ -1285,6 +1361,7 @@
     if (!force && Date.now() - wkNoteAt < 600) return;
     wkNoteAt = Date.now();
     wkNoteText = text;
+    if (native()) { nativeShowWorkoutNote(lines); return; }
     navigator.serviceWorker.ready.then((reg) => reg.showNotification(lines.title, {
       body: lines.body,
       tag: WK_NOTE_TAG,
@@ -1307,6 +1384,7 @@
   let wkNoteChecked = 0;
   function restoreWorkoutNote() {
     if (!wkNoteReady() || !state.activeWorkout) return;
+    if (native()) return;      // Android keeps an ongoing notification itself
     if (Date.now() - wkNoteChecked < 4000) return;
     wkNoteChecked = Date.now();
     navigator.serviceWorker.ready
@@ -1317,6 +1395,7 @@
 
   function clearWorkoutNote() {
     wkNoteText = '';
+    if (native()) { nativeClearWorkoutNote(); return; }
     if (!('serviceWorker' in navigator)) return;
     navigator.serviceWorker.ready
       .then((reg) => reg.getNotifications({ tag: WK_NOTE_TAG }))
@@ -1329,6 +1408,12 @@
   /* Nothing is running yet, so show what one looks like and take it away
      again — otherwise turning the switch on appears to do nothing at all. */
   function sampleWorkoutNote() {
+    if (native()) {
+      nativeShowWorkoutNote({ title: 'Barbell Bench Press', body: 'Set 1/3  ·  80 kg × 8' });
+      toast('That is how a session will look');
+      setTimeout(nativeClearWorkoutNote, 7000);
+      return;
+    }
     if (!('serviceWorker' in navigator)) { toast('This browser cannot show notifications'); return; }
     navigator.serviceWorker.ready.then((reg) => {
       reg.showNotification('Barbell Bench Press', {
@@ -1344,6 +1429,7 @@
   }
 
   async function askWorkoutNotify() {
+    if (native()) return nativeNotifyAllowed();
     if (!('Notification' in window)) { toast('This phone cannot show notifications'); return false; }
     if (Notification.permission === 'granted') return true;
     if (Notification.permission === 'denied') { toast('Notifications are blocked for this app in Android settings'); return false; }
@@ -5661,6 +5747,18 @@
         const why = $('#wkNoteWhy', body);
         const test = $('#wkNoteTest', body);
         if (!why) return;
+        if (native()) {
+          const LN = nativePlugin('LocalNotifications');
+          let granted = false;
+          try { granted = LN && (await LN.checkPermissions()).display === 'granted'; } catch (err) { /* older shell */ }
+          why.textContent = !LN ? 'This build cannot show notifications.'
+            : !granted ? 'Not allowed yet. Switching it on asks for permission.'
+            : !state.settings.wkNotify ? 'Allowed, but this switch is off.'
+            : state.activeWorkout ? 'On, and showing now — Android keeps it there until the workout ends.'
+            : 'On. It appears when a workout is running.';
+          test.hidden = !granted;
+          return;
+        }
         if (!('Notification' in window)) { why.textContent = 'This browser cannot show notifications.'; test.hidden = true; return; }
         if (Notification.permission === 'denied') {
           why.textContent = 'Blocked. Android has notifications off for this app — turn them back on there, then switch this on again.';

@@ -19,7 +19,7 @@ All data stays on the device (localStorage), with JSON export/import for backups
 - Automatic PR detection with trophies when you beat your best estimated 1RM
 - Cardio exercises log distance (km) and time (min) instead of weight × reps
 - Exercise menu: reorder, replace, notes, plate calculator, records & history
-- Automatic rest timer after each set (adjustable, skippable)
+- Habits, water and bodyweight tracked alongside the session
 - Workout notes on finish; save any workout as a reusable routine
 - 40+ exercise library grouped by muscle, plus custom exercises
 
@@ -37,8 +37,8 @@ All data stays on the device (localStorage), with JSON export/import for backups
 - Per-exercise records: best weight, best est. 1RM, best session volume
 
 **Settings**
-- kg / lb, rest timer length, nutrition targets
-- Export / import all data as JSON
+- kg / lb, nutrition targets, habits, appearance
+- Export / import all data as JSON, CSV export, automatic daily backups
 - Erase everything
 
 ## Running it
@@ -60,9 +60,14 @@ as an app (works offline thanks to the service worker).
 Enable Pages for this repo (Settings → Pages → deploy from branch, root folder)
 and the app is live at your Pages URL — nothing to build.
 
+## Android app
+
+The same code also ships as a real installed Android app, so the workout
+notification can be a proper ongoing one. See [BUILD-ANDROID.md](BUILD-ANDROID.md).
+
 ## Stack
 
-- Plain HTML / CSS / JavaScript (ES2020), no dependencies
+- Plain HTML / CSS / JavaScript (ES2020), no dependencies in the app itself
 - Hand-built SVG charts with tooltips, light & dark theme via `prefers-color-scheme`
 - Service worker (cache-first app shell) + web manifest for installability
 - Data model versioned in localStorage under `bela-gym-v1`

@@ -1,12 +1,23 @@
 {
   "name": "bela-gym",
-  "version": "12.2.0",
+  "version": "12.3.0",
   "private": true,
-  "description": "B.E.L.A Gym — workouts, nutrition and habits in one offline app.",
+  "description": "B.E.L.A Gym \u2014 workouts, nutrition and habits in one offline app.",
   "scripts": {
-    "test": "node tests/run.js"
+    "test": "node tests/run.js",
+    "build:web": "node tools/build-web.mjs",
+    "native:sync": "node tools/build-web.mjs && cap sync android",
+    "native:open": "cap open android",
+    "native:apk": "node tools/build-web.mjs && cap sync android && cd android && ./gradlew assembleDebug"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "playwright": "^1.47.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/local-notifications": "^8.3.1"
   }
 }

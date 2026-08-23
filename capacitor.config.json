@@ -1,0 +1,14 @@
+{
+  "appId": "com.rjotko.bela",
+  "appName": "B.E.L.A",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#000000"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_bela",
+      "iconColor": "#FFFFFF"
+    }
+  }
+}
