@@ -65,6 +65,14 @@ and the app is live at your Pages URL — nothing to build.
 The same code also ships as a real installed Android app, so the workout
 notification can be a proper ongoing one. See [BUILD-ANDROID.md](BUILD-ANDROID.md).
 
+## Syncing with the PC app
+
+Settings → **Sync with the PC app** keeps the phone and a desktop copy in step
+over your own Wi-Fi — nothing is uploaded anywhere. Both ends run the same merge
+(`js/sync.js`), so they always reach the same answer. The desktop half is two
+dependency-free files in [`pc/`](pc/README.md), meant to be dropped into an
+Electron project.
+
 ## Stack
 
 - Plain HTML / CSS / JavaScript (ES2020), no dependencies in the app itself

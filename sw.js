@@ -1,11 +1,12 @@
 /* B.E.L.A Gym — service worker */
-const VERSION = '12.3';
+const VERSION = '12.4';
 const CACHE = 'bela-gym-' + VERSION;
 const ASSETS = [
   '.',
   'index.html',
   'css/style.css?v=' + VERSION,
   'js/app.js?v=' + VERSION,
+  'js/sync.js?v=' + VERSION,
   'js/exercises.js?v=' + VERSION,
   'js/foods.js?v=' + VERSION,
   'manifest.webmanifest',

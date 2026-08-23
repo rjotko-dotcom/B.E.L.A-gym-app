@@ -24,6 +24,11 @@ html = html.replace(/<script>\s*if \('serviceWorker' in navigator[\s\S]*?<\/scri
   '<script>\n    // the native build ships its own files; no service worker needed\n    if (!window.Capacitor) {' + m.replace(/^<script>|<\/script>$/g, '') + '}\n  </script>');
 await writeFile(indexUrl, html);
 
+/* The PC app gets its own copy of the merge, because it is shipped as a folder
+   you drop into an Electron project. Keeping it copied here means it can never
+   be an older version than the phone's. */
+await cp(new URL('js/sync.js', ROOT), new URL('pc/sync.js', ROOT));
+
 const version = JSON.parse(await readFile(new URL('package.json', ROOT), 'utf8')).version;
 
 /* One version to bump, not two: the Android shell takes its name and code

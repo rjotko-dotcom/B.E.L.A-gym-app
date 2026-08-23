@@ -3,12 +3,16 @@
   "appName": "B.E.L.A",
   "webDir": "dist",
   "android": {
-    "backgroundColor": "#000000"
+    "backgroundColor": "#000000",
+    "allowMixedContent": true
   },
   "plugins": {
     "LocalNotifications": {
       "smallIcon": "ic_stat_bela",
       "iconColor": "#FFFFFF"
     }
+  },
+  "server": {
+    "androidScheme": "https"
   }
 }

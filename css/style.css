@@ -457,6 +457,8 @@ body {
 /* ---------- forms in sheets ---------- */
 .field { margin-bottom: 14px; }
 .field label { display: block; font-size: 0.76rem; font-weight: 700; color: var(--ink-2); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+/* the small print under a field — what to type, and where to find it */
+.field-hint { display: block; margin-top: 6px; font-size: 0.74rem; font-style: normal; line-height: 1.4; color: var(--ink-3, var(--ink-2)); }
 .field input, .field select {
   width: 100%; min-height: 48px; border-radius: 14px; padding: 0 14px;
   border: 1px solid var(--border); background: var(--surface-1); color: var(--ink-1); font: inherit;

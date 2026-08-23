@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '12.3';
+  const APP_VERSION = '12.4';
 
   /* ---------------- state ---------------- */
 
@@ -30,7 +30,11 @@
     activeWorkout: null,
   });
 
+  /* A picture of the document as it was at the last save, so the next one
+     can tell what moved. See js/sync.js. */
+  let syncShadow = null;
   let state = load();
+  if (window.BelaSync) syncShadow = BelaSync.snapshot(state);
   let currentTab = 'home';
   /* Pull-to-refresh reloads the page, and the app used to come back on Home.
      The tab is parked in sessionStorage instead: a refresh returns to the page
@@ -106,6 +110,10 @@
   let saveFailed = false;
   function save() {
     try {
+      /* Before writing, note which rows changed since the last write. That
+         record is what lets the PC copy tell an edit from something it has
+         simply never seen. */
+      if (window.BelaSync) syncShadow = BelaSync.stamp(state, syncShadow, Date.now()).shadow;
       localStorage.setItem(STORE_KEY, JSON.stringify(state));
       saveFailed = false;
       return true;
@@ -1304,6 +1312,222 @@
         else if (App.minimizeApp) App.minimizeApp();
       });
     }
+  }
+
+  /* ---------------- sync with the PC app ----------------
+     Both copies hold the whole document and both run the same merge (js/sync.js),
+     so a sync is one round trip: send what this phone has, the PC merges it with
+     what it has, and sends back the answer. Nothing is uploaded anywhere — it
+     goes straight across your own network to your own machine.
+
+     The address and the pairing code are deliberately kept out of the document:
+     they belong to this device, and syncing them would mean the PC could
+     overwrite the phone's idea of where the PC is. */
+
+  const SYNC_CFG_KEY = 'bela-sync-pc';
+  const SYNC_PORT = 8765;
+
+  function pcCfg() {
+    try { return { host: '', code: '', ...(JSON.parse(localStorage.getItem(SYNC_CFG_KEY)) || {}) }; }
+    catch (e) { return { host: '', code: '' }; }
+  }
+  function pcCfgSave(patch) {
+    const next = { ...pcCfg(), ...patch };
+    try { localStorage.setItem(SYNC_CFG_KEY, JSON.stringify(next)); } catch (e) { /* full */ }
+    return next;
+  }
+  /* "192.168.1.20", "192.168.1.20:9000" and a full address all mean the same
+     thing to someone typing it in a hurry. */
+  function pcBase(host) {
+    let h = String(host || '').trim().replace(/\/+$/, '');
+    if (!h) return '';
+    if (!/^https?:\/\//i.test(h)) h = 'http://' + h;
+    if (!/:\d+$/.test(h.replace(/^https?:\/\//i, ''))) h += ':' + SYNC_PORT;
+    return h;
+  }
+  /* A page served over https cannot talk to a plain-http machine on your
+     network — the browser blocks it before it leaves. The installed app can,
+     which is the whole reason it exists. */
+  function pcReachable() {
+    if (native()) return true;
+    return location.protocol !== 'https:';
+  }
+
+  async function pcFetch(path, init, ms = 12000) {
+    const cfg = pcCfg();
+    const base = pcBase(cfg.host);
+    if (!base) throw new Error('No address set');
+    const ctrl = new AbortController();
+    const bell = setTimeout(() => ctrl.abort(), ms);
+    try {
+      return await fetch(base + path, {
+        ...init,
+        signal: ctrl.signal,
+        headers: { 'content-type': 'application/json', 'x-bela-code': cfg.code || '', ...(init && init.headers) },
+      });
+    } finally { clearTimeout(bell); }
+  }
+
+  async function pcPing() {
+    const res = await pcFetch('/bela/ping', { method: 'GET' }, 6000);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.app !== 'bela') throw new Error('Something else is answering on that port');
+    return data;
+  }
+
+  let syncing = false;
+  let syncAt = 0;
+  async function syncNow(opts = {}) {
+    const quiet = !!opts.quiet;
+    const cfg = pcCfg();
+    if (!cfg.host) { if (!quiet) toast('Set the PC address first'); return false; }
+    if (!pcReachable()) {
+      if (!quiet) toast('The website cannot reach your PC — use the installed app');
+      return false;
+    }
+    if (syncing) return false;
+    syncing = true;
+    renderSyncState();
+    try {
+      const res = await pcFetch('/bela/sync', {
+        method: 'POST',
+        body: JSON.stringify({
+          protocol: BelaSync.PROTOCOL,
+          device: BelaSync.meta(state).device,
+          doc: BelaSync.outgoing(state),
+        }),
+      }, 20000);
+      if (res.status === 401 || res.status === 403) throw new Error('The pairing code does not match');
+      if (!res.ok) throw new Error('The PC answered ' + res.status);
+      const data = await res.json();
+      if (!data || !data.doc) throw new Error('The PC sent nothing back');
+
+      const live = state.activeWorkout;
+      const me = BelaSync.meta(state).device;
+      state = normalize(data.doc, defaultState());
+      state.activeWorkout = live;          // a session in your hand is not up for merging
+      BelaSync.meta(state).device = me;    // the merged document arrives wearing the PC's name
+      syncShadow = BelaSync.snapshot(state);
+      save();
+      syncAt = Date.now();
+      const t = data.tally || {};
+      pcCfgSave({ last: syncAt, lastNote: describeTally(t) });
+      applyTheme();
+      render();
+      renderSyncState();
+      if (!quiet) toast(describeTally(t));
+      return true;
+    } catch (err) {
+      const raw = String(err && err.message || err);
+      /* "Failed to fetch" is what a browser says for everything from the wrong
+         address to the PC being asleep. Say the useful version of it. */
+      const why = raw === 'Failed to fetch' || /abort|timed? ?out|network/i.test(raw)
+        ? 'Could not reach the PC — is B.E.L.A open on it and on the same Wi-Fi?'
+        : raw;
+      pcCfgSave({ lastError: why, lastErrorAt: Date.now() });
+      if (!quiet) toast(why);
+      renderSyncState();
+      return false;
+    } finally {
+      syncing = false;
+      renderSyncState();
+    }
+  }
+  function describeTally(t) {
+    const bits = [];
+    if (t.added) bits.push(t.added + ' new');
+    if (t.updated) bits.push(t.updated + ' updated');
+    if (t.removed) bits.push(t.removed + ' removed');
+    return bits.length ? 'Synced — ' + bits.join(', ') : 'Synced — already the same';
+  }
+
+  /* Sync when the app comes back to the front, but not more than once a
+     minute, and never while a set is being logged. */
+  function syncIfIdle() {
+    const cfg = pcCfg();
+    if (!cfg.host || !cfg.auto) return;
+    if (Date.now() - syncAt < 60000) return;
+    if (state.activeWorkout) return;
+    syncNow({ quiet: true });
+  }
+  addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') syncIfIdle();
+  });
+
+  /* The screen where you point the phone at the PC. */
+  function openPcSync() {
+    const cfg = pcCfg();
+    openSheet('Sync with the PC app', `
+      <p class="muted" style="margin-top:0">Your PC and your phone keep the same
+      workouts, meals and habits. Nothing goes to the internet — the phone talks
+      straight to your computer over your own Wi-Fi.</p>
+      <div class="field">
+        <label for="pcHost">PC address</label>
+        <input id="pcHost" type="text" inputmode="url" autocapitalize="off" autocorrect="off"
+               spellcheck="false" placeholder="192.168.1.20" value="${esc(cfg.host || '')}">
+        <i class="field-hint">B.E.L.A on the PC shows this on its sync screen. Port ${SYNC_PORT} unless you say otherwise.</i>
+      </div>
+      <div class="field">
+        <label for="pcCode">Pairing code</label>
+        <input id="pcCode" type="text" inputmode="numeric" autocapitalize="off" autocorrect="off"
+               spellcheck="false" placeholder="6 digits" value="${esc(cfg.code || '')}">
+      </div>
+      <label class="switch-row">
+        <span><b>Sync on its own</b><i>Whenever you open the app, if the PC is there</i></span>
+        <input type="checkbox" id="pcAuto" ${cfg.auto ? 'checked' : ''}>
+      </label>
+      <div class="note-state" id="pcState"><span id="pcWhy">…</span></div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn btn-quiet" id="pcTest">Test connection</button>
+        <button class="btn btn-primary" id="pcSync">Sync now</button>
+      </div>
+      <p class="muted" style="margin-top:14px">If a workout is running it stays on
+      this phone until you finish it — nothing half-logged gets sent.</p>
+    `, (body) => {
+      const host = $('#pcHost', body), code = $('#pcCode', body);
+      host.addEventListener('change', () => { pcCfgSave({ host: host.value.trim() }); renderSyncState(); });
+      code.addEventListener('change', () => { pcCfgSave({ code: code.value.trim() }); renderSyncState(); });
+      $('#pcAuto', body).addEventListener('change', (e) => pcCfgSave({ auto: e.target.checked }));
+      $('#pcTest', body).addEventListener('click', async () => {
+        pcCfgSave({ host: host.value.trim(), code: code.value.trim() });
+        const why = $('#pcWhy', body);
+        why.textContent = 'Looking for it…';
+        try {
+          const info = await pcPing();
+          why.textContent = 'Found ' + (info.name || 'your PC') + '.';
+          haptic('tick');
+        } catch (err) {
+          why.textContent = !pcReachable()
+            ? 'The website cannot reach your PC. Install the app (see BUILD-ANDROID.md) and it will.'
+            : 'No answer. Check B.E.L.A is open on the PC, that its sync is on, and that both are on the same Wi-Fi.';
+        }
+      });
+      $('#pcSync', body).addEventListener('click', () => {
+        pcCfgSave({ host: host.value.trim(), code: code.value.trim() });
+        syncNow();
+      });
+      renderSyncState();
+    });
+  }
+  /* The one line under the buttons that says where things stand. */
+  function renderSyncState() {
+    const why = document.querySelector('#pcWhy');
+    if (!why) return;
+    const cfg = pcCfg();
+    if (syncing) { why.textContent = 'Syncing…'; return; }
+    if (!cfg.host) { why.textContent = 'No PC set yet.'; return; }
+    if (!pcReachable()) { why.textContent = 'The website cannot reach your PC — the installed app can.'; return; }
+    if (cfg.lastError && (!cfg.last || cfg.lastErrorAt > cfg.last)) { why.textContent = 'Last try: ' + cfg.lastError; return; }
+    if (cfg.last) { why.textContent = 'Last synced ' + fmtAgo(cfg.last) + (cfg.lastNote ? ' · ' + cfg.lastNote.replace(/^Synced — /, '') : '') + '.'; return; }
+    why.textContent = 'Never synced yet.';
+  }
+  function fmtAgo(ts) {
+    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.round(s / 60) + ' min ago';
+    if (s < 86400) return Math.round(s / 3600) + ' h ago';
+    return fmtShortDate(ts);
   }
 
   /* ---------------- workout notification ----------------
@@ -5584,7 +5808,7 @@
         </div>
       </div>
       <label class="switch-row">
-        <span><b>Keep the screen on while logging</b><i>Stops the phone locking mid-set and freezing the rest timer</i></span>
+        <span><b>Keep the screen on while logging</b><i>Stops the phone locking between sets</i></span>
         <input type="checkbox" id="keepAwake" ${s.keepAwake === false ? '' : 'checked'}>
       </label>
       <label class="switch-row">
@@ -5635,6 +5859,7 @@
       <button class="btn btn-quiet" id="csvBtn" style="margin-top:10px">Export as CSV</button>
       <button class="btn btn-quiet" id="setupBtn" style="margin-top:10px">Run setup again</button>
       <button class="btn btn-quiet" id="snapBtn" style="margin-top:10px">Snapshots</button>
+      <button class="btn btn-quiet" id="pcSyncBtn" style="margin-top:10px">Sync with the PC app</button>
       <button class="btn btn-quiet" id="importBtn" style="margin-top:10px">Import a backup</button>
       <input id="importFile" type="file" accept="application/json" hidden>
       <button class="btn btn-danger" id="wipeBtn" style="margin-top:12px">Erase all data</button>
@@ -5821,6 +6046,7 @@
       $('#csvBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openCsvSheet); });
       $('#setupBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openSetup); });
       $('#snapBtn', body).addEventListener('click', () => { closeSheetNow(); openBackups(); });
+      $('#pcSyncBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openPcSync); });
       $('#importBtn', body).addEventListener('click', () => $('#importFile', body).click());
       $('#importFile', body).addEventListener('change', (e) => {
         const file = e.target.files[0];

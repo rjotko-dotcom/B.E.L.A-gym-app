@@ -15,6 +15,7 @@ Things a browser will not let a website do, which the installed app does:
 | "Tap to copy the URL" notice | Chrome adds it | gone |
 | App icon | Chrome's shortcut | a real launcher icon |
 | Back gesture | browser history | walks the app's own layers, backgrounds at the top |
+| Syncing with the PC | blocked — an https page cannot reach a http machine | works |
 
 The app detects which it is at runtime (`window.Capacitor`), so the site keeps
 working exactly as before.
@@ -117,6 +118,16 @@ cannot be swiped away until the session ends. It is on a quiet channel
 
 If it does not show, **Settings → Workout notification** says which of the three
 possible reasons it is, and has a **Test it** button.
+
+## Syncing with the PC app
+
+This is the other reason the installed app matters: a page served over https
+cannot open a plain-http connection to a machine on your network, so the website
+can never reach your PC. The app can — it ships with cleartext allowed, for your
+LAN only in practice, since there is nothing else it talks to.
+
+Settings → **Sync with the PC app**, then type the address and pairing code your
+desktop app prints. The desktop half lives in [`pc/`](pc/README.md).
 
 ## Troubleshooting
 
