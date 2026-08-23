@@ -1933,3 +1933,12 @@ body.has-mini .view.home-screen {
 /* rows in the CSV picker carry a line of explanation */
 .csv-item span { display: flex; flex-direction: column; gap: 2px; text-align: left; }
 .csv-item i { font-style: normal; color: var(--ink-muted); font-size: 0.78rem; font-weight: 500; }
+
+/* why the workout notification is or is not showing */
+.note-state {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 0 12px; border-bottom: 1px solid var(--border);
+  color: var(--ink-muted); font-size: 0.78rem; line-height: 1.4;
+}
+.note-state span { flex: 1; min-width: 0; }
+.note-state .chip-btn { flex: none; }

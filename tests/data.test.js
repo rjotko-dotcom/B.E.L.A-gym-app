@@ -209,6 +209,9 @@ module.exports = async (t) => {
   });
   await page.waitForTimeout(600);
   t.check('settings offer a CSV export', await page.evaluate(() => !!document.querySelector('#csvBtn')));
+  // the notification switch says why it is or is not showing anything
+  const why = await page.evaluate(() => document.querySelector('#wkNoteWhy')?.textContent || '');
+  t.check('the notification state is explained', why.length > 10 && why !== 'Checking…', why);
   await page.click('#csvBtn');
   await page.waitForTimeout(600);
   const kinds = await page.evaluate(() => [...document.querySelectorAll('[data-csv]')].map((b) => b.dataset.csv));

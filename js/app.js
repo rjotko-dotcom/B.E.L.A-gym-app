@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '12.1';
+  const APP_VERSION = '12.2';
 
   /* ---------------- state ---------------- */
 
@@ -5509,6 +5509,10 @@
         <span><b>Workout notification</b><i>While a session is running, a notification shows where you are and taps back into it</i></span>
         <input type="checkbox" id="wkNotify" ${s.wkNotify ? 'checked' : ''}>
       </label>
+      <div class="note-state" id="wkNoteState">
+        <span id="wkNoteWhy">Checking…</span>
+        <button class="chip-btn" id="wkNoteTest">Test it</button>
+      </div>
       <label class="switch-row">
         <span><b>Full screen</b><i>Hides the Android status bar — and the grey hairline the browser draws under it</i></span>
         <input type="checkbox" id="fullBleed" ${s.fullscreen ? 'checked' : ''}>
@@ -5651,15 +5655,48 @@
         save();
         if (e.target.checked) haptic('tick');
       });
+      /* "It stopped working" has three quite different causes and no way to
+         tell them apart from the outside, so the app says which one it is. */
+      const sayNoteState = async () => {
+        const why = $('#wkNoteWhy', body);
+        const test = $('#wkNoteTest', body);
+        if (!why) return;
+        if (!('Notification' in window)) { why.textContent = 'This browser cannot show notifications.'; test.hidden = true; return; }
+        if (Notification.permission === 'denied') {
+          why.textContent = 'Blocked. Android has notifications off for this app — turn them back on there, then switch this on again.';
+          test.hidden = true; return;
+        }
+        if (Notification.permission !== 'granted') {
+          why.textContent = 'Not allowed yet. Switching it on asks for permission.';
+          test.hidden = true; return;
+        }
+        if (!state.settings.wkNotify) { why.textContent = 'Allowed, but this switch is off.'; test.hidden = false; return; }
+        let live = 0;
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          live = (await reg.getNotifications({ tag: WK_NOTE_TAG })).length;
+        } catch (err) { /* nothing posted */ }
+        why.textContent = state.activeWorkout
+          ? (live ? 'On, and showing now.' : 'On, but Android is not showing it — check Chrome’s notification settings for this app.')
+          : 'On. It appears when a workout is running.';
+        test.hidden = false;
+      };
+      sayNoteState();
+      $('#wkNoteTest', body).addEventListener('click', async () => {
+        if (!(await askWorkoutNotify())) { sayNoteState(); return; }
+        if (state.activeWorkout) syncWorkoutNote(true); else sampleWorkoutNote();
+        setTimeout(sayNoteState, 600);
+      });
       $('#wkNotify', body).addEventListener('change', async (e) => {
         if (e.target.checked && !(await askWorkoutNotify())) { e.target.checked = false; return; }
         state.settings.wkNotify = e.target.checked;
         save();
-        if (!e.target.checked) { clearWorkoutNote(); toast('Workout notification off'); return; }
+        if (!e.target.checked) { clearWorkoutNote(); toast('Workout notification off'); sayNoteState(); return; }
         // show something straight away, so it is obvious it worked — the real
         // one if a session is running, a sample of it if not
         if (state.activeWorkout) { syncWorkoutNote(true); toast('It will follow your session'); }
         else sampleWorkoutNote();
+        setTimeout(sayNoteState, 600);
       });
       $('#fullBleed', body).addEventListener('change', (e) => {
         state.settings.fullscreen = e.target.checked;
