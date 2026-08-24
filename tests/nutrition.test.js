@@ -409,5 +409,128 @@ module.exports = async (t) => {
 
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
+
+  /* ---- a food you eat in portions is counted, not weighed ----
+     Four slices of bread used to mean tapping + four times. */
+  {
+    const seed2 = build();
+    seed2.nutrition.meals = [];
+    seed2.foods = [{ id: 'f_bread', name: 'Sandwich bread', unit: 'g', per: 100, serving: 28,
+      sname: 'slice', kcal: 275, protein: 10.7, carbs: 46.4, fat: 3.6, used: Date.now() }];
+    const p3 = await openApp(t.browser, { url: server.url, seed: seed2 });
+    await p3.click('.tab[data-tab="meals"]');
+    await p3.waitForTimeout(450);
+
+    const openPicker = async (slot) => {
+      await p3.evaluate((s) => document.querySelector('.slot-add[data-slot="' + s + '"]').click(), slot);
+      await p3.waitForTimeout(550);
+    };
+    await openPicker('breakfast');
+    t.equal('the + logs one of them by name', await p3.evaluate(() =>
+      [...document.querySelectorAll('.li-add')].map((b) => b.textContent.trim()).find((x) => /slice/.test(x))), '+ 1 slice');
+
+    await p3.evaluate(() => [...document.querySelectorAll('#foodList .lib-item')]
+      .find((r) => /Sandwich bread/.test(r.textContent)).click());
+    await p3.waitForTimeout(550);
+    t.check('the portion sheet counts in slices', await p3.evaluate(() => !!document.querySelector('#pdStep')));
+    t.equal('starting at one', await p3.evaluate(() =>
+      document.querySelector('#pdStep .ps-n').textContent + ' ' + document.querySelector('#pdStep .ps-lbl').textContent), '1 slice');
+    t.equal('and saying how big one is', await p3.evaluate(() =>
+      document.querySelector('#pdStep .ps-each').textContent), '28 g each');
+    t.check('the gram chips step aside for it', await p3.evaluate(() => !document.querySelector('#pdQuick')));
+
+    for (let i = 0; i < 3; i++) { await p3.click('#pdStep button[data-step="1"]'); await p3.waitForTimeout(120); }
+    t.equal('three taps make four slices', await p3.evaluate(() =>
+      document.querySelector('#pdStep .ps-n').textContent + ' ' + document.querySelector('#pdStep .ps-lbl').textContent), '4 slices');
+    t.equal('which is 112 g', await p3.evaluate(() => document.querySelector('#pdAmt').value), '112');
+    t.equal('and the macros follow', await p3.evaluate(() =>
+      document.querySelector('#pdOut b').textContent), '308');
+
+    await p3.click('#pdStep button[data-step="-1"]');
+    await p3.waitForTimeout(150);
+    t.equal('minus takes one back off', await p3.evaluate(() => document.querySelector('#pdAmt').value), '84');
+    await p3.click('#pdStep button[data-step="1"]');
+    await p3.waitForTimeout(150);
+
+    // typing grams moves the counter too — they are the same number
+    await p3.fill('#pdAmt', '56');
+    await p3.evaluate(() => document.querySelector('#pdAmt').dispatchEvent(new Event('input')));
+    await p3.waitForTimeout(200);
+    t.equal('typing the grams moves the counter', await p3.evaluate(() =>
+      document.querySelector('#pdStep .ps-n').textContent), '2');
+
+    await p3.fill('#pdAmt', '112');
+    await p3.evaluate(() => document.querySelector('#pdAmt').dispatchEvent(new Event('input')));
+    await p3.click('#pdAdd');
+    await p3.waitForTimeout(800);
+    const logged = (await readState(p3)).nutrition.meals.filter((m) => /Sandwich/.test(m.name));
+    t.equal('one row, not four', logged.length, 1);
+    t.equal('named for what you ate', logged[0].name, 'Sandwich bread · 4 slices');
+    t.equal('with four slices of calories', logged[0].kcal, 308);
+
+    /* ---- the meal says what it came to, not just its calories ---- */
+    t.equal('the meal shows its own macros', await p3.evaluate(() => {
+      const card = [...document.querySelectorAll('.slot-title')].find((s) => /Breakfast/.test(s.textContent));
+      return card.querySelector('span').textContent.trim();
+    }), '308 kcal · P 12 · C 52 · F 4');
+    t.equal('an empty meal still says so', await p3.evaluate(() => {
+      const card = [...document.querySelectorAll('.slot-title')].find((s) => /Lunch/.test(s.textContent));
+      return card.querySelector('span').textContent.trim();
+    }), 'Nothing logged');
+
+    /* ---- editing it later still counts in slices ---- */
+    await p3.evaluate(() => document.querySelector('.slot-item .si-main').click());
+    await p3.waitForTimeout(600);
+    t.check('editing a logged portion counts too', await p3.evaluate(() => !!document.querySelector('#meStep')));
+    await p3.click('#meStep button[data-step="-1"]');
+    await p3.waitForTimeout(150);
+    await p3.click('#meSave');
+    await p3.waitForTimeout(700);
+    const after = (await readState(p3)).nutrition.meals.filter((m) => /Sandwich/.test(m.name));
+    t.equal('three slices now', after[0].name, 'Sandwich bread · 3 slices');
+    t.equal('and three slices of calories', after[0].kcal, 231);
+
+    t.equal('no page errors', p3.errors.length, 0);
+    await p3.close();
+  }
+
+  /* ---- naming the portion when you type the food in ---- */
+  {
+    const p4 = await openApp(t.browser, { url: server.url, seed: build() });
+    await p4.click('.tab[data-tab="meals"]');
+    await p4.waitForTimeout(450);
+    await p4.evaluate(() => document.querySelector('.slot-add[data-slot="breakfast"]').click());
+    await p4.waitForTimeout(550);
+    await p4.fill('#cmName', 'Rye bread');
+    await p4.fill('#cmAmt', '28');
+    await p4.fill('#cmSName', 'slice');
+    await p4.fill('#cmKcal', '77');
+    await p4.fill('#cmProtein', '3');
+    await p4.fill('#cmCarbs', '13');
+    await p4.fill('#cmFat', '1');
+    await p4.click('#cmAdd');
+    await p4.waitForTimeout(800);
+    const st4 = await readState(p4);
+    const mine = st4.foods.find((f) => f.name === 'Rye bread');
+    t.equal('the food remembers what one is called', mine.sname, 'slice');
+    t.equal('and how big it is', mine.serving, 28);
+    t.equal('the first one logs as one slice',
+      st4.nutrition.meals[st4.nutrition.meals.length - 1].name, 'Rye bread · 1 slice');
+
+    // and it can be renamed afterwards
+    await p4.evaluate(() => document.querySelector('.slot-add[data-slot="lunch"]').click());
+    await p4.waitForTimeout(550);
+    await p4.evaluate(() => document.querySelector('.saved-edit').click());
+    await p4.waitForTimeout(550);
+    t.equal('the editor shows the portion name', await p4.evaluate(() => document.querySelector('#feSName').value), 'slice');
+    await p4.fill('#feSName', 'chunk');
+    await p4.click('#feSave');
+    await p4.waitForTimeout(700);
+    t.equal('which can be changed', (await readState(p4)).foods.find((f) => f.name === 'Rye bread').sname, 'chunk');
+
+    t.equal('no page errors', p4.errors.length, 0);
+    await p4.close();
+  }
+
   await server.close();
 };

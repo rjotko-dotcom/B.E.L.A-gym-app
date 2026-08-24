@@ -459,6 +459,16 @@ body {
 .field label { display: block; font-size: 0.76rem; font-weight: 700; color: var(--ink-2); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
 /* the small print under a field — what to type, and where to find it */
 .field-hint { display: block; margin-top: 6px; font-size: 0.74rem; font-style: normal; line-height: 1.4; color: var(--ink-3, var(--ink-2)); }
+/* "optional" next to a label, so the field does not look like a demand */
+.lbl-opt { margin-left: 6px; font-weight: 600; letter-spacing: 0.04em; opacity: 0.55; }
+
+/* count the portions — four slices rather than 112 g */
+.portion-step { display: flex; align-items: center; gap: 12px; margin: 4px 0 14px; }
+.portion-step .chip-btn { width: 46px; height: 46px; flex: none; font-size: 1.3rem; line-height: 1; }
+.ps-mid { flex: 1; min-width: 0; text-align: center; }
+.ps-mid .ps-n { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ps-mid .ps-lbl { font-style: normal; font-size: 0.95rem; font-weight: 600; color: var(--ink-2); }
+.ps-mid .ps-each { display: block; margin-top: 2px; font-size: 0.72rem; color: var(--ink-muted); }
 .field input, .field select {
   width: 100%; min-height: 48px; border-radius: 14px; padding: 0 14px;
   border: 1px solid var(--border); background: var(--surface-1); color: var(--ink-1); font: inherit;
@@ -1158,7 +1168,9 @@ body.has-mini .view.home-screen {
 .slot-ico svg { width: 19px; height: 19px; fill: none; stroke: var(--ink-1); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .slot-title { flex: 1; min-width: 0; }
 .slot-title b { display: block; font-size: 0.95rem; font-weight: 600; }
-.slot-title span { color: var(--ink-muted); font-size: 0.76rem; }
+.slot-title span { color: var(--ink-muted); font-size: 0.76rem; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the meal's macros trail its calories, a shade quieter */
+.slot-title span i { font-style: normal; opacity: 0.72; }
 .slot-add { width: 36px; height: 36px; border-radius: 12px; border: 1px solid var(--baseline); background: transparent; color: var(--ink-1); display: grid; place-items: center; flex-shrink: 0; cursor: pointer; }
 .slot-add svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .slot-add:active { background: var(--surface-2); }
@@ -1166,7 +1178,10 @@ body.has-mini .view.home-screen {
 .slot-item { display: flex; align-items: center; gap: 10px; padding: 10px 0 9px; border-bottom: 1px solid var(--border); }
 .slot-item:last-child { border-bottom: none; padding-bottom: 2px; }
 .si-main { flex: 1; min-width: 0; }
-.si-name { font-size: 0.88rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A long name used to be cut off exactly where the portion was — "· 4 slices"
+   is the part you look for, so it wraps to a second line instead. */
+.si-name { font-size: 0.88rem; font-weight: 500; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.si-name .si-portion { color: var(--ink-2); }
 .si-sub { color: var(--ink-muted); font-size: 0.72rem; margin-top: 2px; }
 .si-kcal { font-size: 0.86rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .si-del { width: 30px; height: 30px; border: none; background: none; color: var(--ink-muted); display: grid; place-items: center; cursor: pointer; flex-shrink: 0; }

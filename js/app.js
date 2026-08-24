@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '12.5';
+  const APP_VERSION = '12.6';
 
   /* ---------------- state ---------------- */
 
@@ -2315,11 +2315,18 @@
 
       MEAL_SLOTS.map(([slot, title, icon]) => {
         const items = meals.filter((m) => mealSlot(m) === slot);
-        const kcal = items.reduce((t, m) => t + (m.kcal || 0), 0);
+        const sum = (k) => items.reduce((t, m) => t + (Number(m[k]) || 0), 0);
+        const kcal = sum('kcal');
+        /* What the meal itself came to, not just its calories — the day's
+           totals are at the top, but a meal is what you decide about. */
+        const line = items.length
+          ? Math.round(kcal) + ' kcal <i>· P ' + Math.round(sum('protein')) +
+            ' · C ' + Math.round(sum('carbs')) + ' · F ' + Math.round(sum('fat')) + '</i>'
+          : 'Nothing logged';
         return '<div class="card slot-card">' +
           '<div class="slot-head">' +
             '<span class="slot-ico"><svg viewBox="0 0 24 24" aria-hidden="true">' + icon + '</svg></span>' +
-            '<div class="slot-title"><b>' + title + '</b>' + (items.length ? '<span>' + Math.round(kcal) + ' kcal</span>' : '<span>Nothing logged</span>') + '</div>' +
+            '<div class="slot-title"><b>' + title + '</b><span>' + line + '</span></div>' +
             (items.length > 1 ? '<button class="slot-save" data-save="' + slot + '" aria-label="Save ' + title + ' as a meal">' +
               '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 4.5h13v15l-6.5-4-6.5 4Z"/></svg></button>' : '') +
             '<button class="slot-add" data-slot="' + slot + '" aria-label="Add to ' + title + '">' +
@@ -2335,7 +2342,12 @@
           })() +
           (items.length ? '<div class="slot-items">' + items.map((m) =>
             '<div class="slot-item">' +
-              '<div class="si-main"><div class="si-name">' + esc(m.name) + '</div>' +
+              '<div class="si-main"><div class="si-name">' + (() => {
+                // the portion reads a shade quieter than the food it belongs to
+                const head = baseName(m.name);
+                const tail = m.name.length > head.length ? m.name.slice(head.length) : '';
+                return esc(head) + (tail ? '<span class="si-portion">' + esc(tail) + '</span>' : '');
+              })() + '</div>' +
                 '<div class="si-sub">P ' + Math.round(m.protein) + ' · C ' + Math.round(m.carbs) + ' · F ' + Math.round(m.fat) + (m.time ? ' · ' + esc(m.time) : '') + '</div></div>' +
               '<span class="si-kcal">' + Math.round(m.kcal) + '</span>' +
               '<button class="si-del" data-del="' + esc(m.id) + '" aria-label="Delete ' + esc(m.name) + '">' +
@@ -2479,6 +2491,7 @@
       '</div>' +
       (base
         ? '<p class="portion-per">' + macroLine(base) + ' per ' + (piece ? 'piece' : base.per + ' ' + unit) + '</p>' +
+          stepperHTML(base, 'meStep') +
           '<div class="field"><label for="meAmt">' + (piece ? 'How many' : 'Portion (' + unit + ')') + '</label>' +
             '<input id="meAmt" type="number" inputmode="decimal" min="0" step="1" value="' + meal.amount + '"></div>' +
           '<div class="quick-amounts" id="meQuick">' +
@@ -2509,7 +2522,9 @@
       };
       if (base) {
         const out = $('#meOut', body);
+        let showCount = null;
         const paint = () => {
+          if (showCount) showCount();
           const v = scaled(amtIn.value);
           out.innerHTML =
             '<div><span class="micro">kcal</span><b>' + v.kcal + '</b></div>' +
@@ -2518,6 +2533,7 @@
             '<div><span class="micro">Fat</span><b>' + v.fat + 'g</b></div>';
           $$('#meQuick .qchip', body).forEach((c) => c.classList.toggle('is-on', Number(c.dataset.amt) === Number(amtIn.value)));
         };
+        showCount = wireStepper(body, 'meStep', base, amtIn, paint);
         paint();
         amtIn.addEventListener('input', paint);
         $$('#meQuick .qchip', body).forEach((c) => c.addEventListener('click', () => { amtIn.value = c.dataset.amt; paint(); }));
@@ -2529,7 +2545,7 @@
           if (!amount) { toast(piece ? 'Enter how many' : 'Enter a portion size'); return; }
           Object.assign(meal, scaled(amount), {
             amount,
-            name: piece && amount === 1 ? base.name : base.name + ' · ' + round1(amount) + (piece ? '×' : ' ' + unit),
+            name: portionName(base, amount),
           });
         } else {
           const name = $('#meName', body).value.trim();
@@ -2740,9 +2756,81 @@
 
   const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
   const amountLabel = (f, amount) => (foodUnit(f) === 'piece' ? round1(amount) + '×' : round1(amount) + ' ' + foodUnit(f));
-  // one bar reads "Protein bar", two read "Protein bar · 2×"
-  const portionName = (f, amount) =>
-    (foodUnit(f) === 'piece' && Number(amount) === 1) ? f.name : f.name + ' · ' + amountLabel(f, amount);
+
+  /* A portion you can count. Bread is weighed in grams, but nobody eats
+     "112 g of bread" — they eat four slices. A food that knows how big one
+     of them is, and what to call it, can be logged either way. */
+  const foodPortion = (f) => (Number(f.serving) > 0 ? Number(f.serving) : 0);
+  const foodSName = (f) => String(f.sname || '').trim();
+  /* Whatever you called it — slice, scoop, bowl, riekė — is the word that is
+     used. More than one only gets an -s when the word is plainly English and
+     is not already plural; guessing a plural in someone else's language gets
+     it wrong, so those are left exactly as typed. */
+  const pluralise = (n, word) => {
+    if (Number(n) === 1) return word;
+    // "piece of bread" pluralises its first word, the way English does
+    const parts = String(word).split(' ');
+    const head = parts[0];
+    if (!/^[a-z]+$/i.test(head)) return word;          // not English — leave it alone
+    let out;
+    if (/ss$|x$|z$|ch$|sh$/i.test(head)) out = head + 'es';
+    else if (/s$/i.test(head)) out = head;             // already reads as plural
+    else if (/[^aeiou]y$/i.test(head)) out = head.slice(0, -1) + 'ies';
+    else out = head + 's';
+    parts[0] = out;
+    return parts.join(' ');
+  };
+  const servingWord = (f, n) => pluralise(n, foodSName(f) || 'portion');
+
+  // one bar reads "Protein bar", two read "Protein bar · 2×", four slices
+  // of a food that calls its portion a slice read "Bread · 4 slices"
+  const portionName = (f, amount) => {
+    if (foodUnit(f) === 'piece' && Number(amount) === 1) return f.name;
+    const sname = foodSName(f), serv = foodPortion(f);
+    if (sname && serv > 0 && foodUnit(f) !== 'piece') {
+      const n = (Number(amount) || 0) / serv;
+      const whole = Math.round(n);
+      if (whole >= 1 && Math.abs(n - whole) < 0.01) return f.name + ' · ' + whole + ' ' + pluralise(whole, sname);
+    }
+    return f.name + ' · ' + amountLabel(f, amount);
+  };
+
+  /* The counter that sits above the amount box. Both show the same number:
+     nudge the counter and the grams follow, type the grams and the count
+     catches up. */
+  function stepperHTML(f, id) {
+    const serv = foodPortion(f);
+    if (!serv || foodUnit(f) === 'piece') return '';
+    return '<div class="portion-step" id="' + id + '">' +
+      '<button class="chip-btn" data-step="-1" aria-label="One less">−</button>' +
+      '<div class="ps-mid"><b class="ps-n">1</b> <i class="ps-lbl">' + esc(servingWord(f, 1)) + '</i>' +
+        '<span class="ps-each">' + round1(serv) + ' ' + foodUnit(f) + ' each</span></div>' +
+      '<button class="chip-btn chip-strong" data-step="1" aria-label="One more">+</button>' +
+    '</div>';
+  }
+  function wireStepper(body, id, f, amtIn, onChange) {
+    const box = $('#' + id, body);
+    if (!box) return null;
+    const serv = foodPortion(f);
+    const nEl = $('.ps-n', box), lblEl = $('.ps-lbl', box);
+    const show = () => {
+      const n = round1((Number(amtIn.value) || 0) / serv);
+      nEl.textContent = n;
+      lblEl.textContent = servingWord(f, n);
+    };
+    $$('button[data-step]', box).forEach((b) => b.addEventListener('click', () => {
+      const now = (Number(amtIn.value) || 0) / serv;
+      // a half portion steps up to one and down to nothing below it
+      const next = Number(b.dataset.step) > 0
+        ? Math.floor(now + 0.0001) + 1
+        : Math.max(1, Math.ceil(now - 0.0001) - 1);
+      amtIn.value = round1(next * serv);
+      show();
+      haptic('tick');
+      if (onChange) onChange();
+    }));
+    return show;
+  }
   const perLabel = (f) => (foodUnit(f) === 'piece' ? 'each' : 'per ' + foodBase(f) + ' ' + foodUnit(f));
   const macroLine = (v) => Math.round(v.kcal) + ' kcal · P ' + round1(v.protein) + ' · C ' + round1(v.carbs) + ' · F ' + round1(v.fat);
   const baseName = (n) => String(n || '').split(' · ')[0];
@@ -2786,6 +2874,10 @@
       '</div>' +
       '<div class="field"><label for="feServing">Usual portion</label>' +
         '<input id="feServing" type="number" inputmode="decimal" min="0" value="' + foodServing(f) + '"></div>' +
+      '<div class="field" id="feSNameWrap"' + (piece ? ' hidden' : '') + '>' +
+        '<label for="feSName">Call one of those… <span class="lbl-opt">optional</span></label>' +
+        '<input id="feSName" type="text" placeholder="e.g. slice, scoop, bowl, handful" autocomplete="off" value="' + esc(foodSName(f)) + '">' +
+        '<i class="field-hint">Then you can log four of them at once instead of one at a time.</i></div>' +
       '<button class="btn btn-primary" id="feSave" style="margin-top:14px">Save</button>' +
       '<button class="btn btn-danger" id="feDel" style="margin-top:10px">Forget this food</button>',
     (body) => {
@@ -2795,6 +2887,7 @@
         $$('#feUnit button', body).forEach((x) => x.classList.toggle('is-on', x === b));
         $('#feBasis', body).textContent = 'The numbers below are for ' +
           (unitNow === 'piece' ? 'one piece' : '100 ' + unitNow) + '.';
+        $('#feSNameWrap', body).hidden = unitNow === 'piece';
       }));
       $('#feSave', body).addEventListener('click', () => {
         const name = $('#feName', body).value.trim();
@@ -2805,6 +2898,7 @@
           unit: unitNow,
           per: unitNow === 'piece' ? 1 : 100,
           serving: Math.max(0, Number($('#feServing', body).value) || (unitNow === 'piece' ? 1 : 100)),
+          sname: unitNow === 'piece' ? '' : $('#feSName', body).value.trim(),
           kcal: num('#feKcal'), protein: num('#feP'), carbs: num('#feC'), fat: num('#feF'),
         });
         haptic('tick');
@@ -2835,19 +2929,26 @@
     const date = key || dateKey();
     let slot = startSlot || slotFromTime(new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' }));
     const piece = foodUnit(food) === 'piece';
-    const quick = [...new Set([foodServing(food), ...(piece ? [1, 2, 3] : [50, 100, 150, 200])])]
-      .filter((n) => n > 0).sort((a, b) => a - b).slice(0, 5);
+    /* A food that counts in slices has the counter above; a row of gram chips
+       under it would only say the same thing twice. */
+    const named = !piece && !!foodSName(food) && foodPortion(food) > 0;
+    const quick = named ? []
+      : [...new Set([foodServing(food), ...(piece ? [1, 2, 3] : [50, 100, 150, 200])])]
+        .filter((n) => n > 0).sort((a, b) => a - b).slice(0, 5);
 
     openSheet(food.name, '' +
       '<div class="seg seg-slot" id="slotPick">' +
         MEAL_SLOTS.map(([k, title]) => '<button data-slot="' + k + '" class="' + (k === slot ? 'is-on' : '') + '">' + title + '</button>').join('') +
       '</div>' +
       '<p class="portion-per">' + macroLine(scaleFood(food, foodBase(food))) + ' ' + perLabel(food) + '</p>' +
+      stepperHTML(food, 'pdStep') +
       '<div class="field"><label for="pdAmt">' + (piece ? 'How many' : 'Portion (' + foodUnit(food) + ')') + '</label>' +
-        '<input id="pdAmt" type="number" inputmode="decimal" min="0" step="' + (piece ? '1' : '1') + '" value="' + foodServing(food) + '"></div>' +
-      '<div class="quick-amounts" id="pdQuick">' +
-        quick.map((n) => '<button class="qchip" data-amt="' + n + '">' + amountLabel(food, n) + '</button>').join('') +
-      '</div>' +
+        '<input id="pdAmt" type="number" inputmode="decimal" min="0" step="1" value="' + foodServing(food) + '"></div>' +
+      (quick.length
+        ? '<div class="quick-amounts" id="pdQuick">' +
+            quick.map((n) => '<button class="qchip" data-amt="' + n + '">' + amountLabel(food, n) + '</button>').join('') +
+          '</div>'
+        : '') +
       '<div class="prod-macros" id="pdOut"></div>' +
       (opts.offerSave
         ? '<label class="switch-row" style="margin-top:14px"><span><b>Remember this food</b>' +
@@ -2857,7 +2958,9 @@
       '<button class="btn btn-primary" id="pdAdd" style="margin-top:16px">Add to log</button>',
     (body) => {
       const amtIn = $('#pdAmt', body), out = $('#pdOut', body);
+      let showCount = null;
       const paint = () => {
+        if (showCount) showCount();
         const v = scaleFood(food, amtIn.value);
         out.innerHTML =
           '<div><span class="micro">kcal</span><b>' + v.kcal + '</b></div>' +
@@ -2866,6 +2969,7 @@
           '<div><span class="micro">Fat</span><b>' + round1(v.fat) + 'g</b></div>';
         $$('#pdQuick .qchip', body).forEach((c) => c.classList.toggle('is-on', Number(c.dataset.amt) === Number(amtIn.value)));
       };
+      showCount = wireStepper(body, 'pdStep', food, amtIn, paint);
       paint();
       amtIn.addEventListener('input', paint);
       $$('#pdQuick .qchip', body).forEach((c) => c.addEventListener('click', () => { amtIn.value = c.dataset.amt; paint(); }));
@@ -2879,11 +2983,19 @@
         const v = scaleFood(food, amount);
         logMeal({
           name: portionName(food, amount), ...v,
-          base: { name: food.name, unit: foodUnit(food), per: foodBase(food), ...scaleFood(food, foodBase(food)) },
+          base: {
+            name: food.name, unit: foodUnit(food), per: foodBase(food),
+            serving: foodPortion(food) || undefined, sname: foodSName(food) || undefined,
+            ...scaleFood(food, foodBase(food)),
+          },
           amount,
         }, slot, date);
         haptic('tick');
-        if (opts.offerSave && $('#pdSave', body) && $('#pdSave', body).checked) rememberFood({ ...food, serving: amount });
+        if (opts.offerSave && $('#pdSave', body) && $('#pdSave', body).checked) {
+          // a food that already knows its portion keeps it — logging four
+          // slices must not turn four slices into one
+          rememberFood({ ...food, serving: foodPortion(food) || amount });
+        }
         else if (food.id) touchFood(food.id);
         save(); closeSheet(); mealDayOffset = 0; goTab('meals');
         toast('Logged ' + v.kcal + ' kcal');
@@ -2908,6 +3020,7 @@
     const basisRow = (f, mine) => {
       const data = esc(JSON.stringify({
         id: f.id, name: f.name, unit: foodUnit(f), per: foodBase(f), serving: foodServing(f),
+        sname: foodSName(f),
         kcal: f.kcal, protein: f.protein, carbs: f.carbs, fat: f.fat,
       }));
       return '<div class="lib-item" data-food="' + data + '" role="button" tabindex="0">' +
@@ -2916,7 +3029,11 @@
         '<div class="li-actions">' +
           (mine ? '<button class="saved-edit" data-editfood="' + esc(f.id) + '" aria-label="Edit ' + esc(f.name) + '">' +
             '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/></svg></button>' : '') +
-          '<button class="li-add" data-quick="' + data + '" aria-label="Log ' + esc(amountLabel(f, foodServing(f))) + '">+ ' + esc(amountLabel(f, foodServing(f))) + '</button>' +
+          (() => {
+            const one = foodSName(f) && foodUnit(f) !== 'piece'
+              ? '1 ' + foodSName(f) : amountLabel(f, foodServing(f));
+            return '<button class="li-add" data-quick="' + data + '" aria-label="Log ' + esc(one) + '">+ ' + esc(one) + '</button>';
+          })() +
         '</div></div>';
     };
 
@@ -2977,6 +3094,11 @@
         </div>
       </div>
       <p class="portion-per" id="cmHint">Enter what is in that much of it.</p>
+      <div class="field" id="cmSNameWrap">
+        <label for="cmSName">Call one of those… <span class="lbl-opt">optional</span></label>
+        <input id="cmSName" type="text" placeholder="e.g. slice, scoop, bowl, handful" autocomplete="off">
+        <i class="field-hint">Then you can log four of them at once instead of one at a time.</i>
+      </div>
       <div class="field-row">
         <div class="field"><label for="cmKcal">kcal</label><input id="cmKcal" type="number" inputmode="decimal" min="0" placeholder="0"></div>
         <div class="field"><label for="cmProtein">Protein g</label><input id="cmProtein" type="number" inputmode="decimal" min="0" placeholder="0"></div>
@@ -3075,6 +3197,8 @@
         $$('#cmUnit button', body).forEach((x) => x.classList.toggle('is-on', x === b));
         if (cUnit === 'piece' && Number(amt.value) === 100) amt.value = 1;
         if (cUnit !== 'piece' && Number(amt.value) === 1) amt.value = 100;
+        // counting pieces is already counting; naming the portion adds nothing
+        $('#cmSNameWrap', body).hidden = cUnit === 'piece';
         paintHint();
       }));
 
@@ -3086,7 +3210,8 @@
         if (!name) { toast('Give the meal a name'); return; }
         if (!macros.kcal) { toast('Enter calories'); return; }
         if (!amount) { toast('Enter an amount'); return; }
-        const basis = { name, unit: cUnit, per: cUnit === 'piece' ? 1 : 100, serving: amount };
+        const sname = $('#cmSName', body).value.trim();
+        const basis = { name, unit: cUnit, per: cUnit === 'piece' ? 1 : 100, serving: amount, sname };
         if ($('#cmSave', body).checked) {
           const factor = (cUnit === 'piece' ? 1 : 100) / amount;
           rememberFood({
