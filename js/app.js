@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '12.9';
+  const APP_VERSION = '13.0';
 
   /* ---------------- state ---------------- */
 
@@ -78,6 +78,7 @@
     if (skipPop > 0) { skipPop--; return; }
     if (scanOpen) { scanHasEntry = false; closeScanner(false); return; }
     if ($('#sheetRoot').children.length) { sheetHasEntry = false; closeSheetNow(); return; }
+    if (routineDraft) { rbHasEntry = false; closeRoutineBuilder(); return; }
     if (workoutOpen) { wkHasEntry = false; workoutOpen = false; render(); return; }
     if (currentTab !== 'home') { tabHasEntry = false; currentTab = 'home'; rememberTab('home'); render(); return; }
     // nothing left to close — the next back press exits normally
@@ -372,6 +373,17 @@
      is lost either way — the originals are in the code, so they can come
      back. */
   const isBuiltinId = (id) => BUILTIN_TEMPLATES.some((b) => b.id === id);
+
+  /* A routine used to say "3 sets" and one target for all of them. It now
+     keeps a row per set, the way the logger does, so a routine can ask for
+     12, 10, 8. Older routines — and the built-in ones — still say a number,
+     and are read as that many identical rows. */
+  function tplSets(e) {
+    if (Array.isArray(e.sets)) return e.sets;
+    const n = Math.max(1, Number(e.sets) || 1);
+    return Array.from({ length: n }, () => (e.targetReps ? { reps: e.targetReps } : {}));
+  }
+  const tplSetCount = (e) => (Array.isArray(e.sets) ? e.sets.length : Math.max(1, Number(e.sets) || 1));
   function allTemplates() {
     const hidden = new Set(state.tplHidden || []);
     const mine = (state.templates || []).filter((t) => !hidden.has(t.id));
@@ -3953,7 +3965,7 @@
               <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
                      value="${s.weight ?? ''}" placeholder="${p?.weight ?? ''}" aria-label="${cardio ? 'Distance km' : 'Weight'}, set ${i + 1}">
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
-                     value="${s.reps ?? ''}" placeholder="${p?.reps ?? ex.targetReps ?? ''}" aria-label="${cardio ? 'Minutes' : 'Reps'}, set ${i + 1}">
+                     value="${s.reps ?? ''}" placeholder="${p?.reps ?? s.target ?? ex.targetReps ?? ''}" aria-label="${cardio ? 'Minutes' : 'Reps'}, set ${i + 1}">
               ${rpeOn && !cardio ? `<button class="set-rpe ${s.rpe ? 'has' : ''}" aria-label="Effort for set ${numbers[i]}">${s.rpe ? fmtNum(s.rpe) : '–'}</button>` : ''}
               <button class="set-done ${s.done ? 'logged' : ''}" aria-label="${s.done ? 'Undo set' : 'Log set'}" aria-pressed="${s.done}">
                 <svg viewBox="0 0 24 24"><path d="M4.5 12.5 9.5 17.5 19.5 6.5"/></svg>
@@ -3968,10 +3980,11 @@
   /* Sets start empty. What you did last time shows behind the box as a faint
      number: start typing and it is gone, tick it and it becomes the real one. */
   function newExerciseEntry(exerciseId, setCount, targetReps) {
-    const entry = {
-      exerciseId,
-      sets: Array.from({ length: setCount }, () => ({ weight: null, reps: null, done: false })),
-    };
+    // a number of blank sets, or the rows a routine asked for
+    const rows = Array.isArray(setCount)
+      ? setCount.map((r) => ({ weight: null, reps: null, done: false, ...(r && r.reps ? { target: Number(r.reps) } : {}) }))
+      : Array.from({ length: Math.max(1, Number(setCount) || 1) }, () => ({ weight: null, reps: null, done: false }));
+    const entry = { exerciseId, sets: rows };
     if (targetReps) entry.targetReps = targetReps;
     return entry;
   }
@@ -3982,7 +3995,7 @@
       id: uid(),
       name: tpl ? tpl.name : 'Workout',
       startedAt: Date.now(),
-      exercises: tpl ? tpl.exercises.map((e) => newExerciseEntry(e.exerciseId, e.sets, e.targetReps)) : [],
+      exercises: tpl ? tpl.exercises.map((e) => newExerciseEntry(e.exerciseId, tplSets(e), e.targetReps)) : [],
     };
     workoutOpen = true;
     openWkEntry();
@@ -4031,7 +4044,10 @@
           state.templates.push({
             id: uid(),
             name: w.name,
-            exercises: w.exercises.map((ex) => ({ exerciseId: ex.exerciseId, sets: ex.sets.length })),
+            exercises: w.exercises.map((ex) => ({
+              exerciseId: ex.exerciseId,
+              sets: ex.sets.map((st) => (st.reps ? { reps: Number(st.reps) } : {})),
+            })),
           });
         }
         if (w.editingId) {
@@ -4056,6 +4072,8 @@
   /* -------- routine builder -------- */
 
   let routineDraft = null;
+  let rbScrollTo = null;
+  let rbHasEntry = false;
 
   function openRoutineBuilder(templateId) {
     const existing = templateId ? templateById(templateId) : null;
@@ -4063,77 +4081,233 @@
       // your copy keeps the original's id, so it stands in the same place
       const { builtin, ...clean } = JSON.parse(JSON.stringify(existing));
       routineDraft = clean;
+      routineDraft.exercises = (routineDraft.exercises || []).map((e) => ({ ...e, sets: tplSets(e) }));
     } else {
       routineDraft = { id: uid(), name: '', exercises: [] };
     }
+    if (!rbHasEntry) { history.pushState({ t: 'rb' }, ''); rbHasEntry = true; }
     showRoutineBuilder();
   }
 
+  /* Backing out of a half-built routine should not lose it without a word. */
+  function closeRoutineBuilder(saved) {
+    const d = routineDraft;
+    const started = !saved && d && (d.name.trim() || d.exercises.length);
+    const shut = () => {
+      routineDraft = null;
+      if (rbHasEntry) { rbHasEntry = false; skipPop++; history.back(); }
+      showRoutineBuilder();
+      render();
+    };
+    if (!started) { shut(); return; }
+    confirmAction({
+      title: 'Leave without saving',
+      message: 'This routine has not been saved. Leave it?',
+      confirm: 'Leave',
+      onConfirm: shut,
+    });
+  }
+
+  /* The builder is the logger, standing still. Same bar, same stats strip,
+     same exercise cards with the same numbered set rows — because a routine
+     is a workout you have not done yet, and having it look like something
+     else was the whole problem. */
   function showRoutineBuilder() {
     const d = routineDraft;
+    if (!d) { $('#routineRoot').innerHTML = ''; document.body.classList.remove('rb-open'); return; }
+    const root = $('#routineRoot');
     const isEdit = allTemplates().some((t) => t.id === d.id);
     // a built-in you have already changed can be put back the way it was
     const changed = isBuiltinId(d.id) && (state.templates || []).some((t) => t.id === d.id);
-    openSheet(isEdit ? 'Edit routine' : 'New routine', `
-      <div class="field"><label for="rbName">Routine name</label>
-        <input id="rbName" type="text" placeholder="e.g. Upper Body A" value="${esc(d.name)}"></div>
-      ${d.exercises.length ? `
-      <div class="rb-list">
-        ${d.exercises.map((e, i) => `
-          <div class="rb-row" data-i="${i}">
-            <div class="rb-name">${esc(exerciseById(e.exerciseId)?.name ?? '?')}</div>
-            <input class="rb-sets" type="number" inputmode="numeric" min="1" max="10" value="${e.sets}" aria-label="Sets">
-            <span class="rb-x">×</span>
-            <input class="rb-reps" type="number" inputmode="numeric" min="1" max="100" value="${e.targetReps ?? ''}" placeholder="reps" aria-label="Target reps">
-            <button class="rb-del" aria-label="Remove">✕</button>
-          </div>`).join('')}
-      </div>` : '<p class="empty-note" style="padding:16px">No exercises yet — add some below.</p>'}
-      <button class="btn btn-quiet" id="rbAdd">+ Add exercise</button>
-      <button class="btn btn-primary" id="rbSave" style="margin-top:10px">Save routine</button>
-      ${changed ? '<button class="btn btn-quiet" id="rbReset" style="margin-top:10px">Restore the original</button>' : ''}
-    `, (body) => {
-      $('#rbName', body).addEventListener('input', (e) => { d.name = e.target.value; });
-      body.addEventListener('input', (e) => {
-        const row = e.target.closest('.rb-row');
-        if (!row) return;
-        const entry = d.exercises[Number(row.dataset.i)];
-        if (e.target.classList.contains('rb-sets')) entry.sets = Math.max(1, Number(e.target.value) || 1);
-        if (e.target.classList.contains('rb-reps')) {
-          const val = Number(e.target.value);
-          if (val > 0) entry.targetReps = val; else delete entry.targetReps;
+    const wasShowing = !!$('.wk-body', root);
+    const keptScroll = wasShowing ? $('.wk-body', root).scrollTop : null;
+    const totalSets = d.exercises.reduce((n, e) => n + tplSetCount(e), 0);
+    document.body.classList.add('rb-open');
+
+    root.innerHTML = `
+      <div class="wk-overlay${wasShowing ? '' : ' wk-enter'}">
+        <div class="wk-bar">
+          <button class="icon-btn" id="rbClose" aria-label="Close">
+            <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+          <b class="wk-title">${isEdit ? 'Edit routine' : 'New routine'}</b>
+          <button class="chip-btn chip-strong" id="rbSave">Save</button>
+        </div>
+        <div class="wk-stats rb-stats">
+          <div><span class="micro">Exercises</span><b>${d.exercises.length}</b></div>
+          <div><span class="micro">Sets</span><b>${totalSets}</b></div>
+        </div>
+        <div class="wk-body">
+          <div class="field rb-name-field">
+            <label for="rbName">Routine name</label>
+            <input id="rbName" type="text" placeholder="e.g. Upper Body A" value="${esc(d.name)}"
+                   autocomplete="off" enterkeyhint="done">
+          </div>
+          ${d.exercises.map((e, i) => renderRoutineBlock(e, i, d.exercises.length)).join('')}
+          ${d.exercises.length ? '' : '<p class="empty-note" style="padding:22px 16px">Nothing in it yet. Add the first exercise below.</p>'}
+          <button class="btn btn-ghost" id="rbAdd" style="margin-bottom:12px">+ Add exercise</button>
+          ${changed ? '<button class="btn btn-quiet" id="rbReset" style="margin-bottom:8px">Restore the original</button>' : ''}
+        </div>
+      </div>`;
+
+    const body = $('.wk-body', root);
+    if (keptScroll != null) body.scrollTop = keptScroll;
+    if (rbScrollTo != null) {
+      const block = $$('.ex-block', root)[rbScrollTo];
+      if (block) body.scrollTop = Math.max(0, block.offsetTop - 12);
+      rbScrollTo = null;
+    }
+
+    $('#rbName', root).addEventListener('input', (e) => { d.name = e.target.value; });
+    // never hand the click event straight in — it would arrive as `saved`
+    $('#rbClose', root).addEventListener('click', () => closeRoutineBuilder());
+
+    // the reps box for one set of one exercise
+    body.addEventListener('input', (e) => {
+      const box = e.target.closest('.rb-rep');
+      if (!box) return;
+      const ex = d.exercises[Number(box.dataset.ex)];
+      const rows = tplSets(ex);
+      const val = Number(box.value);
+      if (val > 0) rows[Number(box.dataset.set)] = { reps: val };
+      else rows[Number(box.dataset.set)] = {};
+      ex.sets = rows;
+      delete ex.targetReps;             // the rows carry it now
+    });
+
+    body.addEventListener('click', (e) => {
+      const add = e.target.closest('.rb-add-set');
+      if (add) {
+        const ex = d.exercises[Number(add.dataset.ex)];
+        const rows = tplSets(ex);
+        rows.push({ ...(rows[rows.length - 1] || {}) });   // same target as the one above
+        ex.sets = rows;
+        delete ex.targetReps;
+        haptic('tick');
+        showRoutineBuilder();
+        return;
+      }
+      const drop = e.target.closest('.rb-drop-set');
+      if (drop) {
+        const ex = d.exercises[Number(drop.dataset.ex)];
+        const rows = tplSets(ex);
+        if (rows.length <= 1) { toast('An exercise needs at least one set'); return; }
+        rows.splice(Number(drop.dataset.set), 1);
+        ex.sets = rows;
+        delete ex.targetReps;
+        haptic('tap');
+        showRoutineBuilder();
+        return;
+      }
+      const menu = e.target.closest('.rb-ex-menu');
+      if (menu) { openRoutineExMenu(Number(menu.dataset.ex)); return; }
+    });
+
+    $('#rbAdd', root).addEventListener('click', () => openExercisePicker((exId) => {
+      d.exercises.push({ exerciseId: exId, sets: [{ reps: 10 }, { reps: 10 }, { reps: 10 }] });
+      rbScrollTo = d.exercises.length - 1;
+      showRoutineBuilder();
+    }));
+
+    $('#rbReset', root)?.addEventListener('click', () => {
+      confirmAction({
+        title: 'Restore the original',
+        message: 'Put "' + esc(d.name || 'this routine') + '" back the way it came with the app? Your changes to it are dropped.',
+        confirm: 'Restore',
+        onConfirm: () => {
+          undoable('Original restored', () => {
+            state.templates = (state.templates || []).filter((t) => t.id !== d.id);
+          });
+          closeRoutineBuilder(true);
+        },
+      });
+    });
+
+    $('#rbSave', root).addEventListener('click', () => {
+      if (!d.name.trim()) { toast('Give the routine a name'); $('#rbName', root).focus(); return; }
+      if (!d.exercises.length) { toast('Add at least one exercise'); return; }
+      d.name = d.name.trim();
+      d.exercises.forEach((e) => { e.sets = tplSets(e); delete e.targetReps; });
+      if (!Array.isArray(state.templates)) state.templates = [];
+      const idx = state.templates.findIndex((t) => t.id === d.id);
+      if (idx >= 0) state.templates[idx] = d; else state.templates.push(d);
+      state.tplHidden = (state.tplHidden || []).filter((x) => x !== d.id);
+      haptic('done');
+      closeRoutineBuilder(true);
+      save(); render();
+      toast('Routine saved');
+    });
+  }
+
+  /* One exercise, laid out exactly like the logger's card: the name and its
+     muscle, then a numbered row per set. What is missing is the part you can
+     only fill in on the day — the weight, and the tick. */
+  function renderRoutineBlock(e, exIdx, total) {
+    const info = exerciseById(e.exerciseId);
+    const prev = previousSets(e.exerciseId);
+    const cardio = isCardio(e.exerciseId);
+    const rows = tplSets(e);
+    return `
+      <div class="card ex-block rb-block" data-ex="${exIdx}">
+        <div class="ex-head">
+          <h3 class="ex-name">${esc(info?.name ?? 'Unknown exercise')}
+            <span class="muscle">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''}</span>
+          </h3>
+          <button class="ex-remove rb-ex-menu" data-ex="${exIdx}" aria-label="Options for ${esc(info?.name ?? 'this exercise')}">
+            <svg viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
+          </button>
+        </div>
+        <div class="set-grid rb-grid">
+          <span class="hdr">Set</span><span class="hdr">Last time</span><span class="hdr">${cardio ? 'Min' : 'Reps'}</span><span class="hdr"></span>
+          ${rows.map((r, i) => {
+            const p = prev[i] || prev[prev.length - 1];
+            const prevTxt = p ? (cardio ? `${fmtNum(p.weight ?? 0)}·${p.reps}m` : `${fmtNum(p.weight ?? 0)}×${p.reps}`) : '—';
+            return `
+            <div class="set-row" data-set="${i}">
+              <button class="set-num" type="button" tabindex="-1" aria-hidden="true">${i + 1}</button>
+              <span class="set-prev">${prevTxt}</span>
+              <input class="set-input rb-rep" type="number" inputmode="numeric" min="1" max="100"
+                     data-ex="${exIdx}" data-set="${i}" value="${r.reps ?? ''}"
+                     placeholder="${p?.reps ?? '—'}" aria-label="Target ${cardio ? 'minutes' : 'reps'}, set ${i + 1}">
+              <button class="rb-drop-set" data-ex="${exIdx}" data-set="${i}" aria-label="Remove set ${i + 1}">
+                <svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg>
+              </button>
+            </div>`;
+          }).join('')}
+        </div>
+        <button class="chip-btn rb-add-set" data-ex="${exIdx}">+ Add set</button>
+      </div>`;
+  }
+
+  /* Same menu the logger gives an exercise, minus the parts that only mean
+     something once you are lifting. */
+  function openRoutineExMenu(exIdx) {
+    const d = routineDraft;
+    const ex = d.exercises[exIdx];
+    if (!ex) return;
+    const name = exerciseById(ex.exerciseId)?.name ?? 'Exercise';
+    openSheet(name, `
+      <div class="menu-list">
+        <button class="menu-item" data-act="replace">Replace exercise</button>
+        <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>Move up</button>
+        <button class="menu-item" data-act="down" ${exIdx === d.exercises.length - 1 ? 'disabled' : ''}>Move down</button>
+        <button class="menu-item danger" data-act="remove">Remove from routine</button>
+      </div>`, (body) => {
+      body.addEventListener('click', (evt) => {
+        const b = evt.target.closest('[data-act]');
+        if (!b) return;
+        const act = b.dataset.act;
+        if (act === 'replace') {
+          closeSheetNow();
+          openExercisePicker((exId) => { ex.exerciseId = exId; showRoutineBuilder(); });
+          return;
         }
-      });
-      body.addEventListener('click', (e) => {
-        const del = e.target.closest('.rb-del');
-        if (del) {
-          d.exercises.splice(Number(del.closest('.rb-row').dataset.i), 1);
-          showRoutineBuilder();
-        }
-      });
-      $('#rbAdd', body).addEventListener('click', () => {
-        openExercisePicker((exId) => {
-          d.exercises.push({ exerciseId: exId, sets: 3, targetReps: 10 });
-          showRoutineBuilder();
-        });
-      });
-      $('#rbReset', body)?.addEventListener('click', () => {
-        undoable('Original restored', () => {
-          state.templates = (state.templates || []).filter((t) => t.id !== d.id);
-        });
-        routineDraft = null;
+        if (act === 'up' && exIdx > 0) d.exercises.splice(exIdx - 1, 0, d.exercises.splice(exIdx, 1)[0]);
+        if (act === 'down' && exIdx < d.exercises.length - 1) d.exercises.splice(exIdx + 1, 0, d.exercises.splice(exIdx, 1)[0]);
+        if (act === 'remove') d.exercises.splice(exIdx, 1);
+        haptic('tap');
         closeSheet();
-      });
-      $('#rbSave', body).addEventListener('click', () => {
-        if (!d.name.trim()) { toast('Give the routine a name'); return; }
-        if (!d.exercises.length) { toast('Add at least one exercise'); return; }
-        d.name = d.name.trim();
-        if (!Array.isArray(state.templates)) state.templates = [];
-        const idx = state.templates.findIndex((t) => t.id === d.id);
-        if (idx >= 0) state.templates[idx] = d; else state.templates.push(d);
-        state.tplHidden = (state.tplHidden || []).filter((x) => x !== d.id);
-        routineDraft = null;
-        save(); closeSheet(); render();
-        toast('Routine saved');
+        showRoutineBuilder();
       });
     });
   }

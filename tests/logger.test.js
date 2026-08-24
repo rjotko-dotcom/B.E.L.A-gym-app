@@ -335,13 +335,24 @@ module.exports = async (t) => {
     await p2.evaluate(() => document.querySelector('[data-edit-tpl="tpl-push"]').click());
     await p2.waitForTimeout(600);
     t.equal('a built-in opens in the builder', await p2.evaluate(() => document.querySelector('#rbName').value), 'Push Day');
-    t.equal('with its exercises', await p2.evaluate(() => document.querySelectorAll('.rb-row').length), 5);
+    t.equal('with its exercises', await p2.evaluate(() => document.querySelectorAll('#routineRoot .ex-block').length), 5);
+    t.check('laid out like the logger — a card per exercise, a numbered row per set',
+      await p2.evaluate(() => {
+        const blocks = [...document.querySelectorAll('#routineRoot .ex-block')];
+        return blocks.length > 0 && blocks.every((b) =>
+          b.querySelector('.ex-head .ex-name') &&
+          b.querySelectorAll('.set-grid .set-row').length > 0 &&
+          b.querySelector('.rb-add-set'));
+      }));
     t.check('and no offer to restore it yet', await p2.evaluate(() => !document.querySelector('#rbReset')));
 
     await p2.fill('#rbName', 'Push A');
     await p2.evaluate(() => document.querySelector('#rbName').dispatchEvent(new Event('input')));
-    await p2.evaluate(() => document.querySelectorAll('.rb-del')[4].click());
-    await p2.waitForTimeout(400);
+    // drop the last exercise through its menu, the way the logger does it
+    await p2.evaluate(() => [...document.querySelectorAll('#routineRoot .rb-ex-menu')].pop().click());
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('.menu-item[data-act="remove"]').click());
+    await p2.waitForTimeout(600);
     await p2.click('#rbSave');
     await p2.waitForTimeout(700);
 
@@ -356,6 +367,8 @@ module.exports = async (t) => {
     await p2.waitForTimeout(600);
     t.check('reopening offers the original back', await p2.evaluate(() => !!document.querySelector('#rbReset')));
     await p2.click('#rbReset');
+    await p2.waitForTimeout(500);
+    await p2.click('#cfYes');
     await p2.waitForTimeout(700);
     t.equal('which restores it', (await names()).join(), 'Push Day,Pull Day,Leg Day,Full Body');
     t.equal('and drops the copy', (await readState(p2)).templates.length, 0);
@@ -402,6 +415,83 @@ module.exports = async (t) => {
     t.check('and can be deleted again', !(await names()).includes('Arms'));
     t.check('without being remembered as a removed built-in',
       !((await readState(p2)).tplHidden || []).includes(mine.id));
+
+    /* ---- building one from scratch, in the logger's own shape ---- */
+    await p2.evaluate(() => document.querySelector('#newRoutine2').click());
+    await p2.waitForTimeout(600);
+    t.check('a new routine opens full screen, not in a sheet',
+      await p2.evaluate(() => !!document.querySelector('#routineRoot .wk-overlay')));
+    t.check('with the tab bar out of the way',
+      await p2.evaluate(() => getComputedStyle(document.querySelector('.tab-bar')).display === 'none'));
+    t.equal('it counts what is in it', await p2.evaluate(() =>
+      [...document.querySelectorAll('#routineRoot .wk-stats b')].map((b) => b.textContent).join()), '0,0');
+
+    await p2.fill('#rbName', 'Upper A');
+    await p2.click('#rbAdd');
+    await p2.waitForTimeout(600);
+    await p2.evaluate(() => document.querySelector('#pickList [data-pick]').click());
+    await p2.waitForTimeout(700);
+    t.equal('an exercise arrives with three sets', await p2.evaluate(() =>
+      document.querySelectorAll('#routineRoot .ex-block[data-ex="0"] .set-row').length), 3);
+    t.equal('and the count keeps up', await p2.evaluate(() =>
+      [...document.querySelectorAll('#routineRoot .wk-stats b')].map((b) => b.textContent).join()), '1,3');
+
+    // a set per row means a routine can ask for 12, 10, 8
+    await p2.evaluate(() => {
+      const boxes = document.querySelectorAll('.ex-block[data-ex="0"] .rb-rep');
+      [12, 10, 8].forEach((v, i) => { boxes[i].value = v; boxes[i].dispatchEvent(new Event('input', { bubbles: true })); });
+    });
+    await p2.waitForTimeout(300);
+    await p2.evaluate(() => document.querySelector('.ex-block[data-ex="0"] .rb-add-set').click());
+    await p2.waitForTimeout(500);
+    t.equal('adding a set copies the one above it', await p2.evaluate(() =>
+      [...document.querySelectorAll('.ex-block[data-ex="0"] .rb-rep')].map((i) => i.value).join()), '12,10,8,8');
+    await p2.evaluate(() => document.querySelector('.ex-block[data-ex="0"] .rb-drop-set').click());
+    await p2.waitForTimeout(500);
+    t.equal('and taking one away leaves the rest', await p2.evaluate(() =>
+      [...document.querySelectorAll('.ex-block[data-ex="0"] .rb-rep')].map((i) => i.value).join()), '10,8,8');
+
+    await p2.click('#rbSave');
+    await p2.waitForTimeout(800);
+    t.check('saving comes back to the list',
+      await p2.evaluate(() => !document.querySelector('#routineRoot .wk-overlay')));
+    t.check('and the tab bar is back',
+      await p2.evaluate(() => getComputedStyle(document.querySelector('.tab-bar')).display !== 'none'));
+    const built = (await readState(p2)).templates.find((x) => x.name === 'Upper A');
+    t.equal('the reps are kept per set', JSON.stringify(built.exercises[0].sets), '[{"reps":10},{"reps":8},{"reps":8}]');
+
+    /* ---- and those targets show when you actually do it ---- */
+    await p2.evaluate(() => [...document.querySelectorAll('.tpl-item')]
+      .find((e) => /Upper A/.test(e.textContent)).click());
+    await p2.waitForTimeout(800);
+    t.equal('starting it opens the workout', await p2.evaluate(() =>
+      document.querySelector('#workoutRoot .wk-title').textContent), 'Upper A');
+    t.equal('with a set per row', await p2.evaluate(() =>
+      document.querySelectorAll('#workoutRoot .ex-block[data-ex="0"] .set-row').length), 3);
+    await p2.evaluate(() => {
+      const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+      return st.activeWorkout.exercises[0].sets.map((s) => s.target).join();
+    });
+    t.equal('carrying the routine’s targets', await p2.evaluate(() =>
+      JSON.parse(localStorage.getItem('bela-gym-v1')).activeWorkout.exercises[0].sets.map((s) => s.target).join()), '10,8,8');
+
+    /* ---- backing out of an unsaved one asks first ---- */
+    await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('#newRoutine2').click());
+    await p2.waitForTimeout(600);
+    await p2.fill('#rbName', 'Half built');
+    await p2.click('#rbClose');
+    await p2.waitForTimeout(500);
+    t.check('leaving a half-built routine asks first', await p2.evaluate(() =>
+      /not been saved/.test(document.querySelector('.confirm-msg')?.textContent || '')));
+    await p2.click('#cfYes');
+    await p2.waitForTimeout(700);
+    t.check('and then lets it go', await p2.evaluate(() =>
+      !document.querySelector('#routineRoot .wk-overlay')));
+    t.check('without keeping it', !(await readState(p2)).templates.some((x) => x.name === 'Half built'));
 
     t.equal('no page errors', p2.errors.length, 0);
     await p2.close();

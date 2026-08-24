@@ -601,20 +601,22 @@ body {
   font-size: 0.6rem; font-weight: 800; letter-spacing: 0.05em;
   border-radius: 6px; padding: 2px 6px;
 }
-.rb-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
-.rb-row {
-  display: grid; grid-template-columns: 1fr 54px 14px 64px 34px; gap: 6px; align-items: center;
-  background: var(--surface-1); border: 1px solid var(--border); border-radius: 14px;
-  padding: 10px 12px;
+/* ---------- the routine builder: the logger, standing still ---------- */
+/* Two figures, not the logger's three — a routine has no clock. */
+.rb-stats { grid-template-columns: 1fr 1fr; }
+.rb-name-field { margin-bottom: 16px; }
+.rb-name-field input { font-size: 1rem; font-weight: 600; }
+/* Set · last time · reps · take it away */
+.set-grid.rb-grid { grid-template-columns: 40px 1fr 1fr 40px; gap: 8px; }
+.rb-block .set-num { background: var(--surface-2); color: var(--ink-2); cursor: default; }
+.rb-drop-set {
+  border: none; background: none; color: var(--ink-muted); cursor: pointer;
+  display: grid; place-items: center; min-height: 40px; border-radius: 10px;
 }
-.rb-name { font-weight: 700; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rb-sets, .rb-reps {
-  min-height: 40px; border-radius: 10px; text-align: center;
-  border: 1px solid var(--border); background: var(--surface-2); color: var(--ink-1);
-  font: inherit; font-weight: 600; width: 100%;
-}
-.rb-x { text-align: center; color: var(--ink-muted); }
-.rb-del { border: none; background: none; color: var(--ink-muted); cursor: pointer; font-size: 1rem; padding: 6px; }
+.rb-drop-set svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.rb-add-set { width: 100%; margin-top: 12px; }
+/* the tab bar belongs to the page underneath, not to a full-screen builder */
+body.rb-open .tab-bar, body.rb-open .mini-bar { display: none; }
 
 .water-card { display: flex; align-items: center; justify-content: space-between; }
 .water-count { font-size: 1.05rem; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; }
