@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '12.7';
+  const APP_VERSION = '12.8';
 
   /* ---------------- state ---------------- */
 
@@ -3380,12 +3380,16 @@
           '<div class="tpl-item" data-tpl="' + esc(t.id) + '" role="button" tabindex="0">' +
             '<div>' +
               '<div class="li-name">' + esc(t.name) + '</div>' +
-              '<div class="li-sub">' + t.exercises.length + ' exercises · ' +
+              '<div class="li-sub">' + t.exercises.length + ' exercise' + (t.exercises.length === 1 ? '' : 's') + ' · ' +
                 t.exercises.map((e) => exerciseById(e.exerciseId)?.name).filter(Boolean).slice(0, 3).join(' · ') +
                 (t.exercises.length > 3 ? ' · …' : '') + '</div>' +
             '</div>' +
-            '<button class="icon-btn" data-edit-tpl="' + esc(t.id) + '" aria-label="Edit routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/></svg></button>' +
-            '<button class="icon-btn" data-del-tpl="' + esc(t.id) + '" aria-label="Delete routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg></button>' +
+            '<div class="tpl-acts">' +
+              '<button class="icon-btn" data-edit-tpl="' + esc(t.id) + '" aria-label="Edit routine">' +
+                '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/></svg></button>' +
+              '<button class="icon-btn" data-del-tpl="' + esc(t.id) + '" aria-label="Delete routine">' +
+                '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg></button>' +
+            '</div>' +
           '</div>').join('') +
         (templates.length ? '' : '<p class="empty-note" style="padding:14px">No routines. Add one, or bring the originals back.</p>') +
         '<button class="tpl-add" id="newRoutine2">' +

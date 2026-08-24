@@ -317,6 +317,20 @@ module.exports = async (t) => {
       [...document.querySelectorAll('.tpl-item')].every((el) =>
         el.querySelector('[data-edit-tpl]') && el.querySelector('[data-del-tpl]'))));
 
+    /* The buttons form a column: a longer routine name must not push them
+       along the row, and they must all be the same size. */
+    const boxes = await p2.evaluate(() => [...document.querySelectorAll('.tpl-item')]
+      .map((el) => [...el.querySelectorAll('.icon-btn')].map((b) => {
+        const r = b.getBoundingClientRect();
+        return [Math.round(r.left), Math.round(r.width), Math.round(r.height)].join();
+      }).join('|')));
+    t.check('the pencil and the bin line up down the list',
+      boxes.length > 1 && boxes.every((b) => b === boxes[0]), boxes.join(' / '));
+    t.check('and are square, not squeezed', await p2.evaluate(() => {
+      const r = document.querySelector('.tpl-acts .icon-btn').getBoundingClientRect();
+      return Math.round(r.width) === Math.round(r.height);
+    }));
+
     // edit one of the built-ins
     await p2.evaluate(() => document.querySelector('[data-edit-tpl="tpl-push"]').click());
     await p2.waitForTimeout(600);
@@ -377,6 +391,9 @@ module.exports = async (t) => {
     await p2.click('#rbSave');
     await p2.waitForTimeout(700);
     t.check('a new routine joins the list', (await names()).includes('Arms'));
+    t.check('and counts its one exercise in the singular', await p2.evaluate(() =>
+      [...document.querySelectorAll('.tpl-item')].some((el) =>
+        /Arms/.test(el.textContent) && /1 exercise · /.test(el.querySelector('.li-sub').textContent))));
     const mine = (await readState(p2)).templates.find((x) => x.name === 'Arms');
     await p2.evaluate((id) => document.querySelector('[data-del-tpl="' + id + '"]').click(), mine.id);
     await p2.waitForTimeout(500);
