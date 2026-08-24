@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '13.0';
+  const APP_VERSION = '13.1';
 
   /* ---------------- state ---------------- */
 
@@ -1764,7 +1764,7 @@
     ];
     return rows.map(([label, val, target]) => {
       const pct = target ? Math.min(100, (val / target) * 100) : 0;
-      const st = goalState(val, target, macroKind(label));
+      const st = goalState(val, target);
       return `
       <div class="macro-row">
         <div class="m-head">
@@ -1784,7 +1784,7 @@
     const totals = dayTotals(todayKey);
     const targets = state.nutrition.targets;
     const frac = targets.kcal ? totals.kcal / targets.kcal : 0;
-    const kSt = goalState(totals.kcal, targets.kcal, 'kcal');
+    const kSt = goalState(totals.kcal, targets.kcal);
     const over = kSt === 'over';
 
     // week strip: Monday-based current week
@@ -1904,7 +1904,7 @@
         <div class="kl-macros">
           ${macros.map(([label, val, target]) => {
             const pct = target ? Math.min(100, (val / target) * 100) : 0;
-            const mSt = goalState(val, target, macroKind(label));
+            const mSt = goalState(val, target);
             return `
             <div class="klm">
               <div class="klm-head"><span class="klm-name">${label}</span><span class="klm-val ${mSt}">${Math.round(val)}<i>/${target}g</i></span></div>
@@ -1972,7 +1972,7 @@
     const totals = dayTotals(todayKey);
     const targets = state.nutrition.targets;
     const frac = targets.kcal ? totals.kcal / targets.kcal : 0;
-    const kSt = goalState(totals.kcal, targets.kcal, 'kcal');
+    const kSt = goalState(totals.kcal, targets.kcal);
     const over = kSt === 'over';
     const kcalPct = Math.round(frac * 100);
     const RING = 2 * Math.PI * 22;
@@ -2096,7 +2096,7 @@
         '<div class="kl-macros">' +
           [['Protein', totals.protein, targets.protein], ['Carbs', totals.carbs, targets.carbs], ['Fat', totals.fat, targets.fat]].map(([label, val, target]) => {
             const pct = target ? Math.min(100, (val / target) * 100) : 0;
-            const mSt = goalState(val, target, macroKind(label));
+            const mSt = goalState(val, target);
             return '<div class="klm">' +
               '<div class="klm-head"><span class="klm-name">' + label + '</span>' +
                 '<span class="klm-val ' + mSt + '">' + Math.round(val) + '<i>/' + target + 'g</i></span></div>' +
@@ -2263,20 +2263,21 @@
      it reads as done rather than a warning — 181 g against a 180 g protein
      goal is a goal met, not a mistake, and no portion can land on it exactly.
      Only calories clearly past the goal (10% over) are still worth flagging. */
-  const OVER_SLACK = 1.1;        // calories: 10% past the goal is still fine
-  const FAT_SLACK = 10;          // fat: 10 g past it is not
-  function goalState(val, target, kind) {
+  const OVER_SLACK = 1.1;        // a day within 10% of the goal still counts as one you hit
+  function goalState(val, target) {
     if (!target || val < target) return '';
-    if (kind === 'kcal' && val > target * OVER_SLACK) return 'over';
-    if (kind === 'fat' && val > target + FAT_SLACK) return 'over';
-    return 'done';               // protein and carbs are never a problem to pass
+    /* Judge by the numbers on screen, which are whole: 170.4 g against a
+       170 g goal reads as "170" and is not over anything. Anything that
+       genuinely reads as more than the goal is over it — carbs and fat
+       included, since a goal you have passed is not a goal you have met. */
+    if (Math.round(val) > Math.round(target)) return 'over';
+    return 'done';
   }
-  const macroKind = (label) => (String(label).toLowerCase() === 'fat' ? 'fat' : '');
   const goalStroke = (st) => (st === 'over' ? 'var(--critical)' : st === 'done' ? 'var(--done)' : 'var(--ink-1)');
 
   function macroRing(label, val, target, size) {
     const frac = target ? Math.min(1, val / target) : 0;
-    const st = goalState(val, target, macroKind(label));
+    const st = goalState(val, target);
     const r = 15.5, C = 2 * Math.PI * r;
     const left = Math.max(0, Math.round(target - val));
     return '' +
@@ -2301,7 +2302,7 @@
     const totals = dayTotals(key);
     const targets = state.nutrition.targets;
     const frac = targets.kcal ? totals.kcal / targets.kcal : 0;
-    const kSt = goalState(totals.kcal, targets.kcal, 'kcal');
+    const kSt = goalState(totals.kcal, targets.kcal);
     const over = kSt === 'over';
     const left = Math.round(targets.kcal - totals.kcal);
     const label = mealDayOffset === 0 ? 'Today' : mealDayOffset === -1 ? 'Yesterday' : fmtDate(day.getTime());
@@ -2491,7 +2492,7 @@
       '<div class="nw-bars">' +
         days.map((d) => {
           const h = peak ? Math.max(3, Math.round((d.kcal / peak) * 100)) : 3;
-          const st = d.kcal ? goalState(d.kcal, t.kcal, 'kcal') : '';
+          const st = d.kcal ? goalState(d.kcal, t.kcal) : '';
           return '<div class="nw-day">' +
             '<div class="nw-col"><span class="nw-fill ' + st + '" style="height:' + h + '%"></span></div>' +
             '<span class="nw-let">' + d.letter + '</span></div>';

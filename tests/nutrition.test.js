@@ -140,67 +140,60 @@ module.exports = async (t) => {
   await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
   await page.waitForTimeout(350);
 
-  // reaching a target is a goal met, not a warning
-  await page.evaluate(() => {
-    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
-    const key = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0');
-    st.nutrition.targets = { kcal: 2800, protein: 180, carbs: 300, fat: 70 };
-    st.nutrition.meals = [{ id: 'goal', date: key, slot: 'lunch', time: '13:00', name: 'Day', kcal: 2860, protein: 181, carbs: 280, fat: 60 }];
-    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
-  });
-  await page.reload();
-  await page.waitForTimeout(600);
-  const hit = await page.evaluate(() => {
-    const p = [...document.querySelectorAll('.nm-card')].find((c) => /Protein/.test(c.textContent)).querySelector('.nm-left');
-    return { text: p.textContent, cls: p.className, hero: document.querySelector('.nh-num').className,
-      heroText: document.querySelector('.nut-hero').textContent.replace(/\s+/g, ' ') };
-  });
-  t.check('one gram past the protein goal reads as done', /done/.test(hit.cls) && !/over/.test(hit.cls), hit.cls);
-  t.equal('and says so', hit.text.trim(), 'goal hit');
-  t.check('calories just past the goal are not flagged', /done/.test(hit.hero) && !/over/.test(hit.hero), hit.hero);
-  t.check('the hero says the goal was reached', /Goal reached/.test(hit.heroText), hit.heroText);
-
-  // clearly past the calorie goal is still worth flagging
-  await page.evaluate(() => {
-    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
-    st.nutrition.meals[0].kcal = 3400;
-    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
-  });
-  await page.reload();
-  await page.waitForTimeout(600);
-  const blown = await page.evaluate(() => ({
-    hero: document.querySelector('.nh-num').className,
-    text: document.querySelector('.nut-hero').textContent.replace(/\s+/g, ' '),
-    protein: [...document.querySelectorAll('.nm-card')].find((c) => /Protein/.test(c.textContent)).querySelector('.nm-left').className,
-  }));
-  t.check('600 kcal past the goal is marked over', /over/.test(blown.hero), blown.hero);
-  t.check('and says how far over', /over your goal/.test(blown.text), blown.text);
-  t.check('but protein stays done', /done/.test(blown.protein), blown.protein);
-
-  // fat is the one macro worth flagging: 10 g of slack, then red
-  const macroStates = async (fat) => {
-    await page.evaluate((f) => {
+  /* Reaching a target is a goal met; passing it is not. Under reads plain,
+     exactly on reads as done, and anything that shows as more than the goal
+     reads as over — every macro, calories included. */
+  const setDay = async (day) => {
+    await page.evaluate((d) => {
       const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
-      st.nutrition.meals[0] = { ...st.nutrition.meals[0], kcal: 2400, protein: 181, carbs: 320, fat: f };
+      const now = new Date();
+      const key = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+      st.nutrition.targets = { kcal: 2800, protein: 180, carbs: 300, fat: 70 };
+      st.nutrition.meals = [{ id: 'goal', date: key, slot: 'lunch', time: '13:00', name: 'Day', ...d }];
       localStorage.setItem('bela-gym-v1', JSON.stringify(st));
-    }, fat);
+    }, day);
     await page.reload();
-    await page.waitForTimeout(550);
+    await page.waitForTimeout(600);
     return page.evaluate(() => {
-      const out = {};
+      const out = { hero: document.querySelector('.nh-num').className.replace('nh-num', '').trim(),
+        heroText: document.querySelector('.nut-hero').textContent.replace(/\s+/g, ' ') };
       document.querySelectorAll('.nm-card').forEach((c) => {
-        out[c.querySelector('.nm-name').textContent.toLowerCase()] = c.querySelector('.nm-left').className.replace('nm-left', '').trim();
+        const left = c.querySelector('.nm-left');
+        const name = c.querySelector('.nm-name').textContent.toLowerCase();
+        out[name] = left.className.replace('nm-left', '').trim();
+        out[name + 'Text'] = left.textContent.trim();
       });
       return out;
     });
   };
-  const fatOk = await macroStates(80);      // 10 g over a 70 g goal
-  t.equal('10 g past the fat goal is still done', fatOk.fat, 'done');
-  t.equal('carbs past their goal stay done', fatOk.carbs, 'done');
-  const fatBad = await macroStates(88);     // 18 g over
-  t.equal('well past the fat goal turns red', fatBad.fat, 'over');
-  t.equal('while carbs are still done', fatBad.carbs, 'done');
-  t.equal('and protein too', fatBad.protein, 'done');
+
+  const exact = await setDay({ kcal: 2800, protein: 180, carbs: 300, fat: 70 });
+  t.equal('landing exactly on the protein goal is done', exact.protein, 'done');
+  t.equal('and says so', exact.proteinText, 'goal hit');
+  t.equal('carbs too', exact.carbs, 'done');
+  t.equal('and fat', exact.fat, 'done');
+  t.check('and the calories', /\bdone\b/.test(exact.hero) && !/\bover\b/.test(exact.hero), exact.hero);
+  t.check('the hero says the goal was reached', /Goal reached/.test(exact.heroText), exact.heroText);
+
+  const past = await setDay({ kcal: 2860, protein: 181, carbs: 320, fat: 80 });
+  t.equal('one gram past the protein goal is over it', past.protein, 'over');
+  t.equal('and says how far', past.proteinText, '1g over');
+  t.equal('carbs past their goal are over too', past.carbs, 'over');
+  t.equal('so is fat', past.fat, 'over');
+  t.check('and calories past theirs', /\bover\b/.test(past.hero), past.hero);
+  t.check('with the hero saying how far over', /over your goal/.test(past.heroText), past.heroText);
+
+  // the numbers on screen are whole, so a rounding hair is not "over"
+  const hair = await setDay({ kcal: 2800.4, protein: 180.4, carbs: 300.2, fat: 70.3 });
+  t.equal('a fraction that still reads as the goal is not over', hair.protein, 'done');
+  t.equal('nor for carbs', hair.carbs, 'done');
+  t.equal('nor fat', hair.fat, 'done');
+  t.check('nor the calories', /\bdone\b/.test(hair.hero) && !/\bover\b/.test(hair.hero), hair.hero);
+
+  const under = await setDay({ kcal: 1900, protein: 120, carbs: 200, fat: 40 });
+  t.equal('short of the goal reads plain', under.protein, '');
+  t.equal('with what is left to go', under.proteinText, '60g left');
+  t.check('and the calories plain too', !/\b(done|over)\b/.test(under.hero), under.hero);
 
   // swiping a meal row deletes it, holding one offers what to do with it
   // the earlier checks leave the page on some day; step until one has meals
