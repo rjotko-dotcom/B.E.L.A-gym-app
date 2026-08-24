@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '12.8';
+  const APP_VERSION = '12.9';
 
   /* ---------------- state ---------------- */
 
@@ -3109,15 +3109,19 @@
       <div id="foodList">${listHtml('')}</div>
       <div class="section-title">Custom entry</div>
       <div class="field"><label for="cmName">Name</label><input id="cmName" type="text" placeholder="e.g. Chicken bowl"></div>
-      <div class="amount-row">
-        <div class="field"><label for="cmAmt">Amount</label><input id="cmAmt" type="number" inputmode="decimal" min="0" value="100"></div>
+      <div class="field" id="cmUnitWrap">
+        <label>The numbers are for</label>
         <div class="seg seg-unit" id="cmUnit">
-          <button data-u="g" class="is-on">g</button>
+          <button data-u="whole" class="is-on">whole</button>
+          <button data-u="g">g</button>
           <button data-u="ml">ml</button>
           <button data-u="piece">item</button>
         </div>
       </div>
-      <p class="portion-per" id="cmHint">Enter what is in that much of it.</p>
+      <div class="amount-row" id="cmAmtWrap" hidden>
+        <div class="field"><label for="cmAmt">Amount</label><input id="cmAmt" type="number" inputmode="decimal" min="0" value="100"></div>
+      </div>
+      <p class="portion-per" id="cmHint">Enter what the whole thing has — no weighing.</p>
       <div class="field" id="cmSNameWrap">
         <label for="cmSName">Call one of those… <span class="lbl-opt">optional</span></label>
         <input id="cmSName" type="text" placeholder="e.g. slice, scoop, bowl, handful" autocomplete="off">
@@ -3132,7 +3136,7 @@
         <div class="field"><label for="cmFat">Fat g</label><input id="cmFat" type="number" inputmode="decimal" min="0" placeholder="0"></div>
       </div>
       <label class="switch-row">
-        <span><b>Remember this food</b><i>Keeps it under My foods so you never type it twice — any portion works from then on</i></span>
+        <span><b>Remember this food</b><i id="cmSaveWhy">Keeps it under My foods, so next time it is one tap</i></span>
         <input type="checkbox" id="cmSave" checked>
       </label>
       <button class="btn btn-primary" id="cmAdd" style="margin-top:16px">Add meal</button>
@@ -3205,14 +3209,29 @@
         toast(meal.name + ' logged');
       });
 
-      // custom entry — the numbers describe the amount typed above them
-      let cUnit = 'g';
+      /* Custom entry. A plate in a restaurant has no gram figure on it — you
+         know what the whole thing came to and nothing else — so that is what
+         it asks for by default, and the amount box only appears when the
+         numbers really do describe some quantity of something. Underneath,
+         "the lot" is one item you had one of, so it can still be logged
+         twice, or edited, like anything else. */
+      let cUnit = 'whole';
       const hint = $('#cmHint', body), amt = $('#cmAmt', body);
+      const whole = () => cUnit === 'whole';
       const paintHint = () => {
         const n = Number(amt.value) || 0;
-        hint.textContent = cUnit === 'piece'
-          ? (n === 1 ? 'Enter what is in one of them.' : 'Enter what is in ' + round1(n) + ' of them.')
-          : 'Enter what is in ' + round1(n) + ' ' + cUnit + ' of it.';
+        hint.textContent = whole()
+          ? 'Enter what the whole thing has — no weighing.'
+          : cUnit === 'piece'
+            ? (n === 1 ? 'Enter what is in one of them.' : 'Enter what is in ' + round1(n) + ' of them.')
+            : 'Enter what is in ' + round1(n) + ' ' + cUnit + ' of it.';
+        $('#cmAmtWrap', body).hidden = whole();
+        // counting pieces is already counting; naming the portion adds nothing
+        $('#cmSNameWrap', body).hidden = whole() || cUnit === 'piece';
+        $('#cmSaveWhy', body).textContent = whole()
+          ? 'Keeps it under My foods, so next time it is one tap'
+          : 'Keeps it under My foods so you never type it twice — any portion works from then on';
+        $('#cmAdd', body).textContent = whole() ? 'Add meal' : 'Add ' + round1(n) + (cUnit === 'piece' ? '×' : ' ' + cUnit);
       };
       paintHint();
       amt.addEventListener('input', paintHint);
@@ -3221,30 +3240,37 @@
         $$('#cmUnit button', body).forEach((x) => x.classList.toggle('is-on', x === b));
         if (cUnit === 'piece' && Number(amt.value) === 100) amt.value = 1;
         if (cUnit !== 'piece' && Number(amt.value) === 1) amt.value = 100;
-        // counting pieces is already counting; naming the portion adds nothing
-        $('#cmSNameWrap', body).hidden = cUnit === 'piece';
         paintHint();
       }));
 
       $('#cmAdd', body).addEventListener('click', () => {
         const name = $('#cmName', body).value.trim();
         const num = (sel) => Number($(sel, body).value) || 0;
-        const amount = Number(amt.value) || 0;
+        // one whole thing, of which you had one
+        const unit = whole() ? 'piece' : cUnit;
+        const amount = whole() ? 1 : Number(amt.value) || 0;
         const macros = { kcal: num('#cmKcal'), protein: num('#cmProtein'), carbs: num('#cmCarbs'), fat: num('#cmFat') };
         if (!name) { toast('Give the meal a name'); return; }
         if (!macros.kcal) { toast('Enter calories'); return; }
         if (!amount) { toast('Enter an amount'); return; }
-        const sname = $('#cmSName', body).value.trim();
-        const basis = { name, unit: cUnit, per: cUnit === 'piece' ? 1 : 100, serving: amount, sname };
+        const sname = whole() ? '' : $('#cmSName', body).value.trim();
+        const basis = { name, unit, per: unit === 'piece' ? 1 : 100, serving: amount, sname };
         if ($('#cmSave', body).checked) {
-          const factor = (cUnit === 'piece' ? 1 : 100) / amount;
+          const factor = (unit === 'piece' ? 1 : 100) / amount;
           rememberFood({
             ...basis,
             kcal: round1(macros.kcal * factor), protein: round1(macros.protein * factor),
             carbs: round1(macros.carbs * factor), fat: round1(macros.fat * factor),
           });
         }
-        addMeal({ name: portionName(basis, amount), ...macros });
+        addMeal({
+          name: portionName(basis, amount), ...macros,
+          base: { name, unit, per: unit === 'piece' ? 1 : 100, serving: amount, sname: sname || undefined,
+            ...(() => { const k = (unit === 'piece' ? 1 : 100) / amount;
+              return { kcal: Math.round(macros.kcal * k), protein: round1(macros.protein * k),
+                carbs: round1(macros.carbs * k), fat: round1(macros.fat * k) }; })() },
+          amount,
+        });
       });
     });
   }

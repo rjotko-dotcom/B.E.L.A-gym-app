@@ -80,6 +80,9 @@ module.exports = async (t) => {
   await page.click('.slot-add[data-slot="dinner"]');
   await page.waitForTimeout(450);
   await page.fill('#cmName', 'Skyr vanilla');
+  // the numbers describe the whole thing unless you pick a unit
+  await page.evaluate(() => document.querySelector('#cmUnit button[data-u="g"]').click());
+  await page.waitForTimeout(250);
   await page.fill('#cmAmt', '150');
   await page.fill('#cmKcal', '96');
   await page.fill('#cmProtein', '16.5');
@@ -494,6 +497,74 @@ module.exports = async (t) => {
     await p3.close();
   }
 
+  /* ---- a whole meal, with no grams to give ----
+     A plate in a restaurant has no weight on it; you know what the whole
+     thing came to and nothing else. */
+  {
+    const p5 = await openApp(t.browser, { url: server.url, seed: build() });
+    await p5.click('.tab[data-tab="meals"]');
+    await p5.waitForTimeout(450);
+    await p5.evaluate(() => document.querySelector('.slot-add[data-slot="lunch"]').click());
+    await p5.waitForTimeout(550);
+
+    const look = () => p5.evaluate(() => ({
+      on: document.querySelector('#cmUnit .is-on').textContent,
+      amount: document.querySelector('#cmAmtWrap').hidden,
+      portionName: document.querySelector('#cmSNameWrap').hidden,
+      hint: document.querySelector('#cmHint').textContent,
+      button: document.querySelector('#cmAdd').textContent,
+    }));
+    const first = await look();
+    t.equal('typing a meal in starts on the whole thing', first.on, 'whole');
+    t.check('so there is no amount to fill in', first.amount);
+    t.check('and nothing to name a portion', first.portionName);
+    t.equal('it says so', first.hint, 'Enter what the whole thing has — no weighing.');
+    t.equal('and the button just adds the meal', first.button, 'Add meal');
+
+    await p5.fill('#cmName', 'iLunch — vištiena, ryžiai, frī');
+    await p5.fill('#cmKcal', '780');
+    await p5.fill('#cmProtein', '46');
+    await p5.fill('#cmCarbs', '88');
+    await p5.fill('#cmFat', '22');
+    await p5.click('#cmAdd');
+    await p5.waitForTimeout(800);
+
+    const st = await readState(p5);
+    const meal = st.nutrition.meals[st.nutrition.meals.length - 1];
+    t.equal('the meal goes in under its own name', meal.name, 'iLunch — vištiena, ryžiai, frī');
+    t.equal('with the numbers exactly as typed', meal.kcal, 780);
+    t.equal('and the protein', meal.protein, 46);
+    const food = st.foods.find((f) => /iLunch/.test(f.name));
+    t.check('it is remembered as one whole thing', !!food && food.unit === 'piece' && food.serving === 1);
+    t.equal('holding the whole meal, not a per-100 g figure', food.kcal, 780);
+
+    // picking a unit brings the amount back
+    await p5.evaluate(() => document.querySelector('.slot-add[data-slot="dinner"]').click());
+    await p5.waitForTimeout(550);
+    await p5.evaluate(() => document.querySelector('#cmUnit button[data-u="g"]').click());
+    await p5.waitForTimeout(250);
+    const grams = await look();
+    t.check('choosing grams brings the amount back', !grams.amount);
+    t.equal('and says what it is for', grams.hint, 'Enter what is in 100 g of it.');
+    t.equal('the button says what it will log', grams.button, 'Add 100 g');
+
+    // eating it twice still works
+    await p5.evaluate(() => document.querySelector('#cmUnit button[data-u="whole"]').click());
+    await p5.waitForTimeout(250);
+    await p5.evaluate(() => [...document.querySelectorAll('#foodList .lib-item')]
+      .find((r) => /iLunch/.test(r.textContent)).click());
+    await p5.waitForTimeout(600);
+    await p5.fill('#pdAmt', '2');
+    await p5.evaluate(() => document.querySelector('#pdAmt').dispatchEvent(new Event('input')));
+    await p5.click('#pdAdd');
+    await p5.waitForTimeout(800);
+    const two = (await readState(p5)).nutrition.meals.slice(-1)[0];
+    t.check('and a second helping doubles it', /2×/.test(two.name) && two.kcal === 1560, two.name + ' ' + two.kcal);
+
+    t.equal('no page errors', p5.errors.length, 0);
+    await p5.close();
+  }
+
   /* ---- naming the portion when you type the food in ---- */
   {
     const p4 = await openApp(t.browser, { url: server.url, seed: build() });
@@ -502,6 +573,9 @@ module.exports = async (t) => {
     await p4.evaluate(() => document.querySelector('.slot-add[data-slot="breakfast"]').click());
     await p4.waitForTimeout(550);
     await p4.fill('#cmName', 'Rye bread');
+    // the numbers are for the whole thing unless you say otherwise
+    await p4.evaluate(() => document.querySelector('#cmUnit button[data-u="g"]').click());
+    await p4.waitForTimeout(250);
     await p4.fill('#cmAmt', '28');
     await p4.fill('#cmSName', 'slice');
     await p4.fill('#cmKcal', '77');

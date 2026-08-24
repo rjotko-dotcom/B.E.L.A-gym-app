@@ -399,8 +399,11 @@ body {
 }
 .qchip.is-on { background: var(--ink-1); color: var(--page); border-color: var(--ink-1); }
 .amount-row { display: flex; gap: 10px; align-items: flex-end; }
+/* an element told to hide must hide, whatever display it was given */
+[hidden] { display: none !important; }
 .amount-row .field { flex: 1; margin-bottom: 12px; }
-.seg-unit { flex: 0 0 auto; width: 148px; margin-bottom: 12px; }
+.seg-unit { margin-bottom: 0; }
+.seg-unit button { padding: 0 2px; }
 
 
 /* ---------- tab bar — bare icons over a fade of the page color ---------- */
@@ -1145,7 +1148,7 @@ body.has-mini .view.home-screen {
 .ip-btn.is-on { background: var(--pill); border-color: var(--pill); }
 .ip-btn.is-on svg { stroke: var(--pill-ink); }
 .seg { display: flex; gap: 6px; background: var(--surface-2); border-radius: 14px; padding: 4px; }
-.seg button { flex: 1; min-height: 40px; border: none; border-radius: 11px; background: transparent; color: var(--ink-2); font-size: 0.84rem; font-weight: 600; cursor: pointer; }
+.seg button { flex: 1; min-height: 40px; border: none; border-radius: 11px; background: transparent; color: var(--ink-2); font-size: 0.84rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .seg button.is-on { background: var(--surface-1); color: var(--ink-1); box-shadow: 0 1px 3px rgba(0,0,0,0.14); }
 .seg-slot { margin-bottom: 14px; }
 .seg-slot button { font-size: 0.78rem; }
