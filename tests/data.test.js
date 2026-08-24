@@ -130,16 +130,22 @@ module.exports = async (t) => {
   t.check('sessions light their day', dots.on > 0, String(dots.on));
   t.check('and are actually painted light', dots.colour !== 'rgb(43, 43, 43)', dots.colour);
 
-  // the week reads against the week before it, and lists the week's records
+  /* The week reads against the week before it, and lists the week's records.
+     Weeks run Monday to Sunday and only the days that have happened count, so
+     the sessions are placed relative to this week rather than "n days ago" —
+     otherwise the suite failed every Monday, when two days ago was last week. */
   await page.evaluate(() => {
     const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
-    const at = (back) => { const d = new Date(); d.setDate(d.getDate() - back); return d.getTime(); };
+    const at = (back, hour) => { const d = new Date(); d.setDate(d.getDate() - back); d.setHours(hour, 0, 0, 0); return d.getTime(); };
+    const sinceMonday = (new Date().getDay() + 6) % 7;      // 0 = it is Monday
+    const secondDay = sinceMonday >= 1 ? 1 : 0;             // still inside this week
     st.workouts = [
-      { id: 'lw', name: 'Push', startedAt: at(9), finishedAt: at(9) + 3.6e6,
+      // the same weekday a week ago is always in the week before, whatever day it is
+      { id: 'lw', name: 'Push', startedAt: at(7, 18), finishedAt: at(7, 18) + 3.6e6,
         exercises: [{ exerciseId: 'bench-press', sets: [{ weight: 80, reps: 8, done: true }] }] },
-      { id: 'tw1', name: 'Push', startedAt: at(2), finishedAt: at(2) + 3.6e6,
+      { id: 'tw1', name: 'Push', startedAt: at(secondDay, 10), finishedAt: at(secondDay, 10) + 3.6e6,
         exercises: [{ exerciseId: 'bench-press', sets: [{ weight: 95, reps: 8, done: true, pr: true }] }] },
-      { id: 'tw2', name: 'Legs', startedAt: at(1), finishedAt: at(1) + 3.6e6,
+      { id: 'tw2', name: 'Legs', startedAt: at(0, 18), finishedAt: at(0, 18) + 3.6e6,
         exercises: [{ exerciseId: 'squat', sets: [{ weight: 120, reps: 5, done: true }] }] },
     ];
     st.activeWorkout = null;
@@ -241,6 +247,40 @@ module.exports = async (t) => {
 
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
+
+  /* ---- a bodyweight is kept to 0.05, not rounded to a whole number ----
+     78.95 used to be stored as 79 — a number that was never on the scale. */
+  {
+    const page3 = await openApp(t.browser, { url: server.url, seed: build() });
+    const log = async (value) => {
+      await page3.click('#bwCard');
+      await page3.waitForTimeout(400);
+      await page3.fill('#bwInput', value);
+      await page3.click('#bwSave');
+      await page3.waitForTimeout(500);
+      const st = await readState(page3);
+      return st.nutrition.weights.find((w) => w.date === new Date().toISOString().slice(0, 10))
+        ?? st.nutrition.weights[st.nutrition.weights.length - 1];
+    };
+
+    t.equal('78.95 is stored as it was typed', (await log('78.95')).value, 78.95);
+    t.check('and is shown that way, not as 79',
+      /78\.95/.test(await page3.evaluate(() => document.querySelector('.bw-value, .hstat-val')?.textContent || '')));
+    t.equal('78.93 lands on the nearest 0.05', (await log('78.93')).value, 78.95);
+    t.equal('78.92 lands on the one below', (await log('78.92')).value, 78.9);
+    t.equal('a whole number stays whole', (await log('79')).value, 79);
+    t.check('and shows without a decimal',
+      /(^|\D)79(\D|$)/.test(await page3.evaluate(() => document.querySelector('.bw-value, .hstat-val')?.textContent || '')));
+
+    t.equal('the input steps in 0.05', await page3.evaluate(async () => {
+      document.querySelector('#bwCard').click();
+      await new Promise((r) => setTimeout(r, 400));
+      return document.querySelector('#bwInput').getAttribute('step');
+    }), '0.05');
+
+    t.equal('no page errors', page3.errors.length, 0);
+    await page3.close();
+  }
 
   // ---- a backup written before habits existed still imports ----
   const legacy = build();

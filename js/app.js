@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '12.4';
+  const APP_VERSION = '12.5';
 
   /* ---------------- state ---------------- */
 
@@ -218,7 +218,17 @@
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
     return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
   }
-  function fmtNum(n) { return n % 1 === 0 ? String(n) : n.toFixed(1); }
+  /* Two decimals at most, and never a trailing zero: 79 stays "79", 82.5 stays
+     "82.5", and 78.95 is not quietly rounded up to "79". */
+  function fmtNum(n) {
+    if (!Number.isFinite(n)) return String(n);
+    return String(Math.round(n * 100) / 100);
+  }
+  /* A bathroom scale reads in steps of 0.05, so that is what a bodyweight is
+     kept to. Rounding to a tenth turned 78.95 into 79 — a whole number that
+     was never on the scale. */
+  const WEIGHT_STEP = 0.05;
+  const roundWeight = (v) => (v == null || !Number.isFinite(v) ? v : Math.round(v * 20) / 20);
 
   // Epley estimated 1RM; for reps === 1 it's just the weight.
   function est1RM(weight, reps) {
@@ -321,7 +331,7 @@
     if (from === to) return 0;
     const f = to === 'lb' ? LB_PER_KG : 1 / LB_PER_KG;
     const lift = (v) => (v == null ? v : Math.round(v * f * 2) / 2);     // nearest 0.5
-    const body = (v) => (v == null ? v : Math.round(v * f * 10) / 10);   // nearest 0.1
+    const body = (v) => (v == null ? v : roundWeight(v * f));            // nearest 0.05
     let touched = 0;
 
     const doWorkout = (w) => {
@@ -478,7 +488,7 @@
     if (!goal || !lw) return null;
     const cutoff = dateKey(dayWithOffset(-30));
     const recent = state.nutrition.weights.filter((w) => w.date >= cutoff).sort((a, b) => a.date.localeCompare(b.date));
-    const togo = Math.round((lw.value - goal) * 10) / 10;
+    const togo = roundWeight(lw.value - goal);
     if (recent.length < 2) return { togo, rate: null };
     const first = recent[0], last = recent[recent.length - 1];
     const days = Math.max(1, (new Date(last.date) - new Date(first.date)) / 864e5);
@@ -575,7 +585,7 @@
     let ref = ws[0];
     for (const w of ws) if (w.date <= weekAgoKey) ref = w;
     if (ref === last) ref = ws[ws.length - 2];
-    return Math.round((last.value - ref.value) * 10) / 10;
+    return roundWeight(last.value - ref.value);
   }
 
   const MEASURE_LABELS = { waist: 'Waist', chest: 'Chest', arm: 'Arm', thigh: 'Thigh', hips: 'Hips' };
@@ -1130,10 +1140,10 @@
     if (w > 0) {
       const today = dateKey();
       state.nutrition.weights = state.nutrition.weights.filter((x) => x.date !== today);
-      state.nutrition.weights.push({ date: today, value: Math.round(w * 10) / 10 });
+      state.nutrition.weights.push({ date: today, value: roundWeight(w) });
     }
     const goal = Number(setupDraft.goal);
-    if (goal > 0) s.goalWeight = Math.round(goal * 10) / 10;
+    if (goal > 0) s.goalWeight = roundWeight(goal);
     state.nutrition.targets = {
       kcal: Math.max(0, Math.round(Number(setupDraft.kcal) || 0)),
       protein: Math.max(0, Math.round(Number(setupDraft.protein) || 0)),
@@ -1174,12 +1184,12 @@
           ['kg', 'lb'].map((k) => '<button data-u="' + k + '" class="' + (k === u ? 'is-on' : '') + '">' + k + '</button>').join('') +
         '</div></div>' +
       '<div class="field"><label for="suWeight">What do you weigh now? (' + u + ')</label>' +
-        '<input id="suWeight" type="number" inputmode="decimal" min="0" step="0.1" placeholder="' + (u === 'kg' ? '78.5' : '173') + '" value="' + esc(setupDraft.weight) + '"></div>';
+        '<input id="suWeight" type="number" inputmode="decimal" min="0" step="' + WEIGHT_STEP + '" placeholder="' + (u === 'kg' ? '78.5' : '173') + '" value="' + esc(setupDraft.weight) + '"></div>';
 
     const step2 = '' +
       '<p class="confirm-msg">Where you are heading, and what a day should look like.</p>' +
       '<div class="field"><label for="suGoal">Goal weight (' + u + ')</label>' +
-        '<input id="suGoal" type="number" inputmode="decimal" min="0" step="0.1" placeholder="optional" value="' + esc(setupDraft.goal) + '"></div>' +
+        '<input id="suGoal" type="number" inputmode="decimal" min="0" step="' + WEIGHT_STEP + '" placeholder="optional" value="' + esc(setupDraft.goal) + '"></div>' +
       '<p class="su-note" id="suNote">Worked out from your weight — change anything that looks wrong.</p>' +
       '<div class="macro-fields">' +
         '<div class="field"><label for="suKcal">Calories</label><input id="suKcal" type="number" inputmode="numeric" min="0" value="' + setupDraft.kcal + '"></div>' +
@@ -1814,10 +1824,10 @@
         <div class="bw-main">
           <div class="bw-left">
             <span class="micro">Bodyweight</span>
-            <div class="bw-value"${lw ? ` data-roll="bw" data-roll-to="${lw.value}" data-roll-dec="1"` : ''}>${lw ? fmtNum(lw.value) : '—'}<span class="t-unit">${esc(unit())}</span></div>
+            <div class="bw-value"${lw ? ` data-roll="bw" data-roll-to="${lw.value}" data-roll-dec="2"` : ''}>${lw ? fmtNum(lw.value) : '—'}<span class="t-unit">${esc(unit())}</span></div>
             <div class="bw-delta">${
               stats && stats.week != null
-                ? `<span class="bw-arrow">${stats.week > 0 ? '↑' : stats.week < 0 ? '↓' : '→'}</span> <b>${Math.abs(stats.week).toFixed(1)} ${esc(unit())}</b> this week`
+                ? `<span class="bw-arrow">${stats.week > 0 ? '↑' : stats.week < 0 ? '↓' : '→'}</span> <b>${fmtNum(roundWeight(Math.abs(stats.week)))} ${esc(unit())}</b> this week`
                 : 'Tap to log today'
             }</div>
             <button class="bw-goal" id="bwGoal">
@@ -2006,10 +2016,10 @@
       '<div class="home-pair">' +
         '<button class="card hstat" id="bwCard">' +
           '<span class="micro">Bodyweight</span>' +
-          '<div class="hstat-val"' + (lw ? ' data-roll="bw" data-roll-to="' + lw.value + '" data-roll-dec="1"' : '') + '>' +
+          '<div class="hstat-val"' + (lw ? ' data-roll="bw" data-roll-to="' + lw.value + '" data-roll-dec="2"' : '') + '>' +
             (lw ? fmtNum(lw.value) : '—') + '<i>' + esc(unit()) + '</i></div>' +
           '<div class="hstat-sub">' + (st && st.week != null
-            ? (st.week > 0 ? '↑' : st.week < 0 ? '↓' : '→') + ' ' + Math.abs(st.week).toFixed(1) + ' ' + esc(unit()) + ' this week'
+            ? (st.week > 0 ? '↑' : st.week < 0 ? '↓' : '→') + ' ' + fmtNum(roundWeight(Math.abs(st.week))) + ' ' + esc(unit()) + ' this week'
             : 'Tap to log today') + '</div>' +
           '<div class="hstat-goalbox">' + goalProgressHTML() + '</div>' +
         '</button>' +
@@ -2104,7 +2114,7 @@
 
     const all = [...state.nutrition.weights].sort((a, b) => a.date.localeCompare(b.date));
     const start = all.length ? all[0].value : lw.value;
-    const togo = Math.round((lw.value - goal) * 10) / 10;
+    const togo = roundWeight(lw.value - goal);
     const span = Math.abs(start - goal);
     const done = Math.abs(start - lw.value);
     let pct = span > 0.05 ? Math.round(Math.min(100, Math.max(0, (done / span) * 100))) : 100;
@@ -2115,13 +2125,13 @@
 
     const proj = goalProjection();
     const note = reached ? 'Goal reached'
-      : Math.abs(togo).toFixed(1) + ' ' + u + ' to ' + (togo > 0 ? 'go' : 'gain') +
+      : fmtNum(Math.abs(togo)) + ' ' + u + ' to ' + (togo > 0 ? 'go' : 'gain') +
         (proj && proj.eta ? ' · ' + proj.eta.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '');
 
     return '' +
       '<div class="gb-note' + (reached ? ' all-done' : '') + '">' + note + '</div>' +
       '<div class="gb-track"><div class="gb-fill' + (reached ? ' all-done' : '') + '" style="width:' + (reached ? 100 : pct) + '%"></div></div>' +
-      '<div class="gb-ends"><span>' + fmtNum(Math.round(start * 10) / 10) + '</span><span>' + fmtNum(goal) + ' ' + u + '</span></div>';
+      '<div class="gb-ends"><span>' + fmtNum(roundWeight(start)) + '</span><span>' + fmtNum(goal) + ' ' + u + '</span></div>';
   }
 
   function renderHome() {
@@ -2138,19 +2148,19 @@
         if (!st) return '';
         const cell = (label, val, suffix) => `<div><span class="micro">${label}</span><b>${val}<i>${suffix}</i></b></div>`;
         return `<div class="bw-stats sheet-stats">
-          ${cell('7d avg', st.avg7 != null ? fmtNum(Math.round(st.avg7 * 10) / 10) : '—', esc(unit()))}
-          ${cell('Week', st.week != null ? (st.week > 0 ? '+' : '') + st.week.toFixed(1) : '—', esc(unit()))}
-          ${cell('30d', st.month != null ? (st.month > 0 ? '+' : '') + st.month.toFixed(1) : '—', esc(unit()))}
+          ${cell('7d avg', st.avg7 != null ? fmtNum(roundWeight(st.avg7)) : '—', esc(unit()))}
+          ${cell('Week', st.week != null ? (st.week > 0 ? '+' : '') + fmtNum(roundWeight(st.week)) : '—', esc(unit()))}
+          ${cell('30d', st.month != null ? (st.month > 0 ? '+' : '') + fmtNum(roundWeight(st.month)) : '—', esc(unit()))}
         </div>`;
       })()}
       <div class="field">
         <label for="bwInput">Today's weight (${esc(unit())})</label>
-        <input id="bwInput" type="number" inputmode="decimal" step="0.1" min="0"
+        <input id="bwInput" type="number" inputmode="decimal" step="${WEIGHT_STEP}" min="0"
                value="${existing ? existing.value : latestWeight()?.value ?? ''}" placeholder="e.g. 77.9">
       </div>
       <div class="field">
         <label for="bwGoalInput">Goal weight (optional)</label>
-        <input id="bwGoalInput" type="number" inputmode="decimal" step="0.1" min="0"
+        <input id="bwGoalInput" type="number" inputmode="decimal" step="${WEIGHT_STEP}" min="0"
                value="${state.settings.goalWeight ?? ''}" placeholder="e.g. 75">
       </div>
       <button class="btn btn-primary" id="bwSave">Save</button>
@@ -2160,7 +2170,7 @@
       input.focus();
       $('#bwSave', body).addEventListener('click', () => {
         const goalVal = Number($('#bwGoalInput', body).value);
-        if (goalVal > 0) state.settings.goalWeight = Math.round(goalVal * 10) / 10;
+        if (goalVal > 0) state.settings.goalWeight = roundWeight(goalVal);
         else delete state.settings.goalWeight;
         const val = Number(input.value);
         if (!val || val <= 0) {
@@ -2169,7 +2179,7 @@
           toast('Enter a weight'); return;
         }
         state.nutrition.weights = state.nutrition.weights.filter((w) => w.date !== todayKey);
-        state.nutrition.weights.push({ date: todayKey, value: Math.round(val * 10) / 10 });
+        state.nutrition.weights.push({ date: todayKey, value: roundWeight(val) });
         save(); closeSheet(); render();
         toast('Bodyweight logged');
       });
@@ -5080,7 +5090,7 @@
       if (!before) return opts.first || 'first week';
       const diff = now - before;
       if (!diff) return 'same as last week';
-      const n = opts.round ? Math.round(Math.abs(diff)).toLocaleString() : fmtNum(Math.round(Math.abs(diff) * 10) / 10);
+      const n = opts.round ? Math.round(Math.abs(diff)).toLocaleString() : fmtNum(roundWeight(Math.abs(diff)));
       return (diff > 0 ? '↑ ' : '↓ ') + n + (opts.suffix || '') + ' vs last week';
     };
 
@@ -5121,7 +5131,7 @@
         stat('Avg protein', avgProtein ? avgProtein + 'g' : '—', t.protein ? 'target ' + t.protein + 'g' : '',
           delta(avgProtein, prevProtein, { suffix: 'g a day' })) +
         stat('Bodyweight', wEnd ? fmtNum(wEnd.value) + ' ' + esc(unit()) : '—',
-          wDelta != null ? (wDelta > 0 ? '+' : '') + wDelta.toFixed(1) + ' ' + esc(unit()) + ' this week' : 'Log twice to compare') +
+          wDelta != null ? (wDelta > 0 ? '+' : '') + fmtNum(roundWeight(wDelta)) + ' ' + esc(unit()) + ' this week' : 'Log twice to compare') +
         stat('Days logged', past.filter((k) => mealsForDay(k).length || weightOn(k) ||
           state.workouts.some((w) => dateKey(new Date(w.startedAt)) === k)).length + ' / ' + past.length, 'so far') +
       '</div>' +
@@ -5258,14 +5268,14 @@
   function openPhotoCompare(a, b) {
     const [older, newer] = [a, b].sort((x, y) => x.date.localeCompare(y.date));
     const gap = Math.round((new Date(newer.date) - new Date(older.date)) / 864e5);
-    const dw = older.weight && newer.weight ? Math.round((newer.weight - older.weight) * 10) / 10 : null;
+    const dw = older.weight && newer.weight ? roundWeight(newer.weight - older.weight) : null;
     openSheet('Compare', '' +
       '<div class="ph-compare">' +
         [older, newer].map((r) => '<figure><img src="' + photoUrl(r.blob) + '" alt="">' +
           '<figcaption>' + esc(fmtShortDate(new Date(r.date + 'T12:00:00').getTime())) +
           (r.weight ? '<b>' + fmtNum(r.weight) + ' ' + esc(unit()) + '</b>' : '') + '</figcaption></figure>').join('') +
       '</div>' +
-      '<p class="ph-summary">' + gap + ' days apart' + (dw != null ? ' · ' + (dw > 0 ? '+' : '') + dw.toFixed(1) + ' ' + esc(unit()) : '') + '</p>' +
+      '<p class="ph-summary">' + gap + ' days apart' + (dw != null ? ' · ' + (dw > 0 ? '+' : '') + fmtNum(dw) + ' ' + esc(unit()) : '') + '</p>' +
       '<button class="btn btn-quiet" id="phBack">Back to photos</button>' +
       '<button class="btn btn-danger" id="phDel" style="margin-top:10px">Delete the newer photo</button>',
     (body) => {
