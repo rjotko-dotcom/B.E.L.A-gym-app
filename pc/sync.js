@@ -50,6 +50,7 @@
     { name: 'settings', path: ['settings'] },
     { name: 'targets', path: ['nutrition', 'targets'] },
     { name: 'schedule', path: ['schedule'] },
+    { name: 'tplHidden', path: ['tplHidden'] },
     { name: 'habitOrder', path: ['habits'], derive: (v) => (v || []).map((h) => h.id) },
   ];
 

@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '12.6';
+  const APP_VERSION = '12.7';
 
   /* ---------------- state ---------------- */
 
@@ -26,6 +26,7 @@
     habitLog: {},     // { 'YYYY-MM-DD': { habitId: value } }
     customExercises: [],
     templates: [],
+    tplHidden: [],    // built-in routines you removed
     workouts: [],          // finished workouts, newest first
     activeWorkout: null,
   });
@@ -131,6 +132,7 @@
   function normalize(parsed, d = defaultState()) {
     if (!Array.isArray(parsed.savedMeals)) parsed.savedMeals = [];
     if (!Array.isArray(parsed.foods)) parsed.foods = [];
+    if (!Array.isArray(parsed.tplHidden)) parsed.tplHidden = [];
     if (!Array.isArray(parsed.schedule) || parsed.schedule.length !== 7) parsed.schedule = [null, null, null, null, null, null, null];
     if (!parsed.habits) parsed.habits = starterHabits();
     if (!parsed.habitLog) parsed.habitLog = {};
@@ -364,7 +366,29 @@
 
   const DOW_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   function todayIndex() { return (new Date().getDay() + 6) % 7; }   // 0 = Monday
-  function allTemplates() { return [...BUILTIN_TEMPLATES, ...state.templates]; }
+  /* The four routines the app ships with are yours to change. Editing one
+     keeps its id and saves your version alongside, which then stands in its
+     place; deleting one puts its id here and the original steps aside. Nothing
+     is lost either way — the originals are in the code, so they can come
+     back. */
+  const isBuiltinId = (id) => BUILTIN_TEMPLATES.some((b) => b.id === id);
+  function allTemplates() {
+    const hidden = new Set(state.tplHidden || []);
+    const mine = (state.templates || []).filter((t) => !hidden.has(t.id));
+    const byId = new Map(mine.map((t) => [t.id, t]));
+    const out = [];
+    BUILTIN_TEMPLATES.forEach((t) => {
+      if (hidden.has(t.id)) return;
+      out.push(byId.get(t.id) || t);      // your version of it, if you changed one
+      byId.delete(t.id);
+    });
+    mine.forEach((t) => { if (byId.has(t.id)) out.push(t); });
+    return out;
+  }
+  const templateById = (id) => allTemplates().find((t) => t.id === id)
+    || BUILTIN_TEMPLATES.find((t) => t.id === id)
+    || (state.templates || []).find((t) => t.id === id)
+    || null;
   function plannedFor(i) {
     const id = (state.schedule || [])[i];
     if (!id) return null;
@@ -3256,7 +3280,7 @@
 
   function renderWorkout() {
     const v = $('#view');
-    const templates = [...BUILTIN_TEMPLATES, ...state.templates];
+    const templates = allTemplates();
     const active = state.activeWorkout;
     const last = state.workouts[0];
     const lw = latestWeight();
@@ -3360,13 +3384,18 @@
                 t.exercises.map((e) => exerciseById(e.exerciseId)?.name).filter(Boolean).slice(0, 3).join(' · ') +
                 (t.exercises.length > 3 ? ' · …' : '') + '</div>' +
             '</div>' +
-            (t.builtin ? '' :
-              '<button class="icon-btn" data-edit-tpl="' + esc(t.id) + '" aria-label="Edit routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/></svg></button>' +
-              '<button class="icon-btn" data-del-tpl="' + esc(t.id) + '" aria-label="Delete routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg></button>') +
+            '<button class="icon-btn" data-edit-tpl="' + esc(t.id) + '" aria-label="Edit routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/></svg></button>' +
+            '<button class="icon-btn" data-del-tpl="' + esc(t.id) + '" aria-label="Delete routine" style="width:36px;height:36px"><svg viewBox="0 0 24 24" style="width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg></button>' +
           '</div>').join('') +
+        (templates.length ? '' : '<p class="empty-note" style="padding:14px">No routines. Add one, or bring the originals back.</p>') +
         '<button class="tpl-add" id="newRoutine2">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>New routine</button>' +
       '</div>' +
+      // deleting one of the four the app came with is never final
+      ((state.tplHidden || []).length
+        ? '<button class="btn btn-quiet" id="tplRestore" style="margin-top:10px">Bring back ' +
+            (state.tplHidden.length === 1 ? 'the removed routine' : 'the ' + state.tplHidden.length + ' removed routines') + '</button>'
+        : '') +
 
       '';
 
@@ -3374,6 +3403,7 @@
     $('#startEmpty').addEventListener('click', () => startWorkout());
     $('#newRoutine').addEventListener('click', () => openRoutineBuilder());
     $('#newRoutine2').addEventListener('click', () => openRoutineBuilder());
+    $('#tplRestore', v)?.addEventListener('click', () => undoable('Routines restored', () => { state.tplHidden = []; }));
     $('#wkWeight').addEventListener('click', openWeightSheet);
     $$('.plan-day', v).forEach((b) => b.addEventListener('click', () => openPlanPicker(Number(b.dataset.plan))));
     const showPlanWeek = (off) => { planWeekOffset = Math.max(-52, Math.min(4, off)); render(); };
@@ -3400,13 +3430,19 @@
       el.addEventListener('click', (e) => {
         const delBtn = e.target.closest('[data-del-tpl]');
         if (delBtn) {
-          const tpl = state.templates.find((t) => t.id === delBtn.dataset.delTpl);
+          const id = delBtn.dataset.delTpl;
+          const tpl = templateById(id);
+          const planned = (state.schedule || []).filter((x) => x === id).length;
           confirmAction({
             title: 'Delete routine',
-            message: 'Delete "' + (tpl ? tpl.name : 'this routine') + '"? Workouts you already logged from it stay in your history.',
+            message: 'Delete "' + esc(tpl ? tpl.name : 'this routine') + '"? Workouts you already logged from it stay in your history.' +
+              (planned ? ' ' + planned + ' day' + (planned === 1 ? '' : 's') + ' in your weekly plan will be cleared.' : '') +
+              (isBuiltinId(id) ? ' It came with the app, so you can bring it back later.' : ''),
             confirm: 'Delete routine',
             onConfirm: () => undoable('Routine deleted', () => {
-              state.templates = state.templates.filter((t) => t.id !== delBtn.dataset.delTpl);
+              state.templates = (state.templates || []).filter((t) => t.id !== id);
+              if (isBuiltinId(id)) state.tplHidden = [...new Set([...(state.tplHidden || []), id])];
+              state.schedule = (state.schedule || []).map((x) => (x === id ? null : x));
             }),
           });
           return;
@@ -3911,7 +3947,7 @@
   }
 
   function startWorkout(templateId) {
-    const tpl = templateId ? [...BUILTIN_TEMPLATES, ...state.templates].find((t) => t.id === templateId) : null;
+    const tpl = templateId ? templateById(templateId) : null;
     state.activeWorkout = {
       id: uid(),
       name: tpl ? tpl.name : 'Workout',
@@ -3992,16 +4028,22 @@
   let routineDraft = null;
 
   function openRoutineBuilder(templateId) {
-    const existing = templateId ? state.templates.find((t) => t.id === templateId) : null;
-    routineDraft = existing
-      ? JSON.parse(JSON.stringify(existing))
-      : { id: uid(), name: '', exercises: [] };
+    const existing = templateId ? templateById(templateId) : null;
+    if (existing) {
+      // your copy keeps the original's id, so it stands in the same place
+      const { builtin, ...clean } = JSON.parse(JSON.stringify(existing));
+      routineDraft = clean;
+    } else {
+      routineDraft = { id: uid(), name: '', exercises: [] };
+    }
     showRoutineBuilder();
   }
 
   function showRoutineBuilder() {
     const d = routineDraft;
-    const isEdit = state.templates.some((t) => t.id === d.id);
+    const isEdit = allTemplates().some((t) => t.id === d.id);
+    // a built-in you have already changed can be put back the way it was
+    const changed = isBuiltinId(d.id) && (state.templates || []).some((t) => t.id === d.id);
     openSheet(isEdit ? 'Edit routine' : 'New routine', `
       <div class="field"><label for="rbName">Routine name</label>
         <input id="rbName" type="text" placeholder="e.g. Upper Body A" value="${esc(d.name)}"></div>
@@ -4018,6 +4060,7 @@
       </div>` : '<p class="empty-note" style="padding:16px">No exercises yet — add some below.</p>'}
       <button class="btn btn-quiet" id="rbAdd">+ Add exercise</button>
       <button class="btn btn-primary" id="rbSave" style="margin-top:10px">Save routine</button>
+      ${changed ? '<button class="btn btn-quiet" id="rbReset" style="margin-top:10px">Restore the original</button>' : ''}
     `, (body) => {
       $('#rbName', body).addEventListener('input', (e) => { d.name = e.target.value; });
       body.addEventListener('input', (e) => {
@@ -4043,12 +4086,21 @@
           showRoutineBuilder();
         });
       });
+      $('#rbReset', body)?.addEventListener('click', () => {
+        undoable('Original restored', () => {
+          state.templates = (state.templates || []).filter((t) => t.id !== d.id);
+        });
+        routineDraft = null;
+        closeSheet();
+      });
       $('#rbSave', body).addEventListener('click', () => {
         if (!d.name.trim()) { toast('Give the routine a name'); return; }
         if (!d.exercises.length) { toast('Add at least one exercise'); return; }
         d.name = d.name.trim();
+        if (!Array.isArray(state.templates)) state.templates = [];
         const idx = state.templates.findIndex((t) => t.id === d.id);
         if (idx >= 0) state.templates[idx] = d; else state.templates.push(d);
+        state.tplHidden = (state.tplHidden || []).filter((x) => x !== d.id);
         routineDraft = null;
         save(); closeSheet(); render();
         toast('Routine saved');

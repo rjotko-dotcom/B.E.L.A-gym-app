@@ -304,5 +304,91 @@ module.exports = async (t) => {
 
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
+
+  /* ---- routines: the four the app came with are yours to change too ---- */
+  {
+    const p2 = await openApp(t.browser, { url: server.url, seed: build() });
+    const names = () => p2.evaluate(() => [...document.querySelectorAll('.tpl-item .li-name')].map((e) => e.textContent));
+    await p2.click('.tab[data-tab="workout"]');
+    await p2.waitForTimeout(600);
+
+    t.check('every routine can be edited and deleted', await p2.evaluate(() =>
+      [...document.querySelectorAll('.tpl-item')].length > 0 &&
+      [...document.querySelectorAll('.tpl-item')].every((el) =>
+        el.querySelector('[data-edit-tpl]') && el.querySelector('[data-del-tpl]'))));
+
+    // edit one of the built-ins
+    await p2.evaluate(() => document.querySelector('[data-edit-tpl="tpl-push"]').click());
+    await p2.waitForTimeout(600);
+    t.equal('a built-in opens in the builder', await p2.evaluate(() => document.querySelector('#rbName').value), 'Push Day');
+    t.equal('with its exercises', await p2.evaluate(() => document.querySelectorAll('.rb-row').length), 5);
+    t.check('and no offer to restore it yet', await p2.evaluate(() => !document.querySelector('#rbReset')));
+
+    await p2.fill('#rbName', 'Push A');
+    await p2.evaluate(() => document.querySelector('#rbName').dispatchEvent(new Event('input')));
+    await p2.evaluate(() => document.querySelectorAll('.rb-del')[4].click());
+    await p2.waitForTimeout(400);
+    await p2.click('#rbSave');
+    await p2.waitForTimeout(700);
+
+    t.equal('the change shows, in the same place', (await names()).join(), 'Push A,Pull Day,Leg Day,Full Body');
+    const st = await readState(p2);
+    t.equal('saved as your own copy', st.templates.length, 1);
+    t.equal('keeping the original id, so the weekly plan still points at it', st.templates[0].id, 'tpl-push');
+    t.equal('with the exercise removed', st.templates[0].exercises.length, 4);
+
+    // and it can be put back
+    await p2.evaluate(() => document.querySelector('[data-edit-tpl="tpl-push"]').click());
+    await p2.waitForTimeout(600);
+    t.check('reopening offers the original back', await p2.evaluate(() => !!document.querySelector('#rbReset')));
+    await p2.click('#rbReset');
+    await p2.waitForTimeout(700);
+    t.equal('which restores it', (await names()).join(), 'Push Day,Pull Day,Leg Day,Full Body');
+    t.equal('and drops the copy', (await readState(p2)).templates.length, 0);
+
+    // deleting one
+    await p2.evaluate(() => document.querySelector('[data-del-tpl="tpl-pull"]').click());
+    await p2.waitForTimeout(500);
+    const msg = await p2.evaluate(() => document.querySelector('.confirm-msg')?.textContent || '');
+    t.check('deleting warns about the plan days it clears', /weekly plan will be cleared/.test(msg), msg);
+    t.check('and says it can come back', /bring it back later/.test(msg), msg);
+    await p2.click('#cfYes');
+    await p2.waitForTimeout(800);
+    t.equal('it goes', (await names()).join(), 'Push Day,Leg Day,Full Body');
+    const st2 = await readState(p2);
+    t.check('remembered as removed', (st2.tplHidden || []).includes('tpl-pull'));
+    t.check('and the plan no longer points at it', !st2.schedule.includes('tpl-pull'));
+
+    t.equal('with a way to bring it back', await p2.evaluate(() =>
+      document.querySelector('#tplRestore')?.textContent.trim()), 'Bring back the removed routine');
+    await p2.click('#tplRestore');
+    await p2.waitForTimeout(700);
+    t.equal('which does', (await names()).join(), 'Push Day,Pull Day,Leg Day,Full Body');
+
+    // your own routines still behave
+    await p2.evaluate(() => document.querySelector('#newRoutine2').click());
+    await p2.waitForTimeout(600);
+    await p2.fill('#rbName', 'Arms');
+    await p2.evaluate(() => document.querySelector('#rbName').dispatchEvent(new Event('input')));
+    await p2.evaluate(() => document.querySelector('#rbAdd').click());
+    await p2.waitForTimeout(600);
+    await p2.evaluate(() => document.querySelector('#pickList [data-pick]').click());
+    await p2.waitForTimeout(600);
+    await p2.click('#rbSave');
+    await p2.waitForTimeout(700);
+    t.check('a new routine joins the list', (await names()).includes('Arms'));
+    const mine = (await readState(p2)).templates.find((x) => x.name === 'Arms');
+    await p2.evaluate((id) => document.querySelector('[data-del-tpl="' + id + '"]').click(), mine.id);
+    await p2.waitForTimeout(500);
+    await p2.click('#cfYes');
+    await p2.waitForTimeout(800);
+    t.check('and can be deleted again', !(await names()).includes('Arms'));
+    t.check('without being remembered as a removed built-in',
+      !((await readState(p2)).tplHidden || []).includes(mine.id));
+
+    t.equal('no page errors', p2.errors.length, 0);
+    await p2.close();
+  }
+
   await server.close();
 };
