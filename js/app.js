@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '13.1';
+  const APP_VERSION = '13.2';
 
   /* ---------------- state ---------------- */
 
@@ -3702,7 +3702,10 @@
     ['F', 'To failure', 'Taken to failure — kept out of PR detection'],
   ];
 
-  function openSetSheet(ex, setIdx) {
+  /* Used by the logger and by the routine builder, which holds the same kind
+     of rows — `after` is where each one goes once the choice is made. */
+  function openSetSheet(ex, setIdx, after) {
+    const done = after || (() => { save(); render(); });
     const set = ex.sets[setIdx];
     const cur = set.type || 'N';
     openSheet('Set type', '' +
@@ -3716,13 +3719,14 @@
       body.addEventListener('click', (e) => {
         const item = e.target.closest('[data-type]');
         if (!item) return;
-        set.type = item.dataset.type;
+        if (item.dataset.type === 'N') delete set.type; else set.type = item.dataset.type;
         haptic('tap');
-        save(); closeSheet(); render();
+        closeSheet(); done();
       });
       $('#setDel', body).addEventListener('click', () => {
+        if (ex.sets.length <= 1) { toast('An exercise needs at least one set'); return; }
         ex.sets.splice(setIdx, 1);
-        save(); closeSheet(); render();
+        closeSheet(); done();
       });
     });
   }
@@ -3807,7 +3811,8 @@
   }
 
 
-  function openNoteSheet(ex) {
+  function openNoteSheet(ex, after) {
+    const done = after || (() => { save(); render(); });
     openSheet('Exercise note', `
       <div class="field">
         <label for="exNote">Note (e.g. seat height, grip, cues)</label>
@@ -3819,7 +3824,7 @@
       $('#noteSave', body).addEventListener('click', () => {
         const val = $('#exNote', body).value.trim();
         if (val) ex.note = val; else delete ex.note;
-        save(); closeSheet(); render();
+        closeSheet(); done();
       });
     });
   }
@@ -3983,7 +3988,11 @@
   function newExerciseEntry(exerciseId, setCount, targetReps) {
     // a number of blank sets, or the rows a routine asked for
     const rows = Array.isArray(setCount)
-      ? setCount.map((r) => ({ weight: null, reps: null, done: false, ...(r && r.reps ? { target: Number(r.reps) } : {}) }))
+      ? setCount.map((r) => ({
+          weight: null, reps: null, done: false,
+          ...(r && r.reps ? { target: Number(r.reps) } : {}),
+          ...(r && r.type && r.type !== 'N' ? { type: r.type } : {}),   // warm-ups and drops travel with the plan
+        }))
       : Array.from({ length: Math.max(1, Number(setCount) || 1) }, () => ({ weight: null, reps: null, done: false }));
     const entry = { exerciseId, sets: rows };
     if (targetReps) entry.targetReps = targetReps;
@@ -3996,7 +4005,11 @@
       id: uid(),
       name: tpl ? tpl.name : 'Workout',
       startedAt: Date.now(),
-      exercises: tpl ? tpl.exercises.map((e) => newExerciseEntry(e.exerciseId, tplSets(e), e.targetReps)) : [],
+      exercises: tpl ? tpl.exercises.map((e) => ({
+        ...newExerciseEntry(e.exerciseId, tplSets(e), e.targetReps),
+        ...(e.note ? { note: e.note } : {}),
+        ...(e.ss ? { ss: e.ss } : {}),
+      })) : [],
     };
     workoutOpen = true;
     openWkEntry();
@@ -4047,7 +4060,12 @@
             name: w.name,
             exercises: w.exercises.map((ex) => ({
               exerciseId: ex.exerciseId,
-              sets: ex.sets.map((st) => (st.reps ? { reps: Number(st.reps) } : {})),
+              sets: ex.sets.map((st) => ({
+                ...(st.reps ? { reps: Number(st.reps) } : {}),
+                ...(st.type && st.type !== 'N' ? { type: st.type } : {}),
+              })),
+              ...(ex.note ? { note: ex.note } : {}),
+              ...(ex.ss ? { ss: ex.ss } : {}),
             })),
           });
         }
@@ -4181,7 +4199,7 @@
       if (add) {
         const ex = d.exercises[Number(add.dataset.ex)];
         const rows = tplSets(ex);
-        rows.push({ ...(rows[rows.length - 1] || {}) });   // same target as the one above
+        rows.push({ ...(rows[rows.length - 1] || {}) });   // same target and type as the one above
         ex.sets = rows;
         delete ex.targetReps;
         haptic('tick');
@@ -4200,6 +4218,16 @@
         showRoutineBuilder();
         return;
       }
+      const num = e.target.closest('.rb-set-num');
+      if (num) {
+        const ex = d.exercises[Number(num.dataset.ex)];
+        ex.sets = tplSets(ex);
+        delete ex.targetReps;
+        openSetSheet(ex, Number(num.dataset.set), () => showRoutineBuilder());
+        return;
+      }
+      const note = e.target.closest('.rb-note');
+      if (note) { openNoteSheet(d.exercises[Number(note.dataset.ex)], () => showRoutineBuilder()); return; }
       const menu = e.target.closest('.rb-ex-menu');
       if (menu) { openRoutineExMenu(Number(menu.dataset.ex)); return; }
     });
@@ -4248,24 +4276,30 @@
     const prev = previousSets(e.exerciseId);
     const cardio = isCardio(e.exerciseId);
     const rows = tplSets(e);
+    // warm-ups are lettered, not numbered — the same rule the logger follows
+    let workingNo = 0;
+    const numbers = rows.map((r) => ((r.type || 'N') === 'N' ? String(++workingNo) : (r.type || 'N')));
     return `
       <div class="card ex-block rb-block" data-ex="${exIdx}">
         <div class="ex-head">
-          <h3 class="ex-name">${esc(info?.name ?? 'Unknown exercise')}
+          <h3 class="ex-name">${e.ss ? `<span class="ss-chip">SS${e.ss}</span> ` : ''}${esc(info?.name ?? 'Unknown exercise')}
             <span class="muscle">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''}</span>
           </h3>
           <button class="ex-remove rb-ex-menu" data-ex="${exIdx}" aria-label="Options for ${esc(info?.name ?? 'this exercise')}">
             <svg viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
           </button>
         </div>
+        <button class="ex-line ex-note-line rb-note ${e.note ? 'has' : ''}" data-ex="${exIdx}">${e.note ? '📝 ' + esc(e.note) : 'Add notes here…'}</button>
         <div class="set-grid rb-grid">
           <span class="hdr">Set</span><span class="hdr">Last time</span><span class="hdr">${cardio ? 'Min' : 'Reps'}</span><span class="hdr"></span>
           ${rows.map((r, i) => {
             const p = prev[i] || prev[prev.length - 1];
             const prevTxt = p ? (cardio ? `${fmtNum(p.weight ?? 0)}·${p.reps}m` : `${fmtNum(p.weight ?? 0)}×${p.reps}`) : '—';
+            const t = r.type || 'N';
             return `
             <div class="set-row" data-set="${i}">
-              <button class="set-num" type="button" tabindex="-1" aria-hidden="true">${i + 1}</button>
+              <button class="set-num rb-set-num t-${t.toLowerCase()}" data-ex="${exIdx}" data-set="${i}"
+                      aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>
               <span class="set-prev">${prevTxt}</span>
               <input class="set-input rb-rep" type="number" inputmode="numeric" min="1" max="100"
                      data-ex="${exIdx}" data-set="${i}" value="${r.reps ?? ''}"
@@ -4289,20 +4323,34 @@
     const name = exerciseById(ex.exerciseId)?.name ?? 'Exercise';
     openSheet(name, `
       <div class="menu-list">
-        <button class="menu-item" data-act="replace">Replace exercise</button>
-        <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>Move up</button>
-        <button class="menu-item" data-act="down" ${exIdx === d.exercises.length - 1 ? 'disabled' : ''}>Move down</button>
-        <button class="menu-item danger" data-act="remove">Remove from routine</button>
+        <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>↑ &nbsp;Move up</button>
+        <button class="menu-item" data-act="down" ${exIdx === d.exercises.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
+        <button class="menu-item" data-act="note">📝 &nbsp;${ex.note ? 'Edit note' : 'Add note'}</button>
+        ${ex.ss ? '<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>'
+          : exIdx < d.exercises.length - 1 ? '<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>' : ''}
+        <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
+        <button class="menu-item" data-act="plates">🏋️ &nbsp;Plate calculator</button>
+        <button class="menu-item" data-act="detail">📈 &nbsp;Records &amp; history</button>
+        <button class="menu-item danger" data-act="remove">🗑 &nbsp;Remove from routine</button>
       </div>`, (body) => {
       body.addEventListener('click', (evt) => {
-        const b = evt.target.closest('[data-act]');
-        if (!b) return;
+        const b = evt.target.closest('button[data-act]');
+        if (!b || b.disabled) return;
         const act = b.dataset.act;
         if (act === 'replace') {
           closeSheetNow();
           openExercisePicker((exId) => { ex.exerciseId = exId; showRoutineBuilder(); });
           return;
         }
+        if (act === 'note') { closeSheetNow(); openNoteSheet(ex, () => showRoutineBuilder()); return; }
+        if (act === 'plates') { closeSheetNow(); openPlateCalc(); return; }
+        if (act === 'detail') { closeSheetNow(); openExerciseDetail(ex.exerciseId); return; }
+        if (act === 'ss') {
+          const next = d.exercises[exIdx + 1];
+          ex.ss = next.ss ?? (Math.max(0, ...d.exercises.map((x) => x.ss || 0)) + 1);
+          next.ss = ex.ss;
+        }
+        if (act === 'ssbreak') delete ex.ss;
         if (act === 'up' && exIdx > 0) d.exercises.splice(exIdx - 1, 0, d.exercises.splice(exIdx, 1)[0]);
         if (act === 'down' && exIdx < d.exercises.length - 1) d.exercises.splice(exIdx + 1, 0, d.exercises.splice(exIdx, 1)[0]);
         if (act === 'remove') d.exercises.splice(exIdx, 1);

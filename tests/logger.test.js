@@ -475,6 +475,79 @@ module.exports = async (t) => {
     t.equal('carrying the routine’s targets', await p2.evaluate(() =>
       JSON.parse(localStorage.getItem('bela-gym-v1')).activeWorkout.exercises[0].sets.map((s) => s.target).join()), '10,8,8');
 
+    /* ---- everything the logger offers a set, the plan offers too ---- */
+    await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('#newRoutine2').click());
+    await p2.waitForTimeout(600);
+    await p2.fill('#rbName', 'Types');
+    for (const n of [0, 2]) {
+      await p2.click('#rbAdd');
+      await p2.waitForTimeout(600);
+      await p2.evaluate((i) => document.querySelectorAll('#pickList [data-pick]')[i].click(), n);
+      await p2.waitForTimeout(700);
+    }
+
+    await p2.evaluate(() => document.querySelectorAll('.ex-block[data-ex="0"] .rb-set-num')[0].click());
+    await p2.waitForTimeout(600);
+    t.equal('the set number opens the same type picker', await p2.evaluate(() =>
+      [...document.querySelectorAll('[data-type]')].map((e) => e.dataset.type).join()), 'N,W,D,F');
+    await p2.evaluate(() => document.querySelector('[data-type="W"]').click());
+    await p2.waitForTimeout(700);
+    await p2.evaluate(() => document.querySelectorAll('.ex-block[data-ex="0"] .rb-set-num')[2].click());
+    await p2.waitForTimeout(600);
+    await p2.evaluate(() => document.querySelector('[data-type="F"]').click());
+    await p2.waitForTimeout(700);
+    t.equal('a warm-up is lettered and the working sets renumber', await p2.evaluate(() =>
+      [...document.querySelectorAll('.ex-block[data-ex="0"] .rb-set-num')]
+        .map((b) => b.textContent + [...b.classList].filter((c) => c.startsWith('t-')).join('')).join(' ')),
+      'Wt-w 1t-n Ft-f');
+
+    // a note, and a superset with the next exercise
+    await p2.evaluate(() => document.querySelector('.rb-note').click());
+    await p2.waitForTimeout(600);
+    await p2.fill('#exNote', 'Pause on the chest');
+    await p2.click('#noteSave');
+    await p2.waitForTimeout(700);
+    t.check('an exercise can carry a note', await p2.evaluate(() =>
+      /Pause on the chest/.test(document.querySelector('.rb-note').textContent)));
+
+    await p2.evaluate(() => document.querySelectorAll('.rb-ex-menu')[0].click());
+    await p2.waitForTimeout(600);
+    t.equal('the menu offers what the logger offers', await p2.evaluate(() =>
+      [...document.querySelectorAll('.menu-item')].map((b) => b.dataset.act).join()),
+      'up,down,note,ss,replace,plates,detail,remove');
+    await p2.evaluate(() => document.querySelector('[data-act="ss"]').click());
+    await p2.waitForTimeout(700);
+    t.equal('two exercises can be a superset', await p2.evaluate(() =>
+      [...document.querySelectorAll('#routineRoot .ss-chip')].map((c) => c.textContent).join()), 'SS1,SS1');
+
+    await p2.click('#rbSave');
+    await p2.waitForTimeout(800);
+    const typed = (await readState(p2)).templates.find((x) => x.name === 'Types');
+    t.equal('the types are saved with the routine', JSON.stringify(typed.exercises[0].sets),
+      '[{"reps":10,"type":"W"},{"reps":10},{"reps":10,"type":"F"}]');
+    t.equal('and the note', typed.exercises[0].note, 'Pause on the chest');
+    t.equal('and the superset', [typed.exercises[0].ss, typed.exercises[1].ss].join(), '1,1');
+
+    /* ---- and all of it is there when you actually do the workout ---- */
+    await p2.evaluate(() => [...document.querySelectorAll('.tpl-item')]
+      .find((e) => /Types/.test(e.textContent)).click());
+    await p2.waitForTimeout(800);
+    t.equal('the warm-up and the failure set start already marked', await p2.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .ex-block[data-ex="0"] .set-num')]
+        .map((b) => b.textContent).join()), 'W,1,F');
+    t.equal('the note comes with it', await p2.evaluate(() =>
+      document.querySelector('#workoutRoot .ex-note-line').textContent.trim()), '📝 Pause on the chest');
+    t.equal('and the superset', await p2.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .ss-chip')].map((c) => c.textContent).join()), 'SS1,SS1');
+    await p2.evaluate(() => { const b = document.querySelector('#cancelWorkout'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => { const b = document.querySelector('#cfYes'); if (b) b.click(); });
+    await p2.waitForTimeout(700);
+
     /* ---- backing out of an unsaved one asks first ---- */
     await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
     await p2.waitForTimeout(500);

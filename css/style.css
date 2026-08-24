@@ -608,7 +608,9 @@ body {
 .rb-name-field input { font-size: 1rem; font-weight: 600; }
 /* Set · last time · reps · take it away */
 .set-grid.rb-grid { grid-template-columns: 40px 1fr 1fr 40px; gap: 8px; }
-.rb-block .set-num { background: var(--surface-2); color: var(--ink-2); cursor: default; }
+/* the set number is a button here too — tap it to make the set a warm-up,
+   a drop set or one to failure, exactly as in the logger */
+.rb-block .set-num { cursor: pointer; }
 .rb-drop-set {
   border: none; background: none; color: var(--ink-muted); cursor: pointer;
   display: grid; place-items: center; min-height: 40px; border-radius: 10px;
