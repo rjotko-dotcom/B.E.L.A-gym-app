@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '13.4';
+  const APP_VERSION = '13.5';
 
   /* ---------------- state ---------------- */
 
@@ -260,6 +260,30 @@
       ex.sets.filter((s) => s.done && s.pr).map((s) => ({ exerciseId: ex.exerciseId, weight: s.weight, reps: s.reps }))
     );
   }
+  /* What a record is: the most weight actually moved in one set — the bar
+     times the reps. Estimated 1RM used to decide it, which let a light set
+     with a lot of reps beat a heavy one and made the crown hard to believe. */
+  const setMass = (s) => (Number(s.weight) || 0) * (Number(s.reps) || 0);
+
+  /* Some machines are marked in pounds even where everything else is in kilos.
+     An exercise can be typed in the other unit: what you type is what the
+     plate says, what is kept is the app's own unit, and the conversion sits
+     under the box in small type so it is never a guess. */
+  const exUnit = (ex) => (ex && (ex.wu === 'lb' || ex.wu === 'kg') ? ex.wu : unit());
+  const OTHER_UNIT = () => (unit() === 'kg' ? 'lb' : 'kg');
+  function toExUnit(v, ex) {
+    if (v == null || v === '') return v;
+    const from = unit(), to = exUnit(ex);
+    if (from === to) return Number(v);
+    return Math.round((to === 'lb' ? Number(v) * LB_PER_KG : Number(v) / LB_PER_KG) * 10) / 10;
+  }
+  function fromExUnit(v, ex) {
+    if (v == null || v === '') return v;
+    const to = unit(), from = exUnit(ex);
+    if (from === to) return Number(v);
+    return Math.round((from === 'lb' ? Number(v) / LB_PER_KG : Number(v) * LB_PER_KG) * 100) / 100;
+  }
+
   function bestSetFor(exerciseId) {
     if (isCardio(exerciseId)) return null;
     let best = null;
@@ -268,7 +292,7 @@
         if (ex.exerciseId !== exerciseId) continue;
         for (const s of ex.sets) {
           if (!isWorkingSet(s) || !s.weight) continue;
-          if (!best || est1RM(s.weight, s.reps) > est1RM(best.weight, best.reps)) best = s;
+          if (!best || setMass(s) > setMass(best)) best = s;
         }
       }
     }
@@ -3434,11 +3458,7 @@
         '<button class="tpl-add" id="newRoutine2">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>New routine</button>' +
       '</div>' +
-      // deleting one of the four the app came with is never final
-      ((state.tplHidden || []).length
-        ? '<button class="btn btn-quiet" id="tplRestore" style="margin-top:10px">Bring back ' +
-            (state.tplHidden.length === 1 ? 'the removed routine' : 'the ' + state.tplHidden.length + ' removed routines') + '</button>'
-        : '') +
+
 
       '';
 
@@ -3446,7 +3466,7 @@
     $('#startEmpty').addEventListener('click', () => startWorkout());
     $('#newRoutine').addEventListener('click', () => openRoutineBuilder());
     $('#newRoutine2').addEventListener('click', () => openRoutineBuilder());
-    $('#tplRestore', v)?.addEventListener('click', () => undoable('Routines restored', () => { state.tplHidden = []; }));
+
     $('#wkWeight').addEventListener('click', openWeightSheet);
     $$('.plan-day', v).forEach((b) => b.addEventListener('click', () => openPlanPicker(Number(b.dataset.plan))));
     const showPlanWeek = (off) => { planWeekOffset = Math.max(-52, Math.min(4, off)); render(); };
@@ -3649,7 +3669,8 @@
         const rpeBtn = $('.set-rpe', row);
         if (rpeBtn) rpeBtn.addEventListener('click', () => openRpeSheet(set));
         $('.in-weight', row).addEventListener('input', (e) => {
-          set.weight = e.target.value === '' ? null : Number(e.target.value);
+          set.weight = e.target.value === '' ? null
+            : (cardio ? Number(e.target.value) : fromExUnit(e.target.value, ex));
           save();
         });
         $('.in-reps', row).addEventListener('input', (e) => {
@@ -3660,7 +3681,7 @@
           if (!set.done) {
             if (set.weight == null) {
               const ph = Number($('.in-weight', row).placeholder);
-              if (ph) set.weight = ph;
+              if (ph) set.weight = cardio ? ph : fromExUnit(ph, ex);
             }
             if (set.reps == null) {
               const ph = Number($('.in-reps', row).placeholder);
@@ -3670,10 +3691,21 @@
             set.done = true;
             haptic('tick');
             flashSet = exIdx + ':' + setIdx;
-            // PR check against history (warm-ups and cardio excluded)
+            /* A record is the biggest set you have ever done for this
+               exercise, and today's sets count. Beating your own set from ten
+               minutes ago moves the crown rather than handing out a second
+               one — "how was the second set also a record" had a fair answer
+               before, which was that nothing was comparing them. */
             if (!cardio && (set.type || 'N') !== 'W' && set.weight) {
-              const prevBest = bestSetFor(ex.exerciseId);
-              if (!prevBest || est1RM(set.weight, set.reps) > est1RM(prevBest.weight, prevBest.reps)) {
+              const history = bestSetFor(ex.exerciseId);
+              const today = w.exercises
+                .filter((x) => x.exerciseId === ex.exerciseId)
+                .flatMap((x) => x.sets.filter((o) => o !== set && isWorkingSet(o) && o.weight));
+              const beat = Math.max(history ? setMass(history) : 0, ...today.map(setMass), 0);
+              if (setMass(set) > beat) {
+                w.exercises.forEach((x) => {
+                  if (x.exerciseId === ex.exerciseId) x.sets.forEach((o) => { if (o !== set) delete o.pr; });
+                });
                 set.pr = true;
                 // a longer, rhythmic buzz so a record feels different from
                 // the plain tick of an ordinary set
@@ -3762,6 +3794,7 @@
         <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>↑ &nbsp;Move up</button>
         <button class="menu-item" data-act="down" ${exIdx === w.exercises.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
         <button class="menu-item" data-act="note">📝 &nbsp;${ex.note ? 'Edit note' : 'Add note'}</button>
+        <button class="menu-item" data-act="unit">⚖ &nbsp;${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>
         ${ex.ss ? `<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>`
           : exIdx < w.exercises.length - 1 ? `<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>` : ''}
         <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
@@ -3785,6 +3818,9 @@
           const next = w.exercises[exIdx + 1];
           const group = next.ss ?? (Math.max(0, ...w.exercises.map((x) => x.ss || 0)) + 1);
           ex.ss = group; next.ss = group;
+          save(); closeSheet(); render();
+        } else if (act === 'unit') {
+          if (exUnit(ex) === unit()) ex.wu = OTHER_UNIT(); else delete ex.wu;
           save(); closeSheet(); render();
         } else if (act === 'ssbreak') {
           delete ex.ss;
@@ -3950,14 +3986,14 @@
             <svg viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
           </button>
         </div>
-        <button class="ex-line ex-note-line ${ex.note ? 'has' : ''}">${ex.note ? '📝 ' + esc(ex.note) : 'Add notes here…'}</button>
+        <button class="ex-line ex-note-line ${ex.note ? 'has' : ''}">${ex.note ? esc(ex.note) : 'Add notes here…'}</button>
         ${(() => {
           const h = overloadHint(ex);
           if (!h) return '';
           return `<button class="ex-line ex-hint ${h.allHit ? 'up' : ''}">${h.allHit ? '↑' : '→'} Last ${fmtNum(h.prevWeight)} ${esc(u)} × ${h.prevReps} — try <b>${fmtNum(h.weight)} ${esc(u)} × ${h.reps}</b></button>`;
         })()}
         <div class="set-grid${rpeOn && !cardio ? ' has-rpe' : ''}">
-          <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(u)}</span><span class="hdr">${cardio ? 'min' : 'Reps'}</span>${rpeOn && !cardio ? '<span class="hdr">RPE</span>' : ''}<span class="hdr">✓</span>
+          <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(exUnit(ex))}</span><span class="hdr">${cardio ? 'min' : 'Reps'}</span>${rpeOn && !cardio ? '<span class="hdr">RPE</span>' : ''}<span class="hdr">✓</span>
           ${ex.sets.map((s, i) => {
             // past the sets you did last time, the faint number carries on
             // from the last one rather than leaving the box blank
@@ -3968,8 +4004,14 @@
             <div class="set-row ${s.done ? 'logged' : ''}" data-set="${i}">
               <button class="set-num t-${t.toLowerCase()}" aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>
               <span class="set-prev">${s.pr ? prIcon('pr-mark pr-inline') + ' ' : ''}${prevTxt}</span>
-              <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
-                     value="${s.weight ?? ''}" placeholder="${s.targetW ?? p?.weight ?? ''}" aria-label="${cardio ? 'Distance km' : 'Weight'}, set ${i + 1}">
+              <div class="w-cell">
+                <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
+                       value="${cardio ? (s.weight ?? '') : (toExUnit(s.weight, ex) ?? '')}"
+                       placeholder="${cardio ? (s.targetW ?? p?.weight ?? '') : (toExUnit(s.targetW ?? p?.weight ?? '', ex) ?? '')}"
+                       aria-label="${cardio ? 'Distance km' : 'Weight in ' + exUnit(ex)}, set ${i + 1}">
+                ${!cardio && exUnit(ex) !== unit() && s.weight != null
+                  ? `<i class="w-conv">${fmtNum(s.weight)} ${esc(unit())}</i>` : ''}
+              </div>
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
                      value="${s.reps ?? ''}" placeholder="${s.targetMax && s.target ? s.target + '-' + s.targetMax : (s.target ?? p?.reps ?? ex.targetReps ?? '')}" aria-label="${cardio ? 'Minutes' : 'Reps'}, set ${i + 1}">
               ${rpeOn && !cardio ? `<button class="set-rpe ${s.rpe ? 'has' : ''}" aria-label="Effort for set ${numbers[i]}">${s.rpe ? fmtNum(s.rpe) : '–'}</button>` : ''}
@@ -4011,6 +4053,7 @@
         ...newExerciseEntry(e.exerciseId, tplSets(e), e.targetReps),
         ...(e.note ? { note: e.note } : {}),
         ...(e.ss ? { ss: e.ss } : {}),
+        ...(e.wu ? { wu: e.wu } : {}),
       })) : [],
     };
     workoutOpen = true;
@@ -4069,6 +4112,7 @@
               })),
               ...(ex.note ? { note: ex.note } : {}),
               ...(ex.ss ? { ss: ex.ss } : {}),
+              ...(ex.wu ? { wu: ex.wu } : {}),
             })),
           });
         }
@@ -4196,7 +4240,8 @@
       const val = Number(box.value);
       const field = box.classList.contains('rb-w') ? 'weight'
         : box.classList.contains('rb-repmax') ? 'repsMax' : 'reps';
-      if (box.value !== '' && val > 0) row[field] = val; else delete row[field];
+      const kept = field === 'weight' && !isCardio(ex.exerciseId) ? fromExUnit(val, ex) : val;
+      if (box.value !== '' && val > 0) row[field] = kept; else delete row[field];
       rows[Number(box.dataset.set)] = row;
       ex.sets = rows;
       delete ex.targetReps;             // the rows carry it now
@@ -4312,9 +4357,9 @@
             <svg viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
           </button>
         </div>
-        <button class="ex-line ex-note-line rb-note ${e.note ? 'has' : ''}" data-ex="${exIdx}">${e.note ? '📝 ' + esc(e.note) : 'Add notes here…'}</button>
+        <button class="ex-line ex-note-line rb-note ${e.note ? 'has' : ''}" data-ex="${exIdx}">${e.note ? esc(e.note) : 'Add notes here…'}</button>
         <div class="set-grid rb-grid">
-          <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(unit())}</span><span class="hdr">${cardio ? 'Min' : 'Reps'}</span><span class="hdr"></span>
+          <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(exUnit(e))}</span><span class="hdr">${cardio ? 'Min' : 'Reps'}</span><span class="hdr"></span>
           ${rows.map((r, i) => {
             const p = prev[i] || prev[prev.length - 1];
             const prevTxt = p ? (cardio ? `${fmtNum(p.weight ?? 0)}·${p.reps}m` : `${fmtNum(p.weight ?? 0)}×${p.reps}`) : '—';
@@ -4324,10 +4369,14 @@
               <button class="set-num rb-set-num t-${t.toLowerCase()}" data-ex="${exIdx}" data-set="${i}"
                       aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>
               <span class="set-prev">${prevTxt}</span>
-              <input class="set-input rb-w" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
-                     data-ex="${exIdx}" data-set="${i}" value="${r.weight ?? ''}"
-                     placeholder="${p?.weight != null ? fmtNum(p.weight) : '—'}"
-                     aria-label="Planned ${cardio ? 'distance' : 'weight'}, set ${i + 1} — optional">
+              <div class="w-cell">
+                <input class="set-input rb-w" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
+                       data-ex="${exIdx}" data-set="${i}" value="${cardio ? (r.weight ?? '') : (toExUnit(r.weight, e) ?? '')}"
+                       placeholder="${p?.weight != null ? fmtNum(cardio ? p.weight : toExUnit(p.weight, e)) : '—'}"
+                       aria-label="Planned ${cardio ? 'distance' : 'weight in ' + exUnit(e)}, set ${i + 1} — optional">
+                ${!cardio && exUnit(e) !== unit() && r.weight != null
+                  ? `<i class="w-conv">${fmtNum(r.weight)} ${esc(unit())}</i>` : ''}
+              </div>
               <div class="rb-reps-cell">
                 <input class="set-input rb-rep" type="number" inputmode="numeric" min="1" max="100"
                        data-ex="${exIdx}" data-set="${i}" value="${r.reps ?? ''}"
@@ -4360,6 +4409,7 @@
         <button class="menu-item" data-act="down" ${exIdx === d.exercises.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
         <button class="menu-item" data-act="note">📝 &nbsp;${ex.note ? 'Edit note' : 'Add note'}</button>
         <button class="menu-item" data-act="range">↔ &nbsp;${ex.range ? 'Just one rep number' : 'Aim for a rep range (6–8)'}</button>
+        <button class="menu-item" data-act="unit">⚖ &nbsp;${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>
         ${ex.ss ? '<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>'
           : exIdx < d.exercises.length - 1 ? '<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>' : ''}
         <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
@@ -4386,6 +4436,7 @@
         }
         if (act === 'ssbreak') delete ex.ss;
         if (act === 'range') { if (ex.range) delete ex.range; else ex.range = true; }
+        if (act === 'unit') { if (exUnit(ex) === unit()) ex.wu = OTHER_UNIT(); else delete ex.wu; }
         if (act === 'up' && exIdx > 0) d.exercises.splice(exIdx - 1, 0, d.exercises.splice(exIdx, 1)[0]);
         if (act === 'down' && exIdx < d.exercises.length - 1) d.exercises.splice(exIdx + 1, 0, d.exercises.splice(exIdx, 1)[0]);
         if (act === 'remove') d.exercises.splice(exIdx, 1);
@@ -6335,6 +6386,8 @@
       <button class="btn btn-quiet" id="setupBtn" style="margin-top:10px">Run setup again</button>
       <button class="btn btn-quiet" id="snapBtn" style="margin-top:10px">Snapshots</button>
       <button class="btn btn-quiet" id="pcSyncBtn" style="margin-top:10px">Sync with the PC app</button>
+      ${(state.tplHidden || []).length ? '<button class="btn btn-quiet" id="tplRestore" style="margin-top:10px">Bring back ' +
+        (state.tplHidden.length === 1 ? 'the removed routine' : 'the ' + state.tplHidden.length + ' removed routines') + '</button>' : ''}
       <button class="btn btn-quiet" id="importBtn" style="margin-top:10px">Import a backup</button>
       <input id="importFile" type="file" accept="application/json" hidden>
       <button class="btn btn-danger" id="wipeBtn" style="margin-top:12px">Erase all data</button>
@@ -6522,6 +6575,10 @@
       $('#setupBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openSetup); });
       $('#snapBtn', body).addEventListener('click', () => { closeSheetNow(); openBackups(); });
       $('#pcSyncBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openPcSync); });
+      $('#tplRestore', body)?.addEventListener('click', () => {
+        undoable('Routines restored', () => { state.tplHidden = []; });
+        closeSheet();
+      });
       $('#importBtn', body).addEventListener('click', () => $('#importFile', body).click());
       $('#importFile', body).addEventListener('change', (e) => {
         const file = e.target.files[0];

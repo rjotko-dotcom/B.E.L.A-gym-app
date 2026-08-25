@@ -585,10 +585,12 @@ body {
   padding: 14px 14px calc(env(safe-area-inset-bottom) + 110px);
 }
 .ex-line {
-  display: block; width: 100%; text-align: left;
+  /* sits on the exercise's name, not adrift between it and the set grid */
+  display: flex; align-items: center; width: 100%; min-height: 30px;
+  text-align: left;
   border: none; background: none; cursor: pointer; font: inherit;
   color: var(--ink-muted); font-size: 0.84rem;
-  padding: 4px 2px; margin-bottom: 4px;
+  padding: 0 2px; margin: -4px 0 8px;
 }
 .ex-line.has, .ex-line b { color: var(--ink-2); font-weight: 600; }
 .ex-note-line.has { font-style: italic; }
@@ -615,6 +617,10 @@ body {
 .rb-reps-cell { display: flex; align-items: center; gap: 3px; min-width: 0; }
 .rb-reps-cell .set-input { flex: 1; min-width: 0; padding-left: 2px; padding-right: 2px; }
 .rb-dash { color: var(--ink-muted); font-size: 0.8rem; flex: none; }
+/* the weight box, with what it comes to in the app's own unit underneath */
+.w-cell { min-width: 0; }
+.w-cell .set-input { width: 100%; }
+.w-conv { display: block; margin-top: 2px; text-align: center; font-style: normal; font-size: 0.62rem; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 .rb-repmax::placeholder { color: var(--ink-muted); opacity: 0.45; }
 /* the set number is a button here too — tap it to make the set a warm-up,
    a drop set or one to failure, exactly as in the logger */

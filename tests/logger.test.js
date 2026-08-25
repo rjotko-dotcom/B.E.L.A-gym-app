@@ -302,6 +302,74 @@ module.exports = async (t) => {
     }
   }
 
+  /* ---- a record is the biggest set, and only one set can hold it ---- */
+  {
+    const clean = build();
+    clean.workouts = [];                       // nothing to beat but yourself
+    const p1 = await openApp(t.browser, { url: server.url, seed: clean });
+    await p1.click('.tab[data-tab="workout"]');
+    await p1.waitForTimeout(500);
+    await p1.evaluate(() => document.querySelector('#startEmpty').click());
+    await p1.waitForTimeout(700);
+    await p1.evaluate(() => document.querySelector('#pickList [data-pick]').click());
+    await p1.waitForTimeout(800);
+
+    const logSet = async (i, w, r) => {
+      await p1.evaluate(({ i, w, r }) => {
+        const row = document.querySelectorAll('#workoutRoot .set-row')[i];
+        const wi = row.querySelector('.in-weight'), ri = row.querySelector('.in-reps');
+        wi.value = w; wi.dispatchEvent(new Event('input', { bubbles: true }));
+        ri.value = r; ri.dispatchEvent(new Event('input', { bubbles: true }));
+        row.querySelector('.set-done').click();
+      }, { i, w, r });
+      await p1.waitForTimeout(600);
+    };
+    const prs = () => p1.evaluate(() =>
+      JSON.parse(localStorage.getItem('bela-gym-v1')).activeWorkout.exercises[0].sets.map((s) => !!s.pr));
+
+    await logSet(0, '20', '9');
+    t.equal('the first set of a new exercise is a record', (await prs()).join(), 'true,false,false');
+    await logSet(1, '20', '10');
+    t.equal('a bigger set takes the record off it', (await prs()).join(), 'false,true,false');
+    t.equal('so only one crown is on the card', await p1.evaluate(() =>
+      document.querySelectorAll('#workoutRoot .set-prev .pr-mark').length), 1);
+    await logSet(2, '25', '5');
+    t.check('and a set that moved less does not get one — 125 kg is under 200',
+      (await prs()).join() === 'false,true,false', (await prs()).join());
+
+    /* ---- a machine marked in pounds ---- */
+    await p1.evaluate(() => document.querySelector('#workoutRoot .ex-menu').click());
+    await p1.waitForTimeout(600);
+    t.check('the menu offers the other unit', await p1.evaluate(() =>
+      /This machine is in lb/.test(document.querySelector('[data-act="unit"]').textContent)));
+    await p1.evaluate(() => document.querySelector('[data-act="unit"]').click());
+    await p1.waitForTimeout(800);
+
+    t.equal('the column says lb', await p1.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .set-grid .hdr')].map((h) => h.textContent)[2]), 'lb');
+    t.equal('the sets read in pounds', await p1.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .in-weight')].slice(0, 2).map((i) => i.value).join()), '44.1,44.1');
+    t.equal('with what they come to underneath', await p1.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .w-conv')].slice(0, 2).map((i) => i.textContent).join()), '20 kg,20 kg');
+
+    await p1.evaluate(() => document.querySelector('#workoutRoot .set-row .set-done').click());
+    await p1.waitForTimeout(500);
+    await p1.evaluate(() => {
+      const row = document.querySelectorAll('#workoutRoot .set-row')[0];
+      const wi = row.querySelector('.in-weight');
+      wi.value = '25'; wi.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await p1.waitForTimeout(400);
+    t.near('typing 25 lb keeps 11.34 kg', await p1.evaluate(() =>
+      JSON.parse(localStorage.getItem('bela-gym-v1')).activeWorkout.exercises[0].sets[0].weight), 11.34, 0.01);
+
+    t.check('the note line carries no picture', await p1.evaluate(() =>
+      document.querySelector('#workoutRoot .ex-note-line').textContent.trim() === 'Add notes here…'));
+
+    t.equal('no page errors', p1.errors.length, 0);
+    await p1.close();
+  }
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
 
@@ -386,10 +454,22 @@ module.exports = async (t) => {
     t.check('remembered as removed', (st2.tplHidden || []).includes('tpl-pull'));
     t.check('and the plan no longer points at it', !st2.schedule.includes('tpl-pull'));
 
-    t.equal('with a way to bring it back', await p2.evaluate(() =>
+    t.check('the routine list is not cluttered with a way back', await p2.evaluate(() =>
+      !document.querySelector('#tplRestore')));
+
+    // it waits in Settings instead, so a removed built-in is never gone for good
+    await p2.evaluate(() => document.querySelector('.tab[data-tab="home"]').click());
+    await p2.waitForTimeout(450);
+    await p2.click('#homeAvatar');
+    await p2.waitForTimeout(400);
+    await (await p2.$('.icon-btn[aria-label*="ettings"]')).click();
+    await p2.waitForTimeout(500);
+    t.equal('Settings has one', await p2.evaluate(() =>
       document.querySelector('#tplRestore')?.textContent.trim()), 'Bring back the removed routine');
     await p2.click('#tplRestore');
     await p2.waitForTimeout(700);
+    await p2.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+    await p2.waitForTimeout(500);
     t.equal('which does', (await names()).join(), 'Push Day,Pull Day,Leg Day,Full Body');
 
     // your own routines still behave
@@ -626,7 +706,7 @@ module.exports = async (t) => {
     await p2.waitForTimeout(600);
     t.equal('the menu offers what the logger offers, plus the rep range', await p2.evaluate(() =>
       [...document.querySelectorAll('.menu-item')].map((b) => b.dataset.act).join()),
-      'up,down,note,range,ss,replace,plates,detail,remove');
+      'up,down,note,range,unit,ss,replace,plates,detail,remove');
     await p2.evaluate(() => document.querySelector('[data-act="ss"]').click());
     await p2.waitForTimeout(700);
     t.equal('two exercises can be a superset', await p2.evaluate(() =>
@@ -648,7 +728,7 @@ module.exports = async (t) => {
       [...document.querySelectorAll('#workoutRoot .ex-block[data-ex="0"] .set-num')]
         .map((b) => b.textContent).join()), 'W,1,F');
     t.equal('the note comes with it', await p2.evaluate(() =>
-      document.querySelector('#workoutRoot .ex-note-line').textContent.trim()), '📝 Pause on the chest');
+      document.querySelector('#workoutRoot .ex-note-line').textContent.trim()), 'Pause on the chest');
     t.equal('and the superset', await p2.evaluate(() =>
       [...document.querySelectorAll('#workoutRoot .ss-chip')].map((c) => c.textContent).join()), 'SS1,SS1');
     await p2.evaluate(() => { const b = document.querySelector('#cancelWorkout'); if (b) b.click(); });
