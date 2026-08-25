@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '13.2';
+  const APP_VERSION = '13.3';
 
   /* ---------------- state ---------------- */
 
@@ -3969,9 +3969,9 @@
               <button class="set-num t-${t.toLowerCase()}" aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>
               <span class="set-prev">${s.pr ? prIcon('pr-mark pr-inline') + ' ' : ''}${prevTxt}</span>
               <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
-                     value="${s.weight ?? ''}" placeholder="${p?.weight ?? ''}" aria-label="${cardio ? 'Distance km' : 'Weight'}, set ${i + 1}">
+                     value="${s.weight ?? ''}" placeholder="${s.targetW ?? p?.weight ?? ''}" aria-label="${cardio ? 'Distance km' : 'Weight'}, set ${i + 1}">
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
-                     value="${s.reps ?? ''}" placeholder="${p?.reps ?? s.target ?? ex.targetReps ?? ''}" aria-label="${cardio ? 'Minutes' : 'Reps'}, set ${i + 1}">
+                     value="${s.reps ?? ''}" placeholder="${s.target ?? p?.reps ?? ex.targetReps ?? ''}" aria-label="${cardio ? 'Minutes' : 'Reps'}, set ${i + 1}">
               ${rpeOn && !cardio ? `<button class="set-rpe ${s.rpe ? 'has' : ''}" aria-label="Effort for set ${numbers[i]}">${s.rpe ? fmtNum(s.rpe) : '–'}</button>` : ''}
               <button class="set-done ${s.done ? 'logged' : ''}" aria-label="${s.done ? 'Undo set' : 'Log set'}" aria-pressed="${s.done}">
                 <svg viewBox="0 0 24 24"><path d="M4.5 12.5 9.5 17.5 19.5 6.5"/></svg>
@@ -3991,6 +3991,7 @@
       ? setCount.map((r) => ({
           weight: null, reps: null, done: false,
           ...(r && r.reps ? { target: Number(r.reps) } : {}),
+          ...(r && r.weight ? { targetW: Number(r.weight) } : {}),
           ...(r && r.type && r.type !== 'N' ? { type: r.type } : {}),   // warm-ups and drops travel with the plan
         }))
       : Array.from({ length: Math.max(1, Number(setCount) || 1) }, () => ({ weight: null, reps: null, done: false }));
@@ -4062,6 +4063,7 @@
               exerciseId: ex.exerciseId,
               sets: ex.sets.map((st) => ({
                 ...(st.reps ? { reps: Number(st.reps) } : {}),
+                ...(st.weight ? { weight: Number(st.weight) } : {}),
                 ...(st.type && st.type !== 'N' ? { type: st.type } : {}),
               })),
               ...(ex.note ? { note: ex.note } : {}),
@@ -4181,15 +4183,19 @@
     // never hand the click event straight in — it would arrive as `saved`
     $('#rbClose', root).addEventListener('click', () => closeRoutineBuilder());
 
-    // the reps box for one set of one exercise
+    /* The two boxes for one set of one exercise. A weight is optional — leave
+       it empty and the routine says nothing about it, which is the right
+       answer for anything you pick by feel on the day. */
     body.addEventListener('input', (e) => {
-      const box = e.target.closest('.rb-rep');
+      const box = e.target.closest('.rb-rep, .rb-w');
       if (!box) return;
       const ex = d.exercises[Number(box.dataset.ex)];
       const rows = tplSets(ex);
+      const row = rows[Number(box.dataset.set)] || {};
       const val = Number(box.value);
-      if (val > 0) rows[Number(box.dataset.set)] = { reps: val };
-      else rows[Number(box.dataset.set)] = {};
+      const field = box.classList.contains('rb-w') ? 'weight' : 'reps';
+      if (box.value !== '' && val > 0) row[field] = val; else delete row[field];
+      rows[Number(box.dataset.set)] = row;
       ex.sets = rows;
       delete ex.targetReps;             // the rows carry it now
     });
@@ -4291,7 +4297,7 @@
         </div>
         <button class="ex-line ex-note-line rb-note ${e.note ? 'has' : ''}" data-ex="${exIdx}">${e.note ? '📝 ' + esc(e.note) : 'Add notes here…'}</button>
         <div class="set-grid rb-grid">
-          <span class="hdr">Set</span><span class="hdr">Last time</span><span class="hdr">${cardio ? 'Min' : 'Reps'}</span><span class="hdr"></span>
+          <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(unit())}</span><span class="hdr">${cardio ? 'Min' : 'Reps'}</span><span class="hdr"></span>
           ${rows.map((r, i) => {
             const p = prev[i] || prev[prev.length - 1];
             const prevTxt = p ? (cardio ? `${fmtNum(p.weight ?? 0)}·${p.reps}m` : `${fmtNum(p.weight ?? 0)}×${p.reps}`) : '—';
@@ -4301,6 +4307,10 @@
               <button class="set-num rb-set-num t-${t.toLowerCase()}" data-ex="${exIdx}" data-set="${i}"
                       aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>
               <span class="set-prev">${prevTxt}</span>
+              <input class="set-input rb-w" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
+                     data-ex="${exIdx}" data-set="${i}" value="${r.weight ?? ''}"
+                     placeholder="${p?.weight != null ? fmtNum(p.weight) : '—'}"
+                     aria-label="Planned ${cardio ? 'distance' : 'weight'}, set ${i + 1} — optional">
               <input class="set-input rb-rep" type="number" inputmode="numeric" min="1" max="100"
                      data-ex="${exIdx}" data-set="${i}" value="${r.reps ?? ''}"
                      placeholder="${p?.reps ?? '—'}" aria-label="Target ${cardio ? 'minutes' : 'reps'}, set ${i + 1}">

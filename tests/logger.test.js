@@ -475,6 +475,46 @@ module.exports = async (t) => {
     t.equal('carrying the routine’s targets', await p2.evaluate(() =>
       JSON.parse(localStorage.getItem('bela-gym-v1')).activeWorkout.exercises[0].sets.map((s) => s.target).join()), '10,8,8');
 
+    /* ---- a routine may name the weight, and may keep quiet about it ---- */
+    await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('#newRoutine2').click());
+    await p2.waitForTimeout(600);
+    await p2.fill('#rbName', 'Weighted');
+    await p2.click('#rbAdd');
+    await p2.waitForTimeout(600);
+    await p2.evaluate(() => document.querySelector('#pickList [data-pick]').click());
+    await p2.waitForTimeout(700);
+
+    t.equal('the plan has a column for the weight', await p2.evaluate(() =>
+      [...document.querySelectorAll('.rb-grid .hdr')].map((h) => h.textContent).join()), 'Set,Prev,kg,Reps,');
+    await p2.evaluate(() => {
+      const ws = document.querySelectorAll('.ex-block[data-ex="0"] .rb-w');
+      ['80', '82.5'].forEach((v, i) => { ws[i].value = v; ws[i].dispatchEvent(new Event('input', { bubbles: true })); });
+    });
+    await p2.waitForTimeout(400);
+    await p2.click('#rbSave');
+    await p2.waitForTimeout(800);
+    const weighted = (await readState(p2)).templates.find((x) => x.name === 'Weighted');
+    t.equal('a weight is kept where it was typed and nowhere else',
+      JSON.stringify(weighted.exercises[0].sets),
+      '[{"reps":10,"weight":80},{"reps":10,"weight":82.5},{"reps":10}]');
+
+    await p2.evaluate(() => [...document.querySelectorAll('.tpl-item')]
+      .find((e) => /Weighted/.test(e.textContent)).click());
+    await p2.waitForTimeout(800);
+    t.equal('the planned weight is the faint number in the box', await p2.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .ex-block[data-ex="0"] .in-weight')]
+        .map((i) => i.placeholder).join()), '80,82.5,80');
+    t.check('and none of it is filled in for you', await p2.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .ex-block[data-ex="0"] .in-weight')].every((i) => i.value === '')));
+    await p2.evaluate(() => { const b = document.querySelector('#cancelWorkout'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => { const b = document.querySelector('#cfYes'); if (b) b.click(); });
+    await p2.waitForTimeout(700);
+
     /* ---- everything the logger offers a set, the plan offers too ---- */
     await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
     await p2.waitForTimeout(500);
