@@ -51,6 +51,8 @@
     { name: 'targets', path: ['nutrition', 'targets'] },
     { name: 'schedule', path: ['schedule'] },
     { name: 'tplHidden', path: ['tplHidden'] },
+    { name: 'exPrefs', path: ['exPrefs'] },
+    { name: 'tplOrder', path: ['tplOrder'] },
     { name: 'habitOrder', path: ['habits'], derive: (v) => (v || []).map((h) => h.id) },
   ];
 

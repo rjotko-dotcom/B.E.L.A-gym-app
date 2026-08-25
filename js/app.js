@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '13.9';
+  const APP_VERSION = '14.0';
 
   /* ---------------- state ---------------- */
 
@@ -25,8 +25,10 @@
     habits: [],       // { id, name, icon, type:'check'|'count', target, unit, step }
     habitLog: {},     // { 'YYYY-MM-DD': { habitId: value } }
     customExercises: [],
+    exPrefs: {},      // how you do a given exercise: { id: { wu, wt } }
     templates: [],
     tplHidden: [],    // built-in routines you removed
+    tplOrder: [],     // the order you put them in, if you have
     workouts: [],          // finished workouts, newest first
     activeWorkout: null,
   });
@@ -134,6 +136,18 @@
     if (!Array.isArray(parsed.savedMeals)) parsed.savedMeals = [];
     if (!Array.isArray(parsed.foods)) parsed.foods = [];
     if (!Array.isArray(parsed.tplHidden)) parsed.tplHidden = [];
+    if (!Array.isArray(parsed.tplOrder)) parsed.tplOrder = [];
+    /* How an exercise is done — the machine's pounds, the belt you hang off
+       it — used to be written on each copy of it, so an ad-hoc workout forgot
+       what a routine knew. It belongs to the exercise. Anything a routine
+       already carries is moved across once. */
+    if (!parsed.exPrefs || typeof parsed.exPrefs !== 'object') parsed.exPrefs = {};
+    (parsed.templates || []).forEach((t) => (t.exercises || []).forEach((e) => {
+      if (!e.wu && !e.wt) return;
+      const at = parsed.exPrefs[e.exerciseId] || (parsed.exPrefs[e.exerciseId] = {});
+      if (e.wu && at.wu == null) at.wu = e.wu;
+      if (e.wt && at.wt == null) at.wt = true;
+    }));
     if (!Array.isArray(parsed.schedule) || parsed.schedule.length !== 7) parsed.schedule = [null, null, null, null, null, null, null];
     if (!parsed.habits) parsed.habits = starterHabits();
     /* Water is gone; a habit that filled itself from it becomes one you tick
@@ -257,7 +271,7 @@
   function isBodyweight(exerciseId) {
     return !isCardio(exerciseId) && exerciseById(exerciseId)?.equipment === 'Bodyweight';
   }
-  const showsWeight = (ex) => !isBodyweight(ex.exerciseId) || !!ex.wt;
+  const showsWeight = (ex) => !isBodyweight(ex.exerciseId) || !!(exPref(ex.exerciseId).wt ?? ex.wt);
 
   /* ---------------- cardio ----------------
      A treadmill is not a barbell. What you set on it is a time, a speed and
@@ -320,7 +334,18 @@
      An exercise can be typed in the other unit: what you type is what the
      plate says, what is kept is the app's own unit, and the conversion sits
      under the box in small type so it is never a guess. */
-  const exUnit = (ex) => (ex && (ex.wu === 'lb' || ex.wu === 'kg') ? ex.wu : unit());
+  const exPref = (id) => (state.exPrefs && state.exPrefs[id]) || {};
+  function setExPref(id, patch) {
+    if (!state.exPrefs || typeof state.exPrefs !== 'object') state.exPrefs = {};
+    const at = state.exPrefs[id] || (state.exPrefs[id] = {});
+    Object.assign(at, patch);
+    Object.keys(at).forEach((k) => { if (at[k] == null || at[k] === false) delete at[k]; });
+    if (!Object.keys(at).length) delete state.exPrefs[id];
+  }
+  const exUnit = (ex) => {
+    const wu = ex ? (exPref(ex.exerciseId).wu ?? ex.wu) : null;
+    return (wu === 'lb' || wu === 'kg') ? wu : unit();
+  };
   const OTHER_UNIT = () => (unit() === 'kg' ? 'lb' : 'kg');
   function toExUnit(v, ex) {
     if (v == null || v === '') return v;
@@ -380,20 +405,35 @@
 
   /* What to aim for this session, from how the last one actually went:
      every working set hit the target -> add weight; otherwise chase a rep. */
+  /* What to try today, read off what the plan asks for and what you managed
+     last time. Working in a range is the whole point of one: reach the top of
+     it on every set and the weight goes up and the reps go back to the
+     bottom. Without a range it is the plain thing — hit the target on every
+     set, add the smallest jump. */
   function overloadHint(ex) {
     if (isCardio(ex.exerciseId)) return null;
     const prev = previousSets(ex.exerciseId).filter((s) => (s.type || 'N') !== 'W' && s.weight);
     if (!prev.length) return null;
-    const goal = ex.targetReps || Math.max(...prev.map((s) => s.reps || 0)) || 8;
-    const top = prev.reduce((a, b) => (est1RM(b.weight, b.reps) > est1RM(a.weight, a.reps) ? b : a));
+
+    // the plan for this exercise today, if it came from a routine
+    const planned = ex.sets.filter((s) => (s.type || 'N') !== 'W');
+    const lo = planned.find((s) => s.target)?.target ?? null;
+    const hi = planned.find((s) => s.targetMax)?.targetMax ?? null;
+    const goal = hi ?? lo ?? ex.targetReps ?? Math.max(...prev.map((s) => s.reps || 0)) ?? 8;
+
+    // the heaviest thing you actually moved, judged the way records are
+    const top = prev.reduce((a, b) => (setMass(b) > setMass(a) ? b : a));
     const allHit = prev.every((s) => (s.reps || 0) >= goal);
     const inc = unit() === 'kg' ? 2.5 : 5;
     return {
       allHit,
+      ranged: !!(hi && lo && hi !== lo),
+      low: lo, high: hi,
       prevWeight: top.weight,
       prevReps: prev.map((s) => s.reps || 0).join(','),
       weight: allHit ? Math.round((top.weight + inc) * 2) / 2 : top.weight,
-      reps: allHit ? goal : Math.min(goal, (top.reps || 0) + 1),
+      // back to the bottom of the range on a heavier bar; otherwise one more rep
+      reps: allHit ? (hi && lo ? lo : goal) : Math.min(goal, (top.reps || 0) + 1),
     };
   }
 
@@ -470,7 +510,40 @@
       byId.delete(t.id);
     });
     mine.forEach((t) => { if (byId.has(t.id)) out.push(t); });
+    // an order you arranged by hand wins; anything new falls in at the end
+    const order = state.tplOrder || [];
+    if (order.length) {
+      out.sort((a, b) => {
+        const ia = order.indexOf(a.id), ib = order.indexOf(b.id);
+        return (ia < 0 ? 1e6 : ia) - (ib < 0 ? 1e6 : ib);
+      });
+    }
     return out;
+  }
+  /* Moving one is moving it within what is on screen, built-in or not. */
+  function moveTemplate(id, dir) {
+    const list = allTemplates().map((t) => t.id);
+    const at = list.indexOf(id);
+    const to = at + dir;
+    if (at < 0 || to < 0 || to >= list.length) return false;
+    list.splice(to, 0, list.splice(at, 1)[0]);
+    state.tplOrder = list;
+    return true;
+  }
+  function duplicateTemplate(id) {
+    const src = templateById(id);
+    if (!src) return null;
+    const { builtin, ...clean } = JSON.parse(JSON.stringify(src));
+    clean.id = uid();
+    clean.name = (src.name || 'Routine') + ' copy';
+    if (!Array.isArray(state.templates)) state.templates = [];
+    state.templates.push(clean);
+    // sits straight under the one it came from
+    const list = allTemplates().map((t) => t.id).filter((x) => x !== clean.id);
+    const at = list.indexOf(id);
+    list.splice(at < 0 ? list.length : at + 1, 0, clean.id);
+    state.tplOrder = list;
+    return clean;
   }
   const templateById = (id) => allTemplates().find((t) => t.id === id)
     || BUILTIN_TEMPLATES.find((t) => t.id === id)
@@ -712,6 +785,28 @@
       }
     }
     return counts;
+  }
+
+  /* Where the week's work went. The app has always counted this and never
+     said it: a muscle you have not touched in seven days is worth seeing
+     before you plan the next session, not after. */
+  function muscleBalanceHTML() {
+    const counts = muscleSets7d();
+    const groups = MUSCLE_GROUPS.filter((g) => g !== 'Cardio');
+    const total = groups.reduce((t, g) => t + (counts[g] || 0), 0);
+    if (!total) return '';
+    const most = Math.max(...groups.map((g) => counts[g] || 0));
+    return '<div class="card mb-card">' +
+      '<div class="mb-head"><span class="micro">Sets this week</span>' +
+        '<span class="wv-sub">' + total + ' working set' + (total === 1 ? '' : 's') + '</span></div>' +
+      '<div class="mb-rows">' + groups.map((g) => {
+        const n = counts[g] || 0;
+        return '<div class="mb-row' + (n ? '' : ' is-none') + '">' +
+          '<span class="mb-name">' + esc(g) + '</span>' +
+          '<div class="mb-track"><div class="mb-fill" style="width:' + (most ? (n / most) * 100 : 0) + '%"></div></div>' +
+          '<b class="mb-n">' + n + '</b></div>';
+      }).join('') + '</div>' +
+    '</div>';
   }
 
   /* ---- bodyweight stats & weekly chart ---- */
@@ -3375,6 +3470,8 @@
         '<div class="wv-num" data-roll="vol7" data-roll-to="' + Math.round(vol7) + '">' + Math.round(vol7).toLocaleString() + '<i>' + esc(unit()) + '</i></div>' +
       '</div>' +
 
+      muscleBalanceHTML() +
+
       '<div class="card wk-plan week-wrap">' +
         '<div class="wc-head"><span class="micro">Weekly plan</span><span class="wc-note">Tap a day to set it</span></div>' +
         '<div class="ws-head">' +
@@ -3474,6 +3571,40 @@
         const editBtn = e.target.closest('[data-edit-tpl]');
         if (editBtn) { openRoutineBuilder(editBtn.dataset.editTpl); return; }
         startWorkout(el.dataset.tpl);
+      });
+      longPress(el, () => openTemplateMenu(el.dataset.tpl));
+    });
+  }
+
+  /* Hold a routine for the things you do to one now and then: copy it as the
+     start of the next one, or move it up the list. */
+  function openTemplateMenu(id) {
+    const tpl = templateById(id);
+    if (!tpl) return;
+    const list = allTemplates().map((t) => t.id);
+    const at = list.indexOf(id);
+    haptic('tap');
+    openSheet(tpl.name, `
+      <div class="menu-list">
+        <button class="menu-item" data-act="up" ${at <= 0 ? 'disabled' : ''}>↑ &nbsp;Move up</button>
+        <button class="menu-item" data-act="down" ${at >= list.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
+        <button class="menu-item" data-act="copy">⧉ &nbsp;Duplicate</button>
+        <button class="menu-item" data-act="edit">✎ &nbsp;Edit</button>
+      </div>`, (body) => {
+      body.addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-act]');
+        if (!b || b.disabled) return;
+        const act = b.dataset.act;
+        if (act === 'edit') { closeSheetNow(); openRoutineBuilder(id); return; }
+        if (act === 'copy') {
+          const made = duplicateTemplate(id);
+          haptic('tick');
+          closeSheet(); save(); render();
+          toast('Copied as "' + made.name + '"');
+          return;
+        }
+        if (moveTemplate(id, act === 'up' ? -1 : 1)) { haptic('tick'); save(); }
+        closeSheet(); render();
       });
     });
   }
@@ -3689,6 +3820,13 @@
             set.done = true;
             haptic('tick');
             flashSet = exIdx + ':' + setIdx;
+            /* Most sets repeat the one before them, so once a set is logged
+               the ones under it can be filled from it in a tap rather than
+               typed out again. Only offered while there is something empty
+               left to fill. */
+            const restEmpty = ex.sets.slice(setIdx + 1)
+              .filter((o) => !o.done && o.weight == null && o.reps == null);
+            let prMsg = null;
             /* A record is the biggest set you have ever done for this
                exercise, and today's sets count. Beating your own set from ten
                minutes ago moves the crown rather than handing out a second
@@ -3709,12 +3847,32 @@
                 // the plain tick of an ordinary set
                 haptic('pr');
                 // a pull-up has no weight to name, so the reps are the record
-                toast(prIcon('pr-mark toast-pr') + (set.weight
+                prMsg = prIcon('pr-mark toast-pr') + (set.weight
                   ? ` New record — ${fmtNum(set.weight)} ${unit()} × ${set.reps}`
-                  : ` New record — ${set.reps} reps`), true);
+                  : ` New record — ${set.reps} reps`);
               }
             }
             save(); render();
+
+            const canFill = restEmpty.length && (set.weight != null || set.reps != null);
+            const copy = { weight: set.weight, reps: set.reps, kmh: set.kmh, incl: set.incl };
+            const fill = canFill ? {
+              label: 'Fill rest',
+              onClick: () => {
+                ex.sets.forEach((o, j) => {
+                  if (j <= setIdx || o.done) return;
+                  if (o.weight != null || o.reps != null) return;
+                  if (copy.weight != null) o.weight = copy.weight;
+                  if (copy.reps != null) o.reps = copy.reps;
+                  if (copy.kmh != null) o.kmh = copy.kmh;
+                  if (copy.incl != null) o.incl = copy.incl;
+                });
+                haptic('tick');
+                save(); render();
+              },
+            } : null;
+            if (prMsg) toast(prMsg, true, fill);
+            else if (fill) toast('Set ' + numbersFor(ex)[setIdx] + ' logged', false, fill);
           } else {
             set.done = false;
             delete set.pr;
@@ -3796,11 +3954,12 @@
         <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>↑ &nbsp;Move up</button>
         <button class="menu-item" data-act="down" ${exIdx === w.exercises.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
         <button class="menu-item" data-act="note">📝 &nbsp;${ex.note ? 'Edit note' : 'Add note'}</button>
-        ${isBodyweight(ex.exerciseId) ? `<button class="menu-item" data-act="wt">🏋️ &nbsp;${ex.wt ? 'No added weight' : 'I add weight to this'}</button>` : ''}
+        ${isBodyweight(ex.exerciseId) ? `<button class="menu-item" data-act="wt">🏋️ &nbsp;${showsWeight(ex) ? 'No added weight' : 'I add weight to this'}</button>` : ''}
         ${showsWeight(ex) && !cardioEx ? `<button class="menu-item" data-act="unit">⚖ &nbsp;${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>` : ''}
         ${ex.ss ? `<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>`
           : exIdx < w.exercises.length - 1 ? `<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>` : ''}
         <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
+        ${showsWeight(ex) && !cardioEx ? '<button class="menu-item" data-act="warmup">🔥 &nbsp;Add warm-up sets</button>' : ''}
         ${showsWeight(ex) && !cardioEx ? '<button class="menu-item" data-act="plates">🏋️ &nbsp;Plate calculator</button>' : ''}
         <button class="menu-item" data-act="detail">📈 &nbsp;Records &amp; history</button>
         <button class="menu-item danger" data-act="remove">🗑 &nbsp;Remove from workout</button>
@@ -3823,10 +3982,15 @@
           ex.ss = group; next.ss = group;
           save(); closeSheet(); render();
         } else if (act === 'wt') {
-          if (ex.wt) { delete ex.wt; ex.sets.forEach((st) => { if (!st.done) st.weight = null; }); } else ex.wt = true;
+          const on = showsWeight(ex);
+          delete ex.wt;
+          setExPref(ex.exerciseId, { wt: !on });
+          if (on) ex.sets.forEach((st) => { if (!st.done) st.weight = null; });
           save(); closeSheet(); render();
         } else if (act === 'unit') {
-          if (exUnit(ex) === unit()) ex.wu = OTHER_UNIT(); else delete ex.wu;
+          const other = exUnit(ex) === unit() ? OTHER_UNIT() : unit();
+          delete ex.wu;
+          setExPref(ex.exerciseId, { wu: other === unit() ? null : other });
           save(); closeSheet(); render();
         } else if (act === 'ssbreak') {
           delete ex.ss;
@@ -3840,6 +4004,9 @@
         } else if (act === 'note') {
           closeSheetNow();
           openNoteSheet(ex);
+        } else if (act === 'warmup') {
+          closeSheetNow();
+          openWarmupSheet(ex);
         } else if (act === 'plates') {
           closeSheetNow();
           const lastWeight = [...ex.sets].reverse().find((s) => s.weight)?.weight;
@@ -3867,6 +4034,72 @@
         const val = $('#exNote', body).value.trim();
         if (val) ex.note = val; else delete ex.note;
         closeSheet(); done();
+      });
+    });
+  }
+
+  /* -------- warm-up ramp --------
+     The sets before the sets: a light one, then the bar creeping up to what
+     you came to lift. Rounded to something you can actually load, and marked
+     as warm-ups so they stay out of volume, records and the set numbering. */
+  const WARMUP_STEPS = [
+    [0.4, 8],
+    [0.6, 5],
+    [0.8, 3],
+  ];
+  function warmupSets(working) {
+    const step = unit() === 'kg' ? 2.5 : 5;
+    const round = (v) => Math.max(step, Math.round(v / step) * step);
+    const out = [];
+    for (const [frac, reps] of WARMUP_STEPS) {
+      const w = round(working * frac);
+      if (w >= working) break;                       // nothing to warm up to
+      if (out.length && out[out.length - 1].weight === w) continue;   // no repeats
+      out.push({ weight: w, reps, type: 'W', done: false });
+    }
+    return out;
+  }
+  function openWarmupSheet(ex, after) {
+    const done = after || (() => { save(); render(); });
+    // what you are working up to: the plan, then what you last did
+    const planned = ex.sets.find((s) => (s.type || 'N') !== 'W' && (s.weight ?? s.targetW));
+    const prevTop = previousSets(ex.exerciseId)
+      .filter((s) => (s.type || 'N') !== 'W' && s.weight)
+      .reduce((a, b) => (!a || b.weight > a.weight ? b : a), null);
+    const guess = planned?.weight ?? planned?.targetW ?? prevTop?.weight ?? '';
+    openSheet('Warm-up sets', `
+      <p class="portion-per">Sets working up to your first real one, added in front of it and marked W.</p>
+      <div class="field">
+        <label for="wuTarget">Working weight (${esc(exUnit(ex))})</label>
+        <input id="wuTarget" type="number" inputmode="decimal" min="0" step="0.5"
+               value="${guess === '' ? '' : toExUnit(guess, ex)}" placeholder="e.g. 80">
+      </div>
+      <div id="wuPreview" class="wu-preview"></div>
+      <button class="btn btn-primary" id="wuAdd" style="margin-top:14px">Add them</button>
+    `, (body) => {
+      const box = $('#wuTarget', body), out = $('#wuPreview', body);
+      const rows = () => warmupSets(fromExUnit(Number(box.value) || 0, ex));
+      const paint = () => {
+        const list = rows();
+        out.innerHTML = list.length
+          ? list.map((r, i) => '<div class="wu-row"><span class="set-num t-w">W</span>' +
+              '<b>' + fmtNum(toExUnit(r.weight, ex)) + ' ' + esc(exUnit(ex)) + '</b>' +
+              '<i>× ' + r.reps + '</i></div>').join('')
+          : '<p class="empty-note" style="padding:12px">Enter what you are working up to.</p>';
+      };
+      paint();
+      box.addEventListener('input', paint);
+      if (guess === '') box.focus();
+      $('#wuAdd', body).addEventListener('click', () => {
+        const list = rows();
+        if (!list.length) { toast('Enter what you are working up to'); return; }
+        // in front of the first set that is not already a warm-up
+        const at = ex.sets.findIndex((s) => (s.type || 'N') !== 'W');
+        ex.sets.splice(at < 0 ? ex.sets.length : at, 0, ...list);
+        haptic('tick');
+        closeSheet();
+        done();
+        toast(list.length + ' warm-up set' + (list.length === 1 ? '' : 's') + ' added');
       });
     });
   }
@@ -3973,6 +4206,12 @@
     });
   }
 
+  /* Warm-ups are lettered and do not take a number; the rest count up. */
+  function numbersFor(ex) {
+    let n = 0;
+    return ex.sets.map((s) => ((s.type || 'N') === 'N' ? String(++n) : (s.type || 'N')));
+  }
+
   function renderExerciseBlock(ex, exIdx) {
     const info = exerciseById(ex.exerciseId);
     const prev = previousSets(ex.exerciseId);
@@ -3980,8 +4219,7 @@
     const weighted = showsWeight(ex);
     const u = unit();
     // only working sets are numbered — a warm-up shouldn't push set 1 to set 2
-    let workingNo = 0;
-    const numbers = ex.sets.map((s) => ((s.type || 'N') === 'N' ? String(++workingNo) : (s.type || 'N')));
+    const numbers = numbersFor(ex);
     const rpeOn = state.settings.trackRpe !== false;
     return `
       <div class="card ex-block" data-ex="${exIdx}">
@@ -3997,13 +4235,14 @@
         ${(() => {
           const h = overloadHint(ex);
           if (!h) return '';
-          return `<button class="ex-line ex-hint ${h.allHit ? 'up' : ''}">${h.allHit ? '↑' : '→'} Last ${fmtNum(h.prevWeight)} ${esc(u)} × ${h.prevReps} — try <b>${fmtNum(h.weight)} ${esc(u)} × ${h.reps}</b></button>`;
+          const aim = h.ranged && !h.allHit ? h.low + '-' + h.high : h.reps;
+          return `<button class="ex-line ex-hint ${h.allHit ? 'up' : ''}">${h.allHit ? '↑' : '→'} Last ${fmtNum(h.prevWeight)} ${esc(u)} × ${h.prevReps} — try <b>${fmtNum(h.weight)} ${esc(u)} × ${aim}</b>${h.allHit && h.ranged ? ' <i>(top of the range — go up)</i>' : ''}</button>`;
         })()}
         ${cardio ? cardioLastLine(prev) : ''}
         <div class="set-grid${cardio ? ' cardio-grid' : ((rpeOn ? ' has-rpe' : '') + (weighted ? '' : ' no-weight'))}">
           ${cardio
             ? '<span class="hdr">Set</span><span class="hdr">Min</span><span class="hdr">km/h</span><span class="hdr">%</span><span class="hdr">km</span><span class="hdr">✓</span>'
-            : `<span class="hdr">Set</span><span class="hdr">Prev</span>${weighted ? `<span class="hdr">${esc(ex.wt && isBodyweight(ex.exerciseId) ? '+' + exUnit(ex) : exUnit(ex))}</span>` : ''}<span class="hdr">Reps</span>${rpeOn ? '<span class="hdr">RPE</span>' : ''}<span class="hdr">✓</span>`}
+            : `<span class="hdr">Set</span><span class="hdr">Prev</span>${weighted ? `<span class="hdr">${esc(isBodyweight(ex.exerciseId) ? '+' + exUnit(ex) : exUnit(ex))}</span>` : ''}<span class="hdr">Reps</span>${rpeOn ? '<span class="hdr">RPE</span>' : ''}<span class="hdr">✓</span>`}
           ${ex.sets.map((s, i) => {
             // past the sets you did last time, the faint number carries on
             // from the last one rather than leaving the box blank
@@ -4081,8 +4320,6 @@
         ...newExerciseEntry(e.exerciseId, tplSets(e), e.targetReps),
         ...(e.note ? { note: e.note } : {}),
         ...(e.ss ? { ss: e.ss } : {}),
-        ...(e.wu ? { wu: e.wu } : {}),
-        ...(e.wt ? { wt: true } : {}),
       })) : [],
     };
     workoutOpen = true;
@@ -4143,8 +4380,6 @@
               })),
               ...(ex.note ? { note: ex.note } : {}),
               ...(ex.ss ? { ss: ex.ss } : {}),
-              ...(ex.wu ? { wu: ex.wu } : {}),
-              ...(ex.wt ? { wt: true } : {}),
             })),
           });
         }
@@ -4244,7 +4479,8 @@
           ${d.exercises.map((e, i) => renderRoutineBlock(e, i, d.exercises.length)).join('')}
           ${d.exercises.length ? '' : '<p class="empty-note" style="padding:22px 16px">Nothing in it yet. Add the first exercise below.</p>'}
           <button class="btn btn-ghost" id="rbAdd" style="margin-bottom:12px">+ Add exercise</button>
-          ${changed ? '<button class="btn btn-quiet" id="rbReset" style="margin-bottom:8px">Restore the original</button>' : ''}
+          ${isEdit ? '<button class="btn btn-quiet" id="rbCopy" style="margin-bottom:8px">Duplicate this routine</button>' : ''}
+      ${changed ? '<button class="btn btn-quiet" id="rbReset" style="margin-bottom:8px">Restore the original</button>' : ''}
         </div>
       </div>`;
 
@@ -4339,6 +4575,20 @@
       showRoutineBuilder();
     }));
 
+    $('#rbCopy', root)?.addEventListener('click', () => {
+      // save what is on screen first, so the copy is of what you can see
+      if (!d.name.trim()) { toast('Give the routine a name first'); return; }
+      d.exercises.forEach((x) => { x.sets = tplSets(x); delete x.targetReps; });
+      if (!Array.isArray(state.templates)) state.templates = [];
+      const idx = state.templates.findIndex((t) => t.id === d.id);
+      if (idx >= 0) state.templates[idx] = d; else state.templates.push(d);
+      const made = duplicateTemplate(d.id);
+      haptic('tick');
+      routineDraft = null;
+      closeRoutineBuilder(true);
+      save(); render();
+      toast('Copied as "' + made.name + '"');
+    });
     $('#rbReset', root)?.addEventListener('click', () => {
       confirmAction({
         title: 'Restore the original',
@@ -4411,7 +4661,7 @@
         <div class="set-grid ${cardio ? 'rb-cardio-grid' : 'rb-grid'}${!cardio && !weighted ? ' no-weight' : ''}">
           ${cardio
             ? '<span class="hdr">Set</span><span class="hdr">Min</span><span class="hdr">km/h</span><span class="hdr">%</span><span class="hdr">km</span><span class="hdr"></span>'
-            : `<span class="hdr">Set</span><span class="hdr">Prev</span>${weighted ? `<span class="hdr">${esc(e.wt && isBodyweight(e.exerciseId) ? '+' + exUnit(e) : exUnit(e))}</span>` : ''}<span class="hdr">Reps</span><span class="hdr"></span>`}
+            : `<span class="hdr">Set</span><span class="hdr">Prev</span>${weighted ? `<span class="hdr">${esc(isBodyweight(e.exerciseId) ? '+' + exUnit(e) : exUnit(e))}</span>` : ''}<span class="hdr">Reps</span><span class="hdr"></span>`}
           ${rows.map((r, i) => {
             const p = prev[i] || prev[prev.length - 1];
             const prevTxt = p ? (p.weight ? `${fmtNum(p.weight)}×${p.reps}` : `${p.reps}`) : '—';
@@ -4478,11 +4728,12 @@
         <button class="menu-item" data-act="down" ${exIdx === d.exercises.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
         <button class="menu-item" data-act="note">📝 &nbsp;${ex.note ? 'Edit note' : 'Add note'}</button>
         ${isCardio(ex.exerciseId) ? '' : `<button class="menu-item" data-act="range">↔ &nbsp;${ex.range ? 'Just one rep number' : 'Aim for a rep range (6–8)'}</button>`}
-        ${isBodyweight(ex.exerciseId) ? `<button class="menu-item" data-act="wt">🏋️ &nbsp;${ex.wt ? 'No added weight' : 'I add weight to this'}</button>` : ''}
+        ${isBodyweight(ex.exerciseId) ? `<button class="menu-item" data-act="wt">🏋️ &nbsp;${showsWeight(ex) ? 'No added weight' : 'I add weight to this'}</button>` : ''}
         ${showsWeight(ex) && !isCardio(ex.exerciseId) ? `<button class="menu-item" data-act="unit">⚖ &nbsp;${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>` : ''}
         ${ex.ss ? '<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>'
           : exIdx < d.exercises.length - 1 ? '<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>' : ''}
         <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
+        ${showsWeight(ex) && !isCardio(ex.exerciseId) ? '<button class="menu-item" data-act="warmup">🔥 &nbsp;Add warm-up sets</button>' : ''}
         ${showsWeight(ex) && !isCardio(ex.exerciseId) ? '<button class="menu-item" data-act="plates">🏋️ &nbsp;Plate calculator</button>' : ''}
         <button class="menu-item" data-act="detail">📈 &nbsp;Records &amp; history</button>
         <button class="menu-item danger" data-act="remove">🗑 &nbsp;Remove from routine</button>
@@ -4497,6 +4748,13 @@
           return;
         }
         if (act === 'note') { closeSheetNow(); openNoteSheet(ex, () => showRoutineBuilder()); return; }
+        if (act === 'warmup') {
+          closeSheetNow();
+          ex.sets = tplSets(ex);
+          delete ex.targetReps;
+          openWarmupSheet(ex, () => showRoutineBuilder());
+          return;
+        }
         if (act === 'plates') { closeSheetNow(); openPlateCalc(); return; }
         if (act === 'detail') { closeSheetNow(); openExerciseDetail(ex.exerciseId); return; }
         if (act === 'ss') {
@@ -4506,10 +4764,18 @@
         }
         if (act === 'ssbreak') delete ex.ss;
         if (act === 'range') { if (ex.range) delete ex.range; else ex.range = true; }
-        if (act === 'unit') { if (exUnit(ex) === unit()) ex.wu = OTHER_UNIT(); else delete ex.wu; }
+        if (act === 'unit') {
+          const other = exUnit(ex) === unit() ? OTHER_UNIT() : unit();
+          delete ex.wu;
+          setExPref(ex.exerciseId, { wu: other === unit() ? null : other });
+          save();
+        }
         if (act === 'wt') {
-          if (ex.wt) { delete ex.wt; tplSets(ex).forEach((r) => delete r.weight); ex.sets = tplSets(ex); }
-          else ex.wt = true;
+          const on = showsWeight(ex);
+          delete ex.wt;
+          setExPref(ex.exerciseId, { wt: !on });
+          if (on) { tplSets(ex).forEach((r) => delete r.weight); ex.sets = tplSets(ex); }
+          save();
         }
         if (act === 'up' && exIdx > 0) d.exercises.splice(exIdx - 1, 0, d.exercises.splice(exIdx, 1)[0]);
         if (act === 'down' && exIdx < d.exercises.length - 1) d.exercises.splice(exIdx + 1, 0, d.exercises.splice(exIdx, 1)[0]);
