@@ -515,6 +515,74 @@ module.exports = async (t) => {
     await p2.evaluate(() => { const b = document.querySelector('#cfYes'); if (b) b.click(); });
     await p2.waitForTimeout(700);
 
+    /* ---- a rep range, when you want one ---- */
+    await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('#newRoutine2').click());
+    await p2.waitForTimeout(600);
+    await p2.fill('#rbName', 'Ranged');
+    for (const n of [0, 2]) {
+      await p2.click('#rbAdd');
+      await p2.waitForTimeout(600);
+      await p2.evaluate((i) => document.querySelectorAll('#pickList [data-pick]')[i].click(), n);
+      await p2.waitForTimeout(700);
+    }
+    t.equal('a plain reps box until you ask for a range', await p2.evaluate(() =>
+      document.querySelectorAll('.ex-block[data-ex="0"] .rb-repmax').length), 0);
+
+    await p2.evaluate(() => document.querySelectorAll('.rb-ex-menu')[0].click());
+    await p2.waitForTimeout(600);
+    t.check('the menu offers one', await p2.evaluate(() =>
+      /rep range/i.test(document.querySelector('[data-act="range"]').textContent)));
+    await p2.evaluate(() => document.querySelector('[data-act="range"]').click());
+    await p2.waitForTimeout(700);
+    t.equal('which gives that exercise an upper box per set', await p2.evaluate(() =>
+      document.querySelectorAll('.ex-block[data-ex="0"] .rb-repmax').length), 3);
+    t.equal('and leaves the other exercise alone', await p2.evaluate(() =>
+      document.querySelectorAll('.ex-block[data-ex="1"] .rb-repmax').length), 0);
+
+    await p2.evaluate(() => {
+      const set = (sel, i, v) => {
+        const el = document.querySelectorAll('.ex-block[data-ex="0"] ' + sel)[i];
+        el.value = v; el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      [0, 1, 2].forEach((i) => { set('.rb-rep', i, '6'); set('.rb-repmax', i, '8'); });
+      // the last one backwards, to check it is turned round
+      set('.rb-rep', 2, '10'); set('.rb-repmax', 2, '8');
+    });
+    await p2.waitForTimeout(400);
+    await p2.evaluate(() => document.querySelectorAll('.rb-ex-menu')[0].click());
+    await p2.waitForTimeout(600);
+    t.check('and offers to go back to one number', await p2.evaluate(() =>
+      /one rep number/i.test(document.querySelector('[data-act="range"]').textContent)));
+    await p2.evaluate(() => document.querySelector('[data-close]').click());
+    await p2.waitForTimeout(400);
+
+    await p2.click('#rbSave');
+    await p2.waitForTimeout(800);
+    const ranged = (await readState(p2)).templates.find((x) => x.name === 'Ranged');
+    t.equal('the range is saved, the wrong way round put right',
+      JSON.stringify(ranged.exercises[0].sets),
+      '[{"reps":6,"repsMax":8},{"reps":6,"repsMax":8},{"reps":8,"repsMax":10}]');
+    t.equal('the other exercise keeps a single number',
+      JSON.stringify(ranged.exercises[1].sets), '[{"reps":10},{"reps":10},{"reps":10}]');
+
+    await p2.evaluate(() => [...document.querySelectorAll('.tpl-item')]
+      .find((e) => /Ranged/.test(e.textContent)).click());
+    await p2.waitForTimeout(800);
+    t.equal('the logger shows the range behind the box', await p2.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .ex-block[data-ex="0"] .in-reps')]
+        .map((i) => i.placeholder).join()), '6-8,6-8,8-10');
+    t.equal('and a plain number where there is no range', await p2.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .ex-block[data-ex="1"] .in-reps')]
+        .map((i) => i.placeholder).join()), '10,10,10');
+    await p2.evaluate(() => { const b = document.querySelector('#cancelWorkout'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => { const b = document.querySelector('#cfYes'); if (b) b.click(); });
+    await p2.waitForTimeout(700);
+
     /* ---- everything the logger offers a set, the plan offers too ---- */
     await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
     await p2.waitForTimeout(500);
@@ -556,9 +624,9 @@ module.exports = async (t) => {
 
     await p2.evaluate(() => document.querySelectorAll('.rb-ex-menu')[0].click());
     await p2.waitForTimeout(600);
-    t.equal('the menu offers what the logger offers', await p2.evaluate(() =>
+    t.equal('the menu offers what the logger offers, plus the rep range', await p2.evaluate(() =>
       [...document.querySelectorAll('.menu-item')].map((b) => b.dataset.act).join()),
-      'up,down,note,ss,replace,plates,detail,remove');
+      'up,down,note,range,ss,replace,plates,detail,remove');
     await p2.evaluate(() => document.querySelector('[data-act="ss"]').click());
     await p2.waitForTimeout(700);
     t.equal('two exercises can be a superset', await p2.evaluate(() =>

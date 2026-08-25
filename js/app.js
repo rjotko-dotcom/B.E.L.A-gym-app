@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '13.3';
+  const APP_VERSION = '13.4';
 
   /* ---------------- state ---------------- */
 
@@ -3971,7 +3971,7 @@
               <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
                      value="${s.weight ?? ''}" placeholder="${s.targetW ?? p?.weight ?? ''}" aria-label="${cardio ? 'Distance km' : 'Weight'}, set ${i + 1}">
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
-                     value="${s.reps ?? ''}" placeholder="${s.target ?? p?.reps ?? ex.targetReps ?? ''}" aria-label="${cardio ? 'Minutes' : 'Reps'}, set ${i + 1}">
+                     value="${s.reps ?? ''}" placeholder="${s.targetMax && s.target ? s.target + '-' + s.targetMax : (s.target ?? p?.reps ?? ex.targetReps ?? '')}" aria-label="${cardio ? 'Minutes' : 'Reps'}, set ${i + 1}">
               ${rpeOn && !cardio ? `<button class="set-rpe ${s.rpe ? 'has' : ''}" aria-label="Effort for set ${numbers[i]}">${s.rpe ? fmtNum(s.rpe) : '–'}</button>` : ''}
               <button class="set-done ${s.done ? 'logged' : ''}" aria-label="${s.done ? 'Undo set' : 'Log set'}" aria-pressed="${s.done}">
                 <svg viewBox="0 0 24 24"><path d="M4.5 12.5 9.5 17.5 19.5 6.5"/></svg>
@@ -3991,6 +3991,7 @@
       ? setCount.map((r) => ({
           weight: null, reps: null, done: false,
           ...(r && r.reps ? { target: Number(r.reps) } : {}),
+          ...(r && r.repsMax ? { targetMax: Number(r.repsMax) } : {}),
           ...(r && r.weight ? { targetW: Number(r.weight) } : {}),
           ...(r && r.type && r.type !== 'N' ? { type: r.type } : {}),   // warm-ups and drops travel with the plan
         }))
@@ -4187,13 +4188,14 @@
        it empty and the routine says nothing about it, which is the right
        answer for anything you pick by feel on the day. */
     body.addEventListener('input', (e) => {
-      const box = e.target.closest('.rb-rep, .rb-w');
+      const box = e.target.closest('.rb-rep, .rb-repmax, .rb-w');
       if (!box) return;
       const ex = d.exercises[Number(box.dataset.ex)];
       const rows = tplSets(ex);
       const row = rows[Number(box.dataset.set)] || {};
       const val = Number(box.value);
-      const field = box.classList.contains('rb-w') ? 'weight' : 'reps';
+      const field = box.classList.contains('rb-w') ? 'weight'
+        : box.classList.contains('rb-repmax') ? 'repsMax' : 'reps';
       if (box.value !== '' && val > 0) row[field] = val; else delete row[field];
       rows[Number(box.dataset.set)] = row;
       ex.sets = rows;
@@ -4262,7 +4264,19 @@
       if (!d.name.trim()) { toast('Give the routine a name'); $('#rbName', root).focus(); return; }
       if (!d.exercises.length) { toast('Add at least one exercise'); return; }
       d.name = d.name.trim();
-      d.exercises.forEach((e) => { e.sets = tplSets(e); delete e.targetReps; });
+      d.exercises.forEach((e) => {
+        e.sets = tplSets(e);
+        delete e.targetReps;
+        /* "8 to 6" means the same as "6 to 8", and "6 to 6" is just 6. An
+           exercise switched back to a single number keeps none of it. */
+        e.sets.forEach((r) => {
+          if (!e.range) { delete r.repsMax; return; }
+          if (r.repsMax == null) return;
+          if (r.reps == null) { r.reps = r.repsMax; delete r.repsMax; return; }
+          if (r.repsMax < r.reps) { const lo = r.repsMax; r.repsMax = r.reps; r.reps = lo; }
+          if (r.repsMax === r.reps) delete r.repsMax;
+        });
+      });
       if (!Array.isArray(state.templates)) state.templates = [];
       const idx = state.templates.findIndex((t) => t.id === d.id);
       if (idx >= 0) state.templates[idx] = d; else state.templates.push(d);
@@ -4282,11 +4296,14 @@
     const prev = previousSets(e.exerciseId);
     const cardio = isCardio(e.exerciseId);
     const rows = tplSets(e);
+    // "8" or "8 to 10" — a choice per exercise, since it is a way of training
+    // rather than something that changes set by set
+    const ranged = !!e.range;
     // warm-ups are lettered, not numbered — the same rule the logger follows
     let workingNo = 0;
     const numbers = rows.map((r) => ((r.type || 'N') === 'N' ? String(++workingNo) : (r.type || 'N')));
     return `
-      <div class="card ex-block rb-block" data-ex="${exIdx}">
+      <div class="card ex-block rb-block${ranged ? ' is-ranged' : ''}" data-ex="${exIdx}">
         <div class="ex-head">
           <h3 class="ex-name">${e.ss ? `<span class="ss-chip">SS${e.ss}</span> ` : ''}${esc(info?.name ?? 'Unknown exercise')}
             <span class="muscle">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''}</span>
@@ -4311,9 +4328,15 @@
                      data-ex="${exIdx}" data-set="${i}" value="${r.weight ?? ''}"
                      placeholder="${p?.weight != null ? fmtNum(p.weight) : '—'}"
                      aria-label="Planned ${cardio ? 'distance' : 'weight'}, set ${i + 1} — optional">
-              <input class="set-input rb-rep" type="number" inputmode="numeric" min="1" max="100"
-                     data-ex="${exIdx}" data-set="${i}" value="${r.reps ?? ''}"
-                     placeholder="${p?.reps ?? '—'}" aria-label="Target ${cardio ? 'minutes' : 'reps'}, set ${i + 1}">
+              <div class="rb-reps-cell">
+                <input class="set-input rb-rep" type="number" inputmode="numeric" min="1" max="100"
+                       data-ex="${exIdx}" data-set="${i}" value="${r.reps ?? ''}"
+                       placeholder="${p?.reps ?? '—'}" aria-label="Target ${cardio ? 'minutes' : 'reps'}, set ${i + 1}">
+                ${ranged ? `<span class="rb-dash" aria-hidden="true">–</span>
+                <input class="set-input rb-repmax" type="number" inputmode="numeric" min="1" max="100"
+                       data-ex="${exIdx}" data-set="${i}" value="${r.repsMax ?? ''}"
+                       placeholder="+" aria-label="Up to how many ${cardio ? 'minutes' : 'reps'}, set ${i + 1}">` : ''}
+              </div>
               <button class="rb-drop-set" data-ex="${exIdx}" data-set="${i}" aria-label="Remove set ${i + 1}">
                 <svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg>
               </button>
@@ -4336,6 +4359,7 @@
         <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>↑ &nbsp;Move up</button>
         <button class="menu-item" data-act="down" ${exIdx === d.exercises.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
         <button class="menu-item" data-act="note">📝 &nbsp;${ex.note ? 'Edit note' : 'Add note'}</button>
+        <button class="menu-item" data-act="range">↔ &nbsp;${ex.range ? 'Just one rep number' : 'Aim for a rep range (6–8)'}</button>
         ${ex.ss ? '<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>'
           : exIdx < d.exercises.length - 1 ? '<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>' : ''}
         <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
@@ -4361,6 +4385,7 @@
           next.ss = ex.ss;
         }
         if (act === 'ssbreak') delete ex.ss;
+        if (act === 'range') { if (ex.range) delete ex.range; else ex.range = true; }
         if (act === 'up' && exIdx > 0) d.exercises.splice(exIdx - 1, 0, d.exercises.splice(exIdx, 1)[0]);
         if (act === 'down' && exIdx < d.exercises.length - 1) d.exercises.splice(exIdx + 1, 0, d.exercises.splice(exIdx, 1)[0]);
         if (act === 'remove') d.exercises.splice(exIdx, 1);

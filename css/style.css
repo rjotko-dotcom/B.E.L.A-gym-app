@@ -607,8 +607,15 @@ body {
 .rb-name-field { margin-bottom: 16px; }
 .rb-name-field input { font-size: 1rem; font-weight: 600; }
 /* Set · what you did last time · the weight you mean to use (optional) ·
-   the reps · take the row away */
+   the reps, or a range of them · take the row away */
 .set-grid.rb-grid { grid-template-columns: 34px 46px 1fr 1fr 36px; gap: 6px; }
+/* the reps column only needs the extra room when it holds two boxes */
+.rb-block.is-ranged .set-grid.rb-grid { grid-template-columns: 30px 40px 1fr 1.5fr 28px; gap: 5px; }
+/* "6 – 8": the second box is empty until you want an upper end */
+.rb-reps-cell { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.rb-reps-cell .set-input { flex: 1; min-width: 0; padding-left: 2px; padding-right: 2px; }
+.rb-dash { color: var(--ink-muted); font-size: 0.8rem; flex: none; }
+.rb-repmax::placeholder { color: var(--ink-muted); opacity: 0.45; }
 /* the set number is a button here too — tap it to make the set a warm-up,
    a drop set or one to failure, exactly as in the logger */
 .rb-block .set-num { cursor: pointer; }
