@@ -176,12 +176,22 @@ module.exports = async (t) => {
   t.check('the hero says the goal was reached', /Goal reached/.test(exact.heroText), exact.heroText);
 
   const past = await setDay({ kcal: 2860, protein: 181, carbs: 320, fat: 80 });
-  t.equal('one gram past the protein goal is over it', past.protein, 'over');
-  t.equal('and says how far', past.proteinText, '1g over');
-  t.equal('carbs past their goal are over too', past.carbs, 'over');
+  t.equal('carbs past their goal are over', past.carbs, 'over');
   t.equal('so is fat', past.fat, 'over');
-  t.check('and calories past theirs', /\bover\b/.test(past.hero), past.hero);
-  t.check('with the hero saying how far over', /over your goal/.test(past.heroText), past.heroText);
+  /* Protein is the one you are trying to reach, so passing it is not a
+     failure — and sixty calories past a goal is a normal day. */
+  t.equal('but protein past its goal is still met', past.protein, 'done');
+  t.equal('and says so', past.proteinText, 'goal hit');
+  t.check('sixty calories over is not flagged', !/\bover\b/.test(past.hero), past.hero);
+  t.check('the hero still says the goal was reached', /Goal reached/.test(past.heroText), past.heroText);
+
+  // it takes a proper overshoot to turn red
+  const near = await setDay({ kcal: 3300, protein: 181, carbs: 320, fat: 80 });
+  t.check('exactly five hundred over is still not flagged', !/\bover\b/.test(near.hero), near.hero);
+  const blown = await setDay({ kcal: 3301, protein: 181, carbs: 320, fat: 80 });
+  t.check('past that it is', /\bover\b/.test(blown.hero), blown.hero);
+  t.check('and says how far', /over your goal/.test(blown.heroText), blown.heroText);
+  t.equal('protein is never red, however far past', blown.protein, 'done');
 
   // the numbers on screen are whole, so a rounding hair is not "over"
   const hair = await setDay({ kcal: 2800.4, protein: 180.4, carbs: 300.2, fat: 70.3 });
