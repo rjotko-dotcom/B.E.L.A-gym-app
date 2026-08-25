@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '13.5';
+  const APP_VERSION = '13.6';
 
   /* ---------------- state ---------------- */
 
@@ -241,6 +241,34 @@
 
   function isCardio(exerciseId) {
     return exerciseById(exerciseId)?.muscle === 'Cardio';
+  }
+
+  /* ---------------- cardio ----------------
+     A treadmill is not a barbell. What you set on it is a time, a speed and
+     an incline; the distance is what comes out of the other end. All four are
+     kept per set — reps holds the minutes and weight the kilometres, as they
+     always have, so nothing already logged has to change. */
+  function cardioDistance(min, kmh) {
+    if (!(min > 0) || !(kmh > 0)) return null;
+    return Math.round((kmh * min / 60) * 100) / 100;
+  }
+  function cardioSpeed(min, km) {
+    if (!(min > 0) || !(km > 0)) return null;
+    return Math.round((km / (min / 60)) * 10) / 10;
+  }
+  // what a cardio set came to, in words
+  function cardioText(s) {
+    const bits = [];
+    if (s.reps) bits.push(s.reps + ' min');
+    if (s.kmh) bits.push(fmtNum(s.kmh) + ' km/h');
+    if (s.incl) bits.push(fmtNum(s.incl) + '%');
+    if (s.weight) bits.push(fmtNum(s.weight) + ' km');
+    return bits.join(' · ');
+  }
+  function cardioLastLine(prev) {
+    const last = [...prev].reverse().find((s) => s && (s.reps || s.weight));
+    if (!last) return '';
+    return '<div class="ex-line cardio-last">Last time · ' + esc(cardioText(last)) + '</div>';
   }
   // set.type: 'N' normal (default), 'W' warm-up, 'D' drop set, 'F' failure
   function isWorkingSet(s) {
@@ -3630,7 +3658,7 @@
     $('#wkMin', root).addEventListener('click', () => { workoutOpen = false; closeWkEntry(); render(); });
     $('#wkFinishTop', root).addEventListener('click', finishWorkout);
     $('#addExercise', root).addEventListener('click', () => openExercisePicker((exId) => {
-      w.exercises.push(newExerciseEntry(exId, 3));
+      w.exercises.push(newExerciseEntry(exId, isCardio(exId) ? 1 : 3));
       wkScrollTo = w.exercises.length - 1;
       save(); render();
     }));
@@ -3668,13 +3696,38 @@
         $('.set-num', row).addEventListener('click', () => openSetSheet(ex, setIdx));
         const rpeBtn = $('.set-rpe', row);
         if (rpeBtn) rpeBtn.addEventListener('click', () => openRpeSheet(set));
+        /* On a machine you set two of the three and the third follows: give it
+           a time and a speed and the distance appears, give it a time and a
+           distance and the speed does. Only ever into an empty box, so a
+           number you typed is never rewritten. */
+        const fillCardio = () => {
+          if (!cardio) return;
+          if (set.weight == null && set.reps && set.kmh) {
+            const km = cardioDistance(set.reps, set.kmh);
+            if (km) { set.weight = km; const b = $('.in-weight', row); if (b && b.value === '') b.value = km; }
+          } else if (set.kmh == null && set.reps && set.weight) {
+            const kmh = cardioSpeed(set.reps, set.weight);
+            if (kmh) { set.kmh = kmh; const b = $('.in-kmh', row); if (b && b.value === '') b.value = kmh; }
+          }
+        };
         $('.in-weight', row).addEventListener('input', (e) => {
           set.weight = e.target.value === '' ? null
             : (cardio ? Number(e.target.value) : fromExUnit(e.target.value, ex));
+          fillCardio();
           save();
         });
         $('.in-reps', row).addEventListener('input', (e) => {
           set.reps = e.target.value === '' ? null : Number(e.target.value);
+          fillCardio();
+          save();
+        });
+        $('.in-kmh', row)?.addEventListener('input', (e) => {
+          set.kmh = e.target.value === '' ? null : Number(e.target.value);
+          fillCardio();
+          save();
+        });
+        $('.in-incl', row)?.addEventListener('input', (e) => {
+          set.incl = e.target.value === '' ? null : Number(e.target.value);
           save();
         });
         $('.set-done', row).addEventListener('click', () => {
@@ -3687,7 +3740,19 @@
               const ph = Number($('.in-reps', row).placeholder);
               if (ph) set.reps = ph;
             }
-            if (set.reps == null) { toast(cardio ? 'Enter minutes first' : 'Enter reps first'); return; }
+            if (cardio) {
+              const grab = (sel, field) => {
+                if (set[field] != null) return;
+                const ph = Number($(sel, row)?.placeholder);
+                if (ph) set[field] = ph;
+              };
+              grab('.in-kmh', 'kmh');
+              grab('.in-incl', 'incl');
+              if (set.weight == null && set.reps && set.kmh) set.weight = cardioDistance(set.reps, set.kmh);
+              if (set.kmh == null && set.reps && set.weight) set.kmh = cardioSpeed(set.reps, set.weight);
+              if (set.reps == null && !set.weight) { toast('Enter the minutes first'); return; }
+            }
+            if (!cardio && set.reps == null) { toast('Enter reps first'); return; }
             set.done = true;
             haptic('tick');
             flashSet = exIdx + ':' + setIdx;
@@ -3946,7 +4011,7 @@
           <div class="tile"><span class="micro">Best volume</span><div class="t-value">${bestVol >= 10000 ? (bestVol / 1000).toFixed(1) + 'k' : fmtNum(bestVol)}<span class="t-unit"> ${esc(u)}</span></div></div>
         </div>`;
     }
-    const fmtSet = (s) => cardio ? `${fmtNum(s.weight ?? 0)} km · ${s.reps} min` : `${fmtNum(s.weight ?? 0)}×${s.reps}${s.pr ? ' ' + prIcon('pr-mark pr-inline') : ''}`;
+    const fmtSet = (s) => cardio ? cardioText(s) : `${fmtNum(s.weight ?? 0)}×${s.reps}${s.pr ? ' ' + prIcon('pr-mark pr-inline') : ''}`;
     openSheet(info?.name ?? 'Exercise', `
       <p class="muted" style="margin-bottom:12px">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''} · ${sessions.length} session${sessions.length === 1 ? '' : 's'}</p>
       ${recordsHtml}
@@ -3992,32 +4057,51 @@
           if (!h) return '';
           return `<button class="ex-line ex-hint ${h.allHit ? 'up' : ''}">${h.allHit ? '↑' : '→'} Last ${fmtNum(h.prevWeight)} ${esc(u)} × ${h.prevReps} — try <b>${fmtNum(h.weight)} ${esc(u)} × ${h.reps}</b></button>`;
         })()}
-        <div class="set-grid${rpeOn && !cardio ? ' has-rpe' : ''}">
-          <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(exUnit(ex))}</span><span class="hdr">${cardio ? 'min' : 'Reps'}</span>${rpeOn && !cardio ? '<span class="hdr">RPE</span>' : ''}<span class="hdr">✓</span>
+        ${cardio ? cardioLastLine(prev) : ''}
+        <div class="set-grid${cardio ? ' cardio-grid' : (rpeOn ? ' has-rpe' : '')}">
+          ${cardio
+            ? '<span class="hdr">Set</span><span class="hdr">Min</span><span class="hdr">km/h</span><span class="hdr">%</span><span class="hdr">km</span><span class="hdr">✓</span>'
+            : `<span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${esc(exUnit(ex))}</span><span class="hdr">Reps</span>${rpeOn ? '<span class="hdr">RPE</span>' : ''}<span class="hdr">✓</span>`}
           ${ex.sets.map((s, i) => {
             // past the sets you did last time, the faint number carries on
             // from the last one rather than leaving the box blank
             const p = prev[i] || prev[prev.length - 1];
-            const prevTxt = p ? (cardio ? `${fmtNum(p.weight ?? 0)}·${p.reps}m` : `${fmtNum(p.weight ?? 0)}×${p.reps}`) : '—';
             const t = s.type || 'N';
+            const numBtn = `<button class="set-num t-${t.toLowerCase()}" aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>`;
+            const tick = `<button class="set-done ${s.done ? 'logged' : ''}" aria-label="${s.done ? 'Undo set' : 'Log set'}" aria-pressed="${s.done}">
+                <svg viewBox="0 0 24 24"><path d="M4.5 12.5 9.5 17.5 19.5 6.5"/></svg>
+              </button>`;
+            if (cardio) {
+              const box = (cls, val, ph, step, label) =>
+                `<input class="set-input ${cls}" type="number" inputmode="decimal" min="0" step="${step}"
+                        value="${val ?? ''}" placeholder="${ph ?? ''}" aria-label="${label}, set ${i + 1}">`;
+              return `
+            <div class="set-row ${s.done ? 'logged' : ''}" data-set="${i}">
+              ${numBtn}
+              ${box('in-reps', s.reps, s.target ?? p?.reps ?? '', '1', 'Minutes')}
+              ${box('in-kmh', s.kmh, s.targetKmh ?? p?.kmh ?? '', '0.1', 'Speed km/h')}
+              ${box('in-incl', s.incl, s.targetIncl ?? p?.incl ?? '', '0.5', 'Incline percent')}
+              ${box('in-weight', s.weight, s.targetW ?? p?.weight ?? '', '0.1', 'Distance km')}
+              ${tick}
+            </div>`;
+            }
+            const prevTxt = p ? `${fmtNum(p.weight ?? 0)}×${p.reps}` : '—';
             return `
             <div class="set-row ${s.done ? 'logged' : ''}" data-set="${i}">
-              <button class="set-num t-${t.toLowerCase()}" aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>
+              ${numBtn}
               <span class="set-prev">${s.pr ? prIcon('pr-mark pr-inline') + ' ' : ''}${prevTxt}</span>
               <div class="w-cell">
-                <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
-                       value="${cardio ? (s.weight ?? '') : (toExUnit(s.weight, ex) ?? '')}"
-                       placeholder="${cardio ? (s.targetW ?? p?.weight ?? '') : (toExUnit(s.targetW ?? p?.weight ?? '', ex) ?? '')}"
-                       aria-label="${cardio ? 'Distance km' : 'Weight in ' + exUnit(ex)}, set ${i + 1}">
-                ${!cardio && exUnit(ex) !== unit() && s.weight != null
+                <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="0.5"
+                       value="${toExUnit(s.weight, ex) ?? ''}"
+                       placeholder="${toExUnit(s.targetW ?? p?.weight ?? '', ex) ?? ''}"
+                       aria-label="Weight in ${exUnit(ex)}, set ${i + 1}">
+                ${exUnit(ex) !== unit() && s.weight != null
                   ? `<i class="w-conv">${fmtNum(s.weight)} ${esc(unit())}</i>` : ''}
               </div>
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
-                     value="${s.reps ?? ''}" placeholder="${s.targetMax && s.target ? s.target + '-' + s.targetMax : (s.target ?? p?.reps ?? ex.targetReps ?? '')}" aria-label="${cardio ? 'Minutes' : 'Reps'}, set ${i + 1}">
-              ${rpeOn && !cardio ? `<button class="set-rpe ${s.rpe ? 'has' : ''}" aria-label="Effort for set ${numbers[i]}">${s.rpe ? fmtNum(s.rpe) : '–'}</button>` : ''}
-              <button class="set-done ${s.done ? 'logged' : ''}" aria-label="${s.done ? 'Undo set' : 'Log set'}" aria-pressed="${s.done}">
-                <svg viewBox="0 0 24 24"><path d="M4.5 12.5 9.5 17.5 19.5 6.5"/></svg>
-              </button>
+                     value="${s.reps ?? ''}" placeholder="${s.targetMax && s.target ? s.target + '-' + s.targetMax : (s.target ?? p?.reps ?? ex.targetReps ?? '')}" aria-label="Reps, set ${i + 1}">
+              ${rpeOn ? `<button class="set-rpe ${s.rpe ? 'has' : ''}" aria-label="Effort for set ${numbers[i]}">${s.rpe ? fmtNum(s.rpe) : '–'}</button>` : ''}
+              ${tick}
             </div>`;
           }).join('')}
         </div>
@@ -4035,6 +4119,8 @@
           ...(r && r.reps ? { target: Number(r.reps) } : {}),
           ...(r && r.repsMax ? { targetMax: Number(r.repsMax) } : {}),
           ...(r && r.weight ? { targetW: Number(r.weight) } : {}),
+          ...(r && r.kmh ? { targetKmh: Number(r.kmh) } : {}),
+          ...(r && r.incl ? { targetIncl: Number(r.incl) } : {}),
           ...(r && r.type && r.type !== 'N' ? { type: r.type } : {}),   // warm-ups and drops travel with the plan
         }))
       : Array.from({ length: Math.max(1, Number(setCount) || 1) }, () => ({ weight: null, reps: null, done: false }));
@@ -4061,7 +4147,7 @@
     save(); render();
     if (!tpl) {
       openExercisePicker((exId) => {
-        state.activeWorkout.exercises.push(newExerciseEntry(exId, 3));
+        state.activeWorkout.exercises.push(newExerciseEntry(exId, isCardio(exId) ? 1 : 3));
         save(); render();
       });
     }
@@ -4108,6 +4194,8 @@
               sets: ex.sets.map((st) => ({
                 ...(st.reps ? { reps: Number(st.reps) } : {}),
                 ...(st.weight ? { weight: Number(st.weight) } : {}),
+                ...(st.kmh ? { kmh: Number(st.kmh) } : {}),
+                ...(st.incl ? { incl: Number(st.incl) } : {}),
                 ...(st.type && st.type !== 'N' ? { type: st.type } : {}),
               })),
               ...(ex.note ? { note: ex.note } : {}),
@@ -4232,16 +4320,28 @@
        it empty and the routine says nothing about it, which is the right
        answer for anything you pick by feel on the day. */
     body.addEventListener('input', (e) => {
-      const box = e.target.closest('.rb-rep, .rb-repmax, .rb-w');
+      const box = e.target.closest('.rb-rep, .rb-repmax, .rb-w, .rb-min, .rb-kmh, .rb-incl, .rb-km');
       if (!box) return;
       const ex = d.exercises[Number(box.dataset.ex)];
       const rows = tplSets(ex);
       const row = rows[Number(box.dataset.set)] || {};
       const val = Number(box.value);
-      const field = box.classList.contains('rb-w') ? 'weight'
-        : box.classList.contains('rb-repmax') ? 'repsMax' : 'reps';
+      const cls = box.classList;
+      const field = cls.contains('rb-w') || cls.contains('rb-km') ? 'weight'
+        : cls.contains('rb-repmax') ? 'repsMax'
+        : cls.contains('rb-kmh') ? 'kmh'
+        : cls.contains('rb-incl') ? 'incl' : 'reps';
       const kept = field === 'weight' && !isCardio(ex.exerciseId) ? fromExUnit(val, ex) : val;
       if (box.value !== '' && val > 0) row[field] = kept; else delete row[field];
+      // plan a time and a speed and the distance is not a thing to work out
+      if (isCardio(ex.exerciseId) && row.weight == null && row.reps && row.kmh) {
+        const km = cardioDistance(row.reps, row.kmh);
+        if (km) {
+          row.weight = km;
+          const b = $('.rb-km[data-ex="' + box.dataset.ex + '"][data-set="' + box.dataset.set + '"]', body);
+          if (b && b.value === '') b.value = km;
+        }
+      }
       rows[Number(box.dataset.set)] = row;
       ex.sets = rows;
       delete ex.targetReps;             // the rows carry it now
@@ -4286,7 +4386,11 @@
     });
 
     $('#rbAdd', root).addEventListener('click', () => openExercisePicker((exId) => {
-      d.exercises.push({ exerciseId: exId, sets: [{ reps: 10 }, { reps: 10 }, { reps: 10 }] });
+      // nobody does three sets of a treadmill: one go, twenty minutes
+      d.exercises.push({
+        exerciseId: exId,
+        sets: isCardio(exId) ? [{ reps: 20 }] : [{ reps: 10 }, { reps: 10 }, { reps: 10 }],
+      });
       rbScrollTo = d.exercises.length - 1;
       showRoutineBuilder();
     }));
@@ -4358,16 +4462,38 @@
           </button>
         </div>
         <button class="ex-line ex-note-line rb-note ${e.note ? 'has' : ''}" data-ex="${exIdx}">${e.note ? esc(e.note) : 'Add notes here…'}</button>
-        <div class="set-grid rb-grid">
-          <span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${cardio ? 'km' : esc(exUnit(e))}</span><span class="hdr">${cardio ? 'Min' : 'Reps'}</span><span class="hdr"></span>
+        ${cardio ? cardioLastLine(prev) : ''}
+        <div class="set-grid ${cardio ? 'rb-cardio-grid' : 'rb-grid'}">
+          ${cardio
+            ? '<span class="hdr">Set</span><span class="hdr">Min</span><span class="hdr">km/h</span><span class="hdr">%</span><span class="hdr">km</span><span class="hdr"></span>'
+            : `<span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${esc(exUnit(e))}</span><span class="hdr">Reps</span><span class="hdr"></span>`}
           ${rows.map((r, i) => {
             const p = prev[i] || prev[prev.length - 1];
             const prevTxt = p ? (cardio ? `${fmtNum(p.weight ?? 0)}·${p.reps}m` : `${fmtNum(p.weight ?? 0)}×${p.reps}`) : '—';
             const t = r.type || 'N';
+            const numBtn = `<button class="set-num rb-set-num t-${t.toLowerCase()}" data-ex="${exIdx}" data-set="${i}"
+                      aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>`;
+            const dropBtn = `<button class="rb-drop-set" data-ex="${exIdx}" data-set="${i}" aria-label="Remove set ${i + 1}">
+                <svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg>
+              </button>`;
+            if (cardio) {
+              const box = (cls, val, ph, step, label) =>
+                `<input class="set-input ${cls}" type="number" inputmode="decimal" min="0" step="${step}"
+                        data-ex="${exIdx}" data-set="${i}" value="${val ?? ''}"
+                        placeholder="${ph ?? '—'}" aria-label="${label}, set ${i + 1}">`;
+              return `
+            <div class="set-row" data-set="${i}">
+              ${numBtn}
+              ${box('rb-min', r.reps, p?.reps, '1', 'Minutes')}
+              ${box('rb-kmh', r.kmh, p?.kmh, '0.1', 'Speed km/h')}
+              ${box('rb-incl', r.incl, p?.incl, '0.5', 'Incline percent')}
+              ${box('rb-km', r.weight, p?.weight != null ? fmtNum(p.weight) : null, '0.1', 'Distance km')}
+              ${dropBtn}
+            </div>`;
+            }
             return `
             <div class="set-row" data-set="${i}">
-              <button class="set-num rb-set-num t-${t.toLowerCase()}" data-ex="${exIdx}" data-set="${i}"
-                      aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>
+              ${numBtn}
               <span class="set-prev">${prevTxt}</span>
               <div class="w-cell">
                 <input class="set-input rb-w" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
@@ -4386,9 +4512,7 @@
                        data-ex="${exIdx}" data-set="${i}" value="${r.repsMax ?? ''}"
                        placeholder="+" aria-label="Up to how many ${cardio ? 'minutes' : 'reps'}, set ${i + 1}">` : ''}
               </div>
-              <button class="rb-drop-set" data-ex="${exIdx}" data-set="${i}" aria-label="Remove set ${i + 1}">
-                <svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg>
-              </button>
+              ${dropBtn}
             </div>`;
           }).join('')}
         </div>
@@ -6108,7 +6232,7 @@
     const fmtHistSet = (s, cardio) => {
       const t = s.type || 'N';
       const tag = t === 'N' ? '' : t + ' ';
-      return cardio ? `${fmtNum(s.weight ?? 0)}km·${s.reps}m` : `${tag}${fmtNum(s.weight ?? 0)}×${s.reps}${s.pr ? ' ' + prIcon('pr-mark pr-inline') : ''}`;
+      return cardio ? cardioText(s) : `${tag}${fmtNum(s.weight ?? 0)}×${s.reps}${s.pr ? ' ' + prIcon('pr-mark pr-inline') : ''}`;
     };
     const q = histQuery.trim().toLowerCase();
     const matches = (w) => !q || esc(w.name).toLowerCase().includes(q) ||

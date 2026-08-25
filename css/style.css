@@ -621,6 +621,12 @@ body {
 .w-cell { min-width: 0; }
 .w-cell .set-input { width: 100%; }
 .w-conv { display: block; margin-top: 2px; text-align: center; font-style: normal; font-size: 0.62rem; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+
+/* cardio: time, speed, incline and the distance they add up to */
+.set-grid.cardio-grid { grid-template-columns: 30px 1fr 1fr 1fr 1fr 42px; gap: 5px; }
+.set-grid.rb-cardio-grid { grid-template-columns: 30px 1fr 1fr 1fr 1fr 26px; gap: 5px; }
+.cardio-grid .set-input, .rb-cardio-grid .set-input { padding-left: 2px; padding-right: 2px; font-size: 0.92rem; }
+.cardio-last { color: var(--ink-muted); font-size: 0.78rem; }
 .rb-repmax::placeholder { color: var(--ink-muted); opacity: 0.45; }
 /* the set number is a button here too — tap it to make the set a warm-up,
    a drop set or one to failure, exactly as in the logger */

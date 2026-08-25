@@ -595,6 +595,81 @@ module.exports = async (t) => {
     await p2.evaluate(() => { const b = document.querySelector('#cfYes'); if (b) b.click(); });
     await p2.waitForTimeout(700);
 
+    /* ---- cardio has its own shape: time, speed, incline, distance ---- */
+    await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('#newRoutine2').click());
+    await p2.waitForTimeout(600);
+    await p2.fill('#rbName', 'Treadmill');
+    await p2.click('#rbAdd');
+    await p2.waitForTimeout(600);
+    await p2.fill('#pickSearch', 'Treadmill');
+    await p2.waitForTimeout(400);
+    await p2.evaluate(() => document.querySelector('#pickList [data-pick]').click());
+    await p2.waitForTimeout(700);
+
+    t.equal('a treadmill asks for minutes, speed, incline and distance', await p2.evaluate(() =>
+      [...document.querySelectorAll('#routineRoot .set-grid .hdr')].map((h) => h.textContent).join()),
+      'Set,Min,km/h,%,km,');
+    t.equal('and comes as one go, not three sets', await p2.evaluate(() =>
+      document.querySelectorAll('#routineRoot .ex-block[data-ex="0"] .set-row').length), 1);
+
+    await p2.evaluate(() => {
+      const set = (sel, v) => {
+        const el = document.querySelector('.ex-block[data-ex="0"] ' + sel);
+        el.value = v; el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      set('.rb-min', '20'); set('.rb-kmh', '10'); set('.rb-incl', '3');
+    });
+    await p2.waitForTimeout(400);
+    t.equal('twenty minutes at ten works the distance out for you', await p2.evaluate(() =>
+      document.querySelector('.ex-block[data-ex="0"] .rb-km').value), '3.33');
+
+    await p2.click('#rbSave');
+    await p2.waitForTimeout(800);
+    t.equal('the machine settings are the routine', JSON.stringify(
+      (await readState(p2)).templates.find((x) => x.name === 'Treadmill').exercises[0].sets),
+      '[{"reps":20,"kmh":10,"weight":3.33,"incl":3}]');
+
+    await p2.evaluate(() => [...document.querySelectorAll('.tpl-item')]
+      .find((e) => /Treadmill/.test(e.textContent)).click());
+    await p2.waitForTimeout(900);
+    t.equal('the logger asks the same four things', await p2.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .set-grid .hdr')].map((h) => h.textContent).join()),
+      'Set,Min,km/h,%,km,✓');
+    t.equal('with the plan behind each box', await p2.evaluate(() => {
+      const row = document.querySelector('#workoutRoot .set-row');
+      return ['.in-reps', '.in-kmh', '.in-incl', '.in-weight'].map((s) => row.querySelector(s).placeholder).join();
+    }), '20,10,3,3.33');
+
+    await p2.evaluate(() => document.querySelector('#workoutRoot .set-done').click());
+    await p2.waitForTimeout(600);
+    const cSet = await p2.evaluate(() =>
+      JSON.parse(localStorage.getItem('bela-gym-v1')).activeWorkout.exercises[0].sets[0]);
+    t.equal('ticking it takes all four', [cSet.reps, cSet.kmh, cSet.incl, cSet.weight].join(), '20,10,3,3.33');
+
+    // and typing time + speed on a fresh set fills the distance in
+    await p2.evaluate(() => document.querySelector('#workoutRoot .add-set').click());
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => {
+      const row = document.querySelectorAll('#workoutRoot .set-row')[1];
+      const t2 = row.querySelector('.in-reps'), sp = row.querySelector('.in-kmh');
+      t2.value = '30'; t2.dispatchEvent(new Event('input', { bubbles: true }));
+      sp.value = '8'; sp.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await p2.waitForTimeout(400);
+    t.equal('thirty minutes at eight is four kilometres', await p2.evaluate(() =>
+      document.querySelectorAll('#workoutRoot .set-row')[1].querySelector('.in-weight').value), '4');
+    t.check('and cardio is still kept out of the volume', await p2.evaluate(() =>
+      /^0 /.test([...document.querySelectorAll('#workoutRoot .wk-stats b')][1].textContent)));
+
+    await p2.evaluate(() => { const b = document.querySelector('#cancelWorkout'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => { const b = document.querySelector('#cfYes'); if (b) b.click(); });
+    await p2.waitForTimeout(700);
+
     /* ---- a rep range, when you want one ---- */
     await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
     await p2.waitForTimeout(500);
