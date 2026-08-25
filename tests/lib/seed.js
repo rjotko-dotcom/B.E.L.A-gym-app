@@ -34,10 +34,10 @@ function build() {
     }],
   }));
   return {
-    settings: { unit: 'kg', appearance: 'dark', name: 'Rimvydas', waterTarget: 8, goalWeight: 75, restSeconds: 90 },
+    settings: { unit: 'kg', appearance: 'dark', name: 'Rimvydas', goalWeight: 75, restSeconds: 90 },
     nutrition: {
       targets: { kcal: 2800, protein: 180, carbs: 300, fat: 70 },
-      meals, weights, water: [{ date: dk(today), glasses: 4 }], measurements: [],
+      meals, weights, water: [], measurements: [],
     },
     savedMeals: [],
     // today is always a training day, so the suite does not depend on which

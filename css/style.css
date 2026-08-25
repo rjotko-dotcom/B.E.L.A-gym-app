@@ -596,7 +596,7 @@ body {
 .ex-note-line.has { font-style: italic; }
 .menu-item.on { border-color: var(--ink-1); }
 
-/* ---------- v3.0: routines, supersets, water, measurements ---------- */
+/* ---------- v3.0: routines, supersets, measurements ---------- */
 .ss-chip {
   display: inline-block; vertical-align: 2px;
   background: var(--ink-1); color: var(--page);
@@ -646,10 +646,6 @@ body {
 /* the tab bar belongs to the page underneath, not to a full-screen builder */
 body.rb-open .tab-bar, body.rb-open .mini-bar { display: none; }
 
-.water-card { display: flex; align-items: center; justify-content: space-between; }
-.water-count { font-size: 1.05rem; font-weight: 800; margin-top: 3px; font-variant-numeric: tabular-nums; }
-.water-btns { display: flex; gap: 8px; }
-.water-btns .chip-btn { width: 46px; font-size: 1.1rem; }
 
 .ms-bars { display: flex; flex-direction: column; gap: 10px; }
 .ms-row { display: grid; grid-template-columns: 74px 1fr 30px; gap: 10px; align-items: center; }
@@ -1230,12 +1226,7 @@ body.has-mini .view.home-screen {
 .si-kcal { font-size: 0.86rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .si-del { width: 30px; height: 30px; border: none; background: none; color: var(--ink-muted); display: grid; place-items: center; cursor: pointer; flex-shrink: 0; }
 .si-del svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-.water-card { display: flex; align-items: center; gap: 12px; padding: 13px 14px; }
-.water-dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; padding: 10px 4px 6px; }
-.water-dots .wdot { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--baseline); }
-.water-dots .wdot.on { background: var(--ink-1); border-color: var(--ink-1); }
 /* past the target: hollow, dashed, so the extras count without blending in */
-.water-dots .wdot.extra { background: transparent; border: 1.5px dashed var(--ink-2); }
 
 /* ---------- workouts dashboard ---------- */
 .wk-active { padding: 15px 16px 16px; }
@@ -1879,27 +1870,6 @@ body.has-mini .view.home-screen {
   .celebrate, .wk-overlay.wk-enter, .tab.active svg { animation: none; }
 }
 
-/* ---------- the day's water, poured in ---------- */
-.water-ring, .water-speck {
-  position: fixed; z-index: 75; pointer-events: none;
-  will-change: transform, opacity;
-}
-.water-ring {
-  width: 44px; height: 44px; border-radius: 50%;
-  border: 2px solid var(--ink-1);
-}
-.water-speck { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-1); }
-.water-card .slot-ico.took-drop { animation: took-drop 0.5s cubic-bezier(0.3, 1.5, 0.5, 1); }
-@keyframes took-drop {
-  0% { transform: scale(1); }
-  30% { transform: scale(1.18); }
-  55% { transform: scale(0.94); }
-  100% { transform: scale(1); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .water-card .slot-ico.took-drop { animation: none; }
-}
-
 /* four macro boxes side by side when a logged meal is edited by hand */
 .macro-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
 
@@ -1973,8 +1943,6 @@ body.has-mini .view.home-screen {
 .rv-pr-list b { font-variant-numeric: tabular-nums; flex: none; }
 .rv-pr-more { color: var(--ink-muted); font-size: 0.78rem; justify-content: center !important; }
 
-/* asked after an improbable amount of water */
-.water-joke { text-align: center; color: var(--ink-muted); font-size: 0.82rem; font-weight: 600; margin: 8px 0 0; }
 
 /* ---------- first run ---------- */
 .su-dots { display: flex; justify-content: center; gap: 7px; margin-top: 18px; }

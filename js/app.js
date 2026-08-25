@@ -6,12 +6,12 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '13.8';
+  const APP_VERSION = '13.9';
 
   /* ---------------- state ---------------- */
 
   const defaultState = () => ({
-    settings: { unit: 'kg', appearance: 'system', waterTarget: 8, name: '' },
+    settings: { unit: 'kg', appearance: 'system', name: '' },
     nutrition: {
       targets: { kcal: 2800, protein: 180, carbs: 300, fat: 70 },
       meals: [],        // { id, date:'YYYY-MM-DD', time, name, kcal, protein, carbs, fat }
@@ -136,6 +136,16 @@
     if (!Array.isArray(parsed.tplHidden)) parsed.tplHidden = [];
     if (!Array.isArray(parsed.schedule) || parsed.schedule.length !== 7) parsed.schedule = [null, null, null, null, null, null, null];
     if (!parsed.habits) parsed.habits = starterHabits();
+    /* Water is gone; a habit that filled itself from it becomes one you tick
+       yourself, keeping its name, icon and target rather than disappearing. */
+    (parsed.habits || []).forEach((h) => {
+      if (h.source !== 'water') return;
+      delete h.source;
+      h.type = h.type || 'count';
+      h.unit = h.unit || 'glasses';
+      h.target = h.target || 8;
+      h.step = h.step || 1;
+    });
     if (!parsed.habitLog) parsed.habitLog = {};
     (parsed.nutrition?.meals || []).forEach((m) => { if (!m.slot) m.slot = slotFromTime(m.time); });
     return {
@@ -618,7 +628,6 @@
     const t = state.nutrition.targets;
     const list = habitsList();
     const wt = weightOn(key);
-    const glasses = waterFor(key);
     const line = (label, value) => '<div class="ds-line"><span>' + label + '</span><b>' + value + '</b></div>';
 
     openSheet(isToday ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' }), '' +
@@ -643,7 +652,6 @@
           line('Carbs · Fat', Math.round(tot.carbs) + ' g · ' + Math.round(tot.fat) + ' g') +
           '<div class="ds-meals">' + meals.map((m) => '<span>' + esc(m.name) + '</span>').join('') + '</div>'
         : '<p class="empty-note">Nothing logged.</p>') +
-      (glasses ? line('Water', glasses + ' glasses') : '') +
 
       '<div class="section-title">Habits</div>' +
       (list.length
@@ -691,13 +699,6 @@
 
   const MEASURE_LABELS = { waist: 'Waist', chest: 'Chest', arm: 'Arm', thigh: 'Thigh', hips: 'Hips' };
 
-  function waterFor(key) {
-    return state.nutrition.water.find((x) => x.date === key)?.glasses ?? 0;
-  }
-  function setWater(key, glasses) {
-    state.nutrition.water = state.nutrition.water.filter((x) => x.date !== key);
-    if (glasses > 0) state.nutrition.water.push({ date: key, glasses });
-  }
   // working sets per muscle group over the last 7 days
   function muscleSets7d() {
     const cutoff = Date.now() - 7 * 86400000;
@@ -2376,12 +2377,10 @@
     const over = kSt === 'over';
     const left = Math.round(targets.kcal - totals.kcal);
     const label = mealDayOffset === 0 ? 'Today' : mealDayOffset === -1 ? 'Yesterday' : fmtDate(day.getTime());
-    const glasses = waterFor(key);
-    const wTarget = state.settings.waterTarget || 8;
 
     v.innerHTML =
       '<div class="page-head">' +
-        '<div><h2>Nutrition</h2><p class="subtitle">Log meals, macros and water</p></div>' +
+        '<div><h2>Nutrition</h2><p class="subtitle">Log meals and macros</p></div>' +
         '<div class="ph-actions">' +
           '<button class="icon-btn" id="editTargets" aria-label="Edit daily goals">' +
             '<svg viewBox="0 0 24 24"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2.1"/><circle cx="9" cy="16" r="2.1"/></svg></button>' +
@@ -2471,35 +2470,10 @@
           'Copy ' + (mealDayOffset === 0 ? 'yesterday' : 'the day before') + ' (' + prev.length + ' meals)</button>';
       })() +
 
-      '<div class="card water-card">' +
-        '<span class="slot-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6c3.1 3.6 5.3 6.1 5.3 8.8a5.3 5.3 0 1 1-10.6 0c0-2.7 2.2-5.2 5.3-8.8Z"/></svg></span>' +
-        '<div class="slot-title"><b>Water</b><span>' + glasses + ' / ' + wTarget + ' glasses</span></div>' +
-        '<div class="water-btns">' +
-          '<button class="chip-btn" id="waterMinus" aria-label="Remove a glass">−</button>' +
-          '<button class="chip-btn chip-strong" id="waterPlus" aria-label="Add a glass">+</button>' +
-        '</div>' +
-      '</div>' +
-      // anything past the target gets its own dot: dashed and hollow, so a
-      // ninth and tenth glass are plainly extra rather than part of the eight
-      '<div class="water-dots">' + Array.from({ length: Math.max(wTarget, glasses) }, (_, i) =>
-        (i < wTarget
-          ? '<span class="wdot ' + (i < glasses ? 'on' : '') + '"></span>'
-          : '<span class="wdot extra"></span>')).join('') + '</div>' +
-      // twice the target is a lot of water for one day
-      (glasses >= Math.max(16, wTarget * 2) ? '<p class="water-joke">u ok?</p>' : '') +
       nutWeekHTML(key);
 
     $('#dayPrev').addEventListener('click', () => { mealDayOffset -= 1; render(); });
     $('#dayNext').addEventListener('click', () => { if (mealDayOffset < 0) { mealDayOffset += 1; render(); } });
-    $('#waterPlus').addEventListener('click', () => {
-      const was = waterFor(key);
-      setWater(key, was + 1);
-      const filled = was + 1 >= wTarget && was < wTarget;
-      haptic(filled ? 'done' : 'tap');
-      save(); render();
-      if (filled) pourWaterDrop();
-    });
-    $('#waterMinus').addEventListener('click', () => { setWater(key, Math.max(0, waterFor(key) - 1)); haptic('tap'); save(); render(); });
     $('#addMeal').addEventListener('click', () => openMealSheet(key));
     $('#editTargets').addEventListener('click', openTargetsSheet);
     $$('.slot-add', v).forEach((b) => b.addEventListener('click', () => openMealSheet(key, b.dataset.slot)));
@@ -2722,62 +2696,6 @@
     });
   }
 
-  /* The glass that fills the day: the dots gather into one drop, and the drop
-     falls into the water card's droplet, which takes it with a ripple. */
-  function pourWaterDrop() {
-    const dots = $$('.water-dots .wdot');
-    const icon = $('.water-card .slot-ico');
-    if (!dots.length || !icon || reducedMotion() || !dots[0].animate) return;
-
-    /* A wave across the row, left to right: each dot swells and settles as the
-       wave passes it, and the card takes the ripple as it reaches the end. */
-    const STEP = 52;
-    dots.forEach((d, i) => {
-      d.getAnimations().forEach((a) => a.cancel());
-      d.animate([
-        { transform: 'translate3d(0,0,0) scale(1)' },
-        { transform: 'translate3d(0,-5px,0) scale(1.65)', offset: 0.42 },
-        { transform: 'translate3d(0,0,0) scale(1)' },
-      ], { duration: 440, delay: i * STEP, easing: 'cubic-bezier(0.3, 0.9, 0.4, 1)' });
-    });
-
-    setTimeout(() => { splashAt(icon); haptic('tick'); }, (dots.length - 1) * STEP + 180);
-  }
-
-  /* The landing: a ring opening out of the icon and three specks thrown off it.
-     Transform and opacity only — a growing box-shadow repaints the card. */
-  function splashAt(icon) {
-    icon.classList.remove('took-drop');
-    void icon.offsetWidth;
-    icon.classList.add('took-drop');
-    const box = icon.getBoundingClientRect();
-    const cx = box.left + box.width / 2;
-    const cy = box.top + box.height / 2;
-
-    const ring = document.createElement('span');
-    ring.className = 'water-ring';
-    ring.style.left = (cx - 22) + 'px';
-    ring.style.top = (cy - 22) + 'px';
-    document.body.appendChild(ring);
-    ring.animate([
-      { transform: 'scale(0.35)', opacity: 0.85 },
-      { transform: 'scale(1.6)', opacity: 0 },
-    ], { duration: 460, easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)' }).onfinish = () => ring.remove();
-
-    [[-16, -13], [0, -20], [16, -12]].forEach(([sx, sy], i) => {
-      const bit = document.createElement('span');
-      bit.className = 'water-speck';
-      bit.style.left = (cx - 2.5) + 'px';
-      bit.style.top = (cy - 2.5) + 'px';
-      document.body.appendChild(bit);
-      bit.animate([
-        { transform: 'translate3d(0,0,0) scale(1)', opacity: 0.9 },
-        { transform: 'translate3d(' + sx + 'px,' + sy + 'px,0) scale(0.6)', opacity: 0.9, offset: 0.55 },
-        { transform: 'translate3d(' + sx * 1.25 + 'px,' + (sy + 16) + 'px,0) scale(0.3)', opacity: 0 },
-      ], { duration: 480, delay: i * 30, easing: 'cubic-bezier(0.3, 0.6, 0.4, 1)' }).onfinish = () => bit.remove();
-    });
-  }
-
   /* daily goals, editable straight from the nutrition page */
   function openTargetsSheet() {
     const t = state.nutrition.targets;
@@ -2791,8 +2709,6 @@
         '<div class="field"><label for="ngF">Fat g</label><input id="ngF" type="number" inputmode="numeric" min="0" value="' + t.fat + '"></div>' +
       '</div>' +
       '<p class="goal-note" id="ngNote"></p>' +
-      '<div class="field"><label for="ngW">Water (glasses)</label>' +
-        '<input id="ngW" type="number" inputmode="numeric" min="1" value="' + (state.settings.waterTarget || 8) + '"></div>' +
       '<button class="btn btn-quiet" id="ngMatch">Set calories from macros</button>' +
       '<button class="btn btn-primary" id="ngSave" style="margin-top:10px">Save goals</button>',
     (body) => {
@@ -2813,7 +2729,6 @@
       });
       $('#ngSave', body).addEventListener('click', () => {
         state.nutrition.targets = { kcal: get('#ngKcal'), protein: get('#ngP'), carbs: get('#ngC'), fat: get('#ngF') };
-        state.settings.waterTarget = Math.max(1, get('#ngW'));
         save(); closeSheet(); render();
         toast('Goals updated');
       });
@@ -4830,11 +4745,10 @@
   }
 
   /* a habit can fill itself in from what the app already knows — a workout you
-     finished, water you logged, protein you hit — instead of a manual tick */
+     finished, a weigh-in, the protein you ate — instead of a manual tick */
   const HABIT_SOURCES = {
     workout: { label: 'A workout is logged', type: 'check', unit: '', tab: 'workout' },
     weight:  { label: 'Bodyweight is logged', type: 'check', unit: '', tab: 'weight' },
-    water:   { label: 'Water glasses', type: 'count', unit: 'glasses', tab: 'meals' },
     protein: { label: 'Protein eaten', type: 'count', unit: 'g', tab: 'meals' },
     kcal:    { label: 'Calories eaten', type: 'count', unit: 'kcal', tab: 'meals' },
   };
@@ -4842,7 +4756,6 @@
     switch (h.source) {
       case 'workout': return state.workouts.some((w) => dateKey(new Date(w.startedAt)) === key) ? 1 : 0;
       case 'weight': return weightOn(key) ? 1 : 0;
-      case 'water': return waterFor(key);
       case 'protein': return Math.round(dayTotals(key).protein);
       case 'kcal': return Math.round(dayTotals(key).kcal);
       default: return null;
@@ -4850,8 +4763,8 @@
   }
   function habitsList() { return (state.habits || []).filter((h) => !h.archived); }
   function habitById(id) { return (state.habits || []).find((h) => h.id === id); }
-  function habitType(h) { return h.source ? HABIT_SOURCES[h.source].type : h.type; }
-  function habitUnit(h) { return h.source ? HABIT_SOURCES[h.source].unit : (h.unit || ''); }
+  function habitType(h) { return (h.source && HABIT_SOURCES[h.source]) ? HABIT_SOURCES[h.source].type : h.type; }
+  function habitUnit(h) { return (h.source && HABIT_SOURCES[h.source]) ? HABIT_SOURCES[h.source].unit : (h.unit || ''); }
   function habitValue(id, key = dateKey()) {
     const h = habitById(id);
     if (h && h.source) {
@@ -4862,7 +4775,6 @@
   }
   function habitTarget(h) {
     // linked habits follow the goal they mirror, so changing it in one place is enough
-    if (h.source === 'water') return state.settings.waterTarget || 8;
     if (h.source === 'protein') return state.nutrition.targets.protein || 1;
     if (h.source === 'kcal') return state.nutrition.targets.kcal || 1;
     return habitType(h) === 'check' ? 1 : (h.target || 1);
@@ -6534,8 +6446,6 @@
         <div class="field"><label for="tFat">Fat g</label><input id="tFat" type="number" inputmode="numeric" min="0" value="${t.fat}"></div>
       </div>
       <div class="field">
-        <label for="tWater">Water target (glasses / day)</label>
-        <input id="tWater" type="number" inputmode="numeric" min="1" value="${s.waterTarget}">
       </div>
       <div class="btn-row" style="margin-top:8px">
         <button class="btn btn-quiet" id="exportBtn">Save backup</button>
@@ -6629,10 +6539,6 @@
       bindTarget('#tProtein', 'protein');
       bindTarget('#tCarbs', 'carbs');
       bindTarget('#tFat', 'fat');
-      $('#tWater', body).addEventListener('change', (e) => {
-        state.settings.waterTarget = Math.max(1, Number(e.target.value) || 8);
-        save(); render();
-      });
       $('#exportBtn', body).addEventListener('click', () => {
         const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
@@ -7044,7 +6950,7 @@
   function render() {
     ensureElapsedTimer();
     // rebuilding a view drops the page to the top: ticking a habit or adding a
-    // glass of water should leave you looking at the same thing
+    // tick of a habit should leave you looking at the same thing
     const pageY = window.scrollY;
     $('#view').classList.toggle('home-screen', currentTab === 'home');
     switch (currentTab) {

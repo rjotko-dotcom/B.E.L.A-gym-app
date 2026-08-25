@@ -241,37 +241,6 @@ module.exports = async (t) => {
   await page.waitForTimeout(500);
   t.equal('and does it', await mealCount(), had + 1);
 
-  // the glass that fills the day pours itself into the card
-  await page.evaluate(() => {
-    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
-    const d = new Date();
-    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    st.settings.waterTarget = 8;
-    st.nutrition.water = [{ date: key, glasses: 7 }];
-    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
-  });
-  await page.reload();
-  await page.waitForTimeout(650);
-  await page.click('.tab[data-tab="meals"]');
-  await page.waitForTimeout(450);
-  await page.click('#waterPlus');
-  await page.waitForTimeout(150);
-  t.check('the last glass runs a wave across the dots', await page.evaluate(() =>
-    [...document.querySelectorAll('.wdot')].some((d) => d.getAnimations().length > 0)));
-  await page.waitForTimeout(1400);
-  t.check('and the card takes the ripple', await page.evaluate(() => !!document.querySelector('.slot-ico.took-drop')));
-  const dots = await page.evaluate(() => {
-    const d = [...document.querySelectorAll('.wdot')];
-    return { count: d.length, on: d.filter((x) => x.classList.contains('on')).length,
-      hidden: d.filter((x) => Number(getComputedStyle(x).opacity) < 0.9).length };
-  });
-  t.equal('and every dot comes back filled', dots.on, dots.count);
-  t.equal('none left invisible', dots.hidden, 0);
-  await page.evaluate(() => document.querySelector('.slot-ico').classList.remove('took-drop'));
-  await page.click('#waterPlus');
-  await page.waitForTimeout(700);
-  t.check('a glass past the target does not run it again', await page.evaluate(() => !document.querySelector('.slot-ico.took-drop')));
-
   // deleting several things in a row leaves one message, not a pile
   for (let i = 0; i < 4; i++) {
     if (!(await page.evaluate(() => !!document.querySelector('.si-del')))) break;
@@ -335,38 +304,6 @@ module.exports = async (t) => {
   t.check('the week card sums the last seven days', /Last 7 days/.test(week) && /Avg kcal/.test(week), week.slice(0, 70));
   t.equal('with a bar per day', await page.evaluate(() => document.querySelectorAll('.nw-day').length), 7);
 
-  // past the target, extra glasses get their own hollow dashed dot
-  await page.evaluate(() => {
-    const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
-    const d = new Date();
-    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    st.settings.waterTarget = 8;
-    st.nutrition.water = [{ date: key, glasses: 10 }];
-    localStorage.setItem('bela-gym-v1', JSON.stringify(st));
-  });
-  await page.reload();
-  await page.waitForTimeout(650);
-  await page.click('.tab[data-tab="meals"]');
-  await page.waitForTimeout(450);
-  const wd = await page.evaluate(() => ({
-    total: document.querySelectorAll('.wdot').length,
-    filled: document.querySelectorAll('.wdot.on').length,
-    extra: document.querySelectorAll('.wdot.extra').length,
-    dashed: getComputedStyle(document.querySelector('.wdot.extra')).borderStyle,
-    hollow: getComputedStyle(document.querySelector('.wdot.extra')).backgroundColor,
-  }));
-  t.equal('ten glasses draw ten dots', wd.total, 10);
-  t.equal('eight of them are the target', wd.filled, 8);
-  t.equal('and two are extra', wd.extra, 2);
-  t.equal('drawn dashed', wd.dashed, 'dashed');
-  t.equal('and hollow', wd.hollow, 'rgba(0, 0, 0, 0)');
-  await page.click('#waterMinus');
-  await page.click('#waterMinus');
-  await page.click('#waterMinus');
-  await page.waitForTimeout(450);
-  t.equal('dropping back to the target leaves eight', await page.evaluate(() => document.querySelectorAll('.wdot').length), 8);
-  t.equal('with none extra', await page.evaluate(() => document.querySelectorAll('.wdot.extra').length), 0);
-
   // a food of your own can be corrected instead of forgotten and retyped
   await page.evaluate(() => {
     const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
@@ -394,24 +331,6 @@ module.exports = async (t) => {
   t.equal('and the protein', food.protein, 11);
   t.equal('and the portion the + logs', food.serving, 500);
 
-  // an improbable amount of water gets a question
-  const askAt = async (glasses) => {
-    await page.evaluate((g) => {
-      const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
-      const d = new Date();
-      const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-      st.settings.waterTarget = 8;
-      st.nutrition.water = [{ date: key, glasses: g }];
-      localStorage.setItem('bela-gym-v1', JSON.stringify(st));
-    }, glasses);
-    await page.reload();
-    await page.waitForTimeout(600);
-    await page.evaluate(() => document.querySelector('.tab[data-tab="meals"]').click());
-    await page.waitForTimeout(450);
-    return page.evaluate(() => document.querySelector('.water-joke')?.textContent || '');
-  };
-  t.equal('twelve glasses passes without comment', await askAt(12), '');
-  t.equal('thirty-four asks after you', await askAt(34), 'u ok?');
 
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
@@ -607,6 +526,42 @@ module.exports = async (t) => {
 
     t.equal('no page errors', p4.errors.length, 0);
     await p4.close();
+  }
+
+  /* ---- water is gone; a habit that ran off it still works by hand ---- */
+  {
+    const legacy = build();
+    legacy.habits = [...legacy.habits, { id: 'h_water', name: 'Water', icon: 'water', source: 'water' }];
+    const p6 = await openApp(t.browser, { url: server.url, seed: legacy });
+    await p6.waitForTimeout(500);
+    await p6.evaluate(() => document.querySelector('.tab[data-tab="habits"]').click());
+    await p6.waitForTimeout(500);
+    t.check('it still draws in the list, under its own name', await p6.evaluate(() =>
+      [...document.querySelectorAll('.hb-row')].some((r) => /Water/.test(r.textContent))));
+    // counting it up writes the migrated shape back
+    await p6.evaluate(() => {
+      const row = [...document.querySelectorAll('.hb-row')].find((r) => /Water/.test(r.textContent));
+      row.querySelector('.hb-plus, button').click();
+    });
+    await p6.waitForTimeout(500);
+    const hab = (await readState(p6)).habits.find((h) => h.id === 'h_water');
+    t.check('it keeps its name', hab && hab.name === 'Water');
+    t.check('but no longer fills itself from a card that is gone', hab && !hab.source, JSON.stringify(hab));
+    t.equal('and counts by hand instead', hab.type, 'count');
+    t.equal('no page errors', p6.errors.length, 0);
+    await p6.close();
+  }
+
+  /* ---- and nothing on the nutrition page mentions it any more ---- */
+  {
+    const p7 = await openApp(t.browser, { url: server.url, seed: build() });
+    await p7.evaluate(() => document.querySelector('.tab[data-tab="meals"]').click());
+    await p7.waitForTimeout(500);
+    t.check('no water card', await p7.evaluate(() => !document.querySelector('.water-card')));
+    t.check('no dots', await p7.evaluate(() => !document.querySelector('.wdot')));
+    t.check('and the page says what it does', await p7.evaluate(() =>
+      document.querySelector('.subtitle').textContent), 'Log meals and macros');
+    await p7.close();
   }
 
   await server.close();
