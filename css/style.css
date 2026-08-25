@@ -627,6 +627,12 @@ body {
 .set-grid.rb-cardio-grid { grid-template-columns: 30px 1fr 1fr 1fr 1fr 26px; gap: 5px; }
 .cardio-grid .set-input, .rb-cardio-grid .set-input { padding-left: 2px; padding-right: 2px; font-size: 0.92rem; }
 .cardio-last { color: var(--ink-muted); font-size: 0.78rem; }
+
+/* nothing to weigh: the column is gone, and the reps have the room */
+.set-grid.no-weight { grid-template-columns: 40px 1fr 1fr 48px; }
+.set-grid.has-rpe.no-weight { grid-template-columns: 34px 60px 1fr 40px 44px; }
+.set-grid.rb-grid.no-weight { grid-template-columns: 34px 52px 1fr 36px; }
+.rb-block.is-ranged .set-grid.rb-grid.no-weight { grid-template-columns: 30px 46px 1fr 28px; }
 .rb-repmax::placeholder { color: var(--ink-muted); opacity: 0.45; }
 /* the set number is a button here too — tap it to make the set a warm-up,
    a drop set or one to failure, exactly as in the logger */

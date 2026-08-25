@@ -595,6 +595,76 @@ module.exports = async (t) => {
     await p2.evaluate(() => { const b = document.querySelector('#cfYes'); if (b) b.click(); });
     await p2.waitForTimeout(700);
 
+    /* ---- a pull-up has no weight to write down ---- */
+    await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('#newRoutine2').click());
+    await p2.waitForTimeout(600);
+    await p2.fill('#rbName', 'Core');
+    for (const name of ['Hanging Leg Raise', 'Barbell Bench Press']) {
+      await p2.click('#rbAdd');
+      await p2.waitForTimeout(600);
+      await p2.fill('#pickSearch', name);
+      await p2.waitForTimeout(400);
+      await p2.evaluate(() => document.querySelector('#pickList [data-pick]').click());
+      await p2.waitForTimeout(700);
+    }
+    t.equal('bodyweight loses the kg column, the barbell keeps it', await p2.evaluate(() =>
+      [...document.querySelectorAll('#routineRoot .ex-block')]
+        .map((b) => [...b.querySelectorAll('.hdr')].map((h) => h.textContent).join('|')).join(' / ')),
+      'Set|Prev|Reps| / Set|Prev|kg|Reps|');
+
+    await p2.evaluate(() => document.querySelectorAll('.rb-ex-menu')[0].click());
+    await p2.waitForTimeout(600);
+    t.check('but it can be told you use a belt', await p2.evaluate(() =>
+      /I add weight to this/.test(document.querySelector('[data-act="wt"]').textContent)));
+    t.check('and it is not offered a plate calculator meanwhile', await p2.evaluate(() =>
+      !document.querySelector('[data-act="plates"]')));
+    await p2.evaluate(() => document.querySelector('[data-act="wt"]').click());
+    await p2.waitForTimeout(700);
+    t.equal('which brings the column back, as added weight', await p2.evaluate(() =>
+      [...document.querySelectorAll('#routineRoot .ex-block[data-ex="0"] .hdr')].map((h) => h.textContent).join('|')),
+      'Set|Prev|+kg|Reps|');
+    await p2.evaluate(() => document.querySelectorAll('.rb-ex-menu')[0].click());
+    await p2.waitForTimeout(600);
+    await p2.evaluate(() => document.querySelector('[data-act="wt"]').click());
+    await p2.waitForTimeout(700);
+    await p2.click('#rbSave');
+    await p2.waitForTimeout(800);
+
+    await p2.evaluate(() => [...document.querySelectorAll('.tpl-item')]
+      .find((e) => /Core/.test(e.textContent)).click());
+    await p2.waitForTimeout(900);
+    t.equal('the logger drops it too', await p2.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .ex-block[data-ex="0"] .hdr')].map((h) => h.textContent).join('|')),
+      'Set|Prev|Reps|RPE|✓');
+
+    // and reps alone can be a record, which they never could before
+    const bwSet = async (i, r) => {
+      await p2.evaluate(({ i, r }) => {
+        const row = document.querySelectorAll('#workoutRoot .ex-block[data-ex="0"] .set-row')[i];
+        const ri = row.querySelector('.in-reps');
+        ri.value = r; ri.dispatchEvent(new Event('input', { bubbles: true }));
+        row.querySelector('.set-done').click();
+      }, { i, r });
+      await p2.waitForTimeout(600);
+    };
+    await bwSet(0, '12');
+    await bwSet(1, '15');
+    t.equal('the better set of pull-ups holds the record', await p2.evaluate(() =>
+      JSON.parse(localStorage.getItem('bela-gym-v1')).activeWorkout.exercises[0].sets
+        .map((x) => !!x.pr).join()), 'false,true,false');
+    t.check('and it is announced in reps, not in null kilos', await p2.evaluate(() =>
+      !/null/.test(document.querySelector('.toast')?.textContent || '')),
+      await p2.evaluate(() => document.querySelector('.toast')?.textContent || ''));
+
+    await p2.evaluate(() => { const b = document.querySelector('#cancelWorkout'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => { const b = document.querySelector('#cfYes'); if (b) b.click(); });
+    await p2.waitForTimeout(700);
+
     /* ---- cardio has its own shape: time, speed, incline, distance ---- */
     await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
     await p2.waitForTimeout(500);

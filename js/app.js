@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '13.6';
+  const APP_VERSION = '13.7';
 
   /* ---------------- state ---------------- */
 
@@ -242,6 +242,12 @@
   function isCardio(exerciseId) {
     return exerciseById(exerciseId)?.muscle === 'Cardio';
   }
+  /* A pull-up has no weight to write down, so it is not asked for. Some are
+     done with a belt on, and the exercise's menu turns the column back on. */
+  function isBodyweight(exerciseId) {
+    return !isCardio(exerciseId) && exerciseById(exerciseId)?.equipment === 'Bodyweight';
+  }
+  const showsWeight = (ex) => !isBodyweight(ex.exerciseId) || !!ex.wt;
 
   /* ---------------- cardio ----------------
      A treadmill is not a barbell. What you set on it is a time, a speed and
@@ -291,7 +297,14 @@
   /* What a record is: the most weight actually moved in one set — the bar
      times the reps. Estimated 1RM used to decide it, which let a light set
      with a lot of reps beat a heavy one and made the crown hard to believe. */
-  const setMass = (s) => (Number(s.weight) || 0) * (Number(s.reps) || 0);
+  /* Weight times reps, and where there is no weight, the reps themselves —
+     otherwise a pull-up could never be a record, because every set of them
+     scored nothing. A set with a belt on outscores one without, which is the
+     right way round. */
+  const setMass = (s) => {
+    const w = Number(s.weight) || 0, r = Number(s.reps) || 0;
+    return w > 0 ? w * r : r;
+  };
 
   /* Some machines are marked in pounds even where everything else is in kilos.
      An exercise can be typed in the other unit: what you type is what the
@@ -319,7 +332,7 @@
       for (const ex of w.exercises) {
         if (ex.exerciseId !== exerciseId) continue;
         for (const s of ex.sets) {
-          if (!isWorkingSet(s) || !s.weight) continue;
+          if (!isWorkingSet(s) || !(s.weight || s.reps)) continue;
           if (!best || setMass(s) > setMass(best)) best = s;
         }
       }
@@ -3710,7 +3723,7 @@
             if (kmh) { set.kmh = kmh; const b = $('.in-kmh', row); if (b && b.value === '') b.value = kmh; }
           }
         };
-        $('.in-weight', row).addEventListener('input', (e) => {
+        $('.in-weight', row)?.addEventListener('input', (e) => {
           set.weight = e.target.value === '' ? null
             : (cardio ? Number(e.target.value) : fromExUnit(e.target.value, ex));
           fillCardio();
@@ -3733,7 +3746,7 @@
         $('.set-done', row).addEventListener('click', () => {
           if (!set.done) {
             if (set.weight == null) {
-              const ph = Number($('.in-weight', row).placeholder);
+              const ph = Number($('.in-weight', row)?.placeholder);
               if (ph) set.weight = cardio ? ph : fromExUnit(ph, ex);
             }
             if (set.reps == null) {
@@ -3761,7 +3774,7 @@
                minutes ago moves the crown rather than handing out a second
                one — "how was the second set also a record" had a fair answer
                before, which was that nothing was comparing them. */
-            if (!cardio && (set.type || 'N') !== 'W' && set.weight) {
+            if (!cardio && (set.type || 'N') !== 'W' && (set.weight || set.reps)) {
               const history = bestSetFor(ex.exerciseId);
               const today = w.exercises
                 .filter((x) => x.exerciseId === ex.exerciseId)
@@ -3775,7 +3788,10 @@
                 // a longer, rhythmic buzz so a record feels different from
                 // the plain tick of an ordinary set
                 haptic('pr');
-                toast(prIcon('pr-mark toast-pr') + ` New record — ${fmtNum(set.weight)} ${unit()} × ${set.reps}`, true);
+                // a pull-up has no weight to name, so the reps are the record
+                toast(prIcon('pr-mark toast-pr') + (set.weight
+                  ? ` New record — ${fmtNum(set.weight)} ${unit()} × ${set.reps}`
+                  : ` New record — ${set.reps} reps`), true);
               }
             }
             save(); render();
@@ -3854,16 +3870,18 @@
     const w = state.activeWorkout;
     const ex = w.exercises[exIdx];
     const info = exerciseById(ex.exerciseId);
+    const cardioEx = isCardio(ex.exerciseId);
     openSheet(info?.name ?? 'Exercise', `
       <div class="menu-list">
         <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>↑ &nbsp;Move up</button>
         <button class="menu-item" data-act="down" ${exIdx === w.exercises.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
         <button class="menu-item" data-act="note">📝 &nbsp;${ex.note ? 'Edit note' : 'Add note'}</button>
-        <button class="menu-item" data-act="unit">⚖ &nbsp;${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>
+        ${isBodyweight(ex.exerciseId) ? `<button class="menu-item" data-act="wt">🏋️ &nbsp;${ex.wt ? 'No added weight' : 'I add weight to this'}</button>` : ''}
+        ${showsWeight(ex) && !cardioEx ? `<button class="menu-item" data-act="unit">⚖ &nbsp;${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>` : ''}
         ${ex.ss ? `<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>`
           : exIdx < w.exercises.length - 1 ? `<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>` : ''}
         <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
-        <button class="menu-item" data-act="plates">🏋️ &nbsp;Plate calculator</button>
+        ${showsWeight(ex) && !cardioEx ? '<button class="menu-item" data-act="plates">🏋️ &nbsp;Plate calculator</button>' : ''}
         <button class="menu-item" data-act="detail">📈 &nbsp;Records &amp; history</button>
         <button class="menu-item danger" data-act="remove">🗑 &nbsp;Remove from workout</button>
       </div>
@@ -3883,6 +3901,9 @@
           const next = w.exercises[exIdx + 1];
           const group = next.ss ?? (Math.max(0, ...w.exercises.map((x) => x.ss || 0)) + 1);
           ex.ss = group; next.ss = group;
+          save(); closeSheet(); render();
+        } else if (act === 'wt') {
+          if (ex.wt) { delete ex.wt; ex.sets.forEach((st) => { if (!st.done) st.weight = null; }); } else ex.wt = true;
           save(); closeSheet(); render();
         } else if (act === 'unit') {
           if (exUnit(ex) === unit()) ex.wu = OTHER_UNIT(); else delete ex.wu;
@@ -4036,6 +4057,7 @@
     const info = exerciseById(ex.exerciseId);
     const prev = previousSets(ex.exerciseId);
     const cardio = isCardio(ex.exerciseId);
+    const weighted = showsWeight(ex);
     const u = unit();
     // only working sets are numbered — a warm-up shouldn't push set 1 to set 2
     let workingNo = 0;
@@ -4058,10 +4080,10 @@
           return `<button class="ex-line ex-hint ${h.allHit ? 'up' : ''}">${h.allHit ? '↑' : '→'} Last ${fmtNum(h.prevWeight)} ${esc(u)} × ${h.prevReps} — try <b>${fmtNum(h.weight)} ${esc(u)} × ${h.reps}</b></button>`;
         })()}
         ${cardio ? cardioLastLine(prev) : ''}
-        <div class="set-grid${cardio ? ' cardio-grid' : (rpeOn ? ' has-rpe' : '')}">
+        <div class="set-grid${cardio ? ' cardio-grid' : ((rpeOn ? ' has-rpe' : '') + (weighted ? '' : ' no-weight'))}">
           ${cardio
             ? '<span class="hdr">Set</span><span class="hdr">Min</span><span class="hdr">km/h</span><span class="hdr">%</span><span class="hdr">km</span><span class="hdr">✓</span>'
-            : `<span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${esc(exUnit(ex))}</span><span class="hdr">Reps</span>${rpeOn ? '<span class="hdr">RPE</span>' : ''}<span class="hdr">✓</span>`}
+            : `<span class="hdr">Set</span><span class="hdr">Prev</span>${weighted ? `<span class="hdr">${esc(ex.wt && isBodyweight(ex.exerciseId) ? '+' + exUnit(ex) : exUnit(ex))}</span>` : ''}<span class="hdr">Reps</span>${rpeOn ? '<span class="hdr">RPE</span>' : ''}<span class="hdr">✓</span>`}
           ${ex.sets.map((s, i) => {
             // past the sets you did last time, the faint number carries on
             // from the last one rather than leaving the box blank
@@ -4085,19 +4107,19 @@
               ${tick}
             </div>`;
             }
-            const prevTxt = p ? `${fmtNum(p.weight ?? 0)}×${p.reps}` : '—';
+            const prevTxt = p ? (p.weight ? `${fmtNum(p.weight)}×${p.reps}` : `${p.reps}`) : '—';
             return `
             <div class="set-row ${s.done ? 'logged' : ''}" data-set="${i}">
               ${numBtn}
               <span class="set-prev">${s.pr ? prIcon('pr-mark pr-inline') + ' ' : ''}${prevTxt}</span>
-              <div class="w-cell">
+              ${weighted ? `<div class="w-cell">
                 <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="0.5"
                        value="${toExUnit(s.weight, ex) ?? ''}"
                        placeholder="${toExUnit(s.targetW ?? p?.weight ?? '', ex) ?? ''}"
                        aria-label="Weight in ${exUnit(ex)}, set ${i + 1}">
                 ${exUnit(ex) !== unit() && s.weight != null
                   ? `<i class="w-conv">${fmtNum(s.weight)} ${esc(unit())}</i>` : ''}
-              </div>
+              </div>` : ''}
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
                      value="${s.reps ?? ''}" placeholder="${s.targetMax && s.target ? s.target + '-' + s.targetMax : (s.target ?? p?.reps ?? ex.targetReps ?? '')}" aria-label="Reps, set ${i + 1}">
               ${rpeOn ? `<button class="set-rpe ${s.rpe ? 'has' : ''}" aria-label="Effort for set ${numbers[i]}">${s.rpe ? fmtNum(s.rpe) : '–'}</button>` : ''}
@@ -4140,6 +4162,7 @@
         ...(e.note ? { note: e.note } : {}),
         ...(e.ss ? { ss: e.ss } : {}),
         ...(e.wu ? { wu: e.wu } : {}),
+        ...(e.wt ? { wt: true } : {}),
       })) : [],
     };
     workoutOpen = true;
@@ -4201,6 +4224,7 @@
               ...(ex.note ? { note: ex.note } : {}),
               ...(ex.ss ? { ss: ex.ss } : {}),
               ...(ex.wu ? { wu: ex.wu } : {}),
+              ...(ex.wt ? { wt: true } : {}),
             })),
           });
         }
@@ -4444,6 +4468,7 @@
     const info = exerciseById(e.exerciseId);
     const prev = previousSets(e.exerciseId);
     const cardio = isCardio(e.exerciseId);
+    const weighted = showsWeight(e);
     const rows = tplSets(e);
     // "8" or "8 to 10" — a choice per exercise, since it is a way of training
     // rather than something that changes set by set
@@ -4463,13 +4488,13 @@
         </div>
         <button class="ex-line ex-note-line rb-note ${e.note ? 'has' : ''}" data-ex="${exIdx}">${e.note ? esc(e.note) : 'Add notes here…'}</button>
         ${cardio ? cardioLastLine(prev) : ''}
-        <div class="set-grid ${cardio ? 'rb-cardio-grid' : 'rb-grid'}">
+        <div class="set-grid ${cardio ? 'rb-cardio-grid' : 'rb-grid'}${!cardio && !weighted ? ' no-weight' : ''}">
           ${cardio
             ? '<span class="hdr">Set</span><span class="hdr">Min</span><span class="hdr">km/h</span><span class="hdr">%</span><span class="hdr">km</span><span class="hdr"></span>'
-            : `<span class="hdr">Set</span><span class="hdr">Prev</span><span class="hdr">${esc(exUnit(e))}</span><span class="hdr">Reps</span><span class="hdr"></span>`}
+            : `<span class="hdr">Set</span><span class="hdr">Prev</span>${weighted ? `<span class="hdr">${esc(e.wt && isBodyweight(e.exerciseId) ? '+' + exUnit(e) : exUnit(e))}</span>` : ''}<span class="hdr">Reps</span><span class="hdr"></span>`}
           ${rows.map((r, i) => {
             const p = prev[i] || prev[prev.length - 1];
-            const prevTxt = p ? (cardio ? `${fmtNum(p.weight ?? 0)}·${p.reps}m` : `${fmtNum(p.weight ?? 0)}×${p.reps}`) : '—';
+            const prevTxt = p ? (p.weight ? `${fmtNum(p.weight)}×${p.reps}` : `${p.reps}`) : '—';
             const t = r.type || 'N';
             const numBtn = `<button class="set-num rb-set-num t-${t.toLowerCase()}" data-ex="${exIdx}" data-set="${i}"
                       aria-label="Set ${numbers[i]} — change type">${numbers[i]}</button>`;
@@ -4495,14 +4520,14 @@
             <div class="set-row" data-set="${i}">
               ${numBtn}
               <span class="set-prev">${prevTxt}</span>
-              <div class="w-cell">
-                <input class="set-input rb-w" type="number" inputmode="decimal" min="0" step="${cardio ? '0.1' : '0.5'}"
-                       data-ex="${exIdx}" data-set="${i}" value="${cardio ? (r.weight ?? '') : (toExUnit(r.weight, e) ?? '')}"
-                       placeholder="${p?.weight != null ? fmtNum(cardio ? p.weight : toExUnit(p.weight, e)) : '—'}"
-                       aria-label="Planned ${cardio ? 'distance' : 'weight in ' + exUnit(e)}, set ${i + 1} — optional">
-                ${!cardio && exUnit(e) !== unit() && r.weight != null
+              ${weighted ? `<div class="w-cell">
+                <input class="set-input rb-w" type="number" inputmode="decimal" min="0" step="0.5"
+                       data-ex="${exIdx}" data-set="${i}" value="${toExUnit(r.weight, e) ?? ''}"
+                       placeholder="${p?.weight != null ? fmtNum(toExUnit(p.weight, e)) : '—'}"
+                       aria-label="Planned weight in ${exUnit(e)}, set ${i + 1} — optional">
+                ${exUnit(e) !== unit() && r.weight != null
                   ? `<i class="w-conv">${fmtNum(r.weight)} ${esc(unit())}</i>` : ''}
-              </div>
+              </div>` : ''}
               <div class="rb-reps-cell">
                 <input class="set-input rb-rep" type="number" inputmode="numeric" min="1" max="100"
                        data-ex="${exIdx}" data-set="${i}" value="${r.reps ?? ''}"
@@ -4532,12 +4557,13 @@
         <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>↑ &nbsp;Move up</button>
         <button class="menu-item" data-act="down" ${exIdx === d.exercises.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
         <button class="menu-item" data-act="note">📝 &nbsp;${ex.note ? 'Edit note' : 'Add note'}</button>
-        <button class="menu-item" data-act="range">↔ &nbsp;${ex.range ? 'Just one rep number' : 'Aim for a rep range (6–8)'}</button>
-        <button class="menu-item" data-act="unit">⚖ &nbsp;${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>
+        ${isCardio(ex.exerciseId) ? '' : `<button class="menu-item" data-act="range">↔ &nbsp;${ex.range ? 'Just one rep number' : 'Aim for a rep range (6–8)'}</button>`}
+        ${isBodyweight(ex.exerciseId) ? `<button class="menu-item" data-act="wt">🏋️ &nbsp;${ex.wt ? 'No added weight' : 'I add weight to this'}</button>` : ''}
+        ${showsWeight(ex) && !isCardio(ex.exerciseId) ? `<button class="menu-item" data-act="unit">⚖ &nbsp;${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>` : ''}
         ${ex.ss ? '<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>'
           : exIdx < d.exercises.length - 1 ? '<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>' : ''}
         <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
-        <button class="menu-item" data-act="plates">🏋️ &nbsp;Plate calculator</button>
+        ${showsWeight(ex) && !isCardio(ex.exerciseId) ? '<button class="menu-item" data-act="plates">🏋️ &nbsp;Plate calculator</button>' : ''}
         <button class="menu-item" data-act="detail">📈 &nbsp;Records &amp; history</button>
         <button class="menu-item danger" data-act="remove">🗑 &nbsp;Remove from routine</button>
       </div>`, (body) => {
@@ -4561,6 +4587,10 @@
         if (act === 'ssbreak') delete ex.ss;
         if (act === 'range') { if (ex.range) delete ex.range; else ex.range = true; }
         if (act === 'unit') { if (exUnit(ex) === unit()) ex.wu = OTHER_UNIT(); else delete ex.wu; }
+        if (act === 'wt') {
+          if (ex.wt) { delete ex.wt; tplSets(ex).forEach((r) => delete r.weight); ex.sets = tplSets(ex); }
+          else ex.wt = true;
+        }
         if (act === 'up' && exIdx > 0) d.exercises.splice(exIdx - 1, 0, d.exercises.splice(exIdx, 1)[0]);
         if (act === 'down' && exIdx < d.exercises.length - 1) d.exercises.splice(exIdx + 1, 0, d.exercises.splice(exIdx, 1)[0]);
         if (act === 'remove') d.exercises.splice(exIdx, 1);
