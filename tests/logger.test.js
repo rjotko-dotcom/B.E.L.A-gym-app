@@ -302,6 +302,50 @@ module.exports = async (t) => {
     }
   }
 
+  /* ---- a session you walked away from ---- */
+  {
+    const twoDays = Date.now() - 2 * 86400000;
+    const forgot = build();
+    forgot.activeWorkout = { id: 'stale', name: 'Push Day', startedAt: twoDays, exercises: [{
+      exerciseId: 'bench-press',
+      sets: [{ weight: 80, reps: 8, done: true, at: twoDays + 20 * 60000 },
+             { weight: 80, reps: 8, done: true, at: twoDays + 40 * 60000 }] }] };
+    const p0 = await openApp(t.browser, { url: server.url, seed: forgot });
+    await p0.waitForTimeout(900);
+    t.equal('opening on it says so', await p0.evaluate(() =>
+      document.querySelector('.sheet-head h3')?.textContent), 'Still running');
+    t.check('and says how long it sat there', await p0.evaluate(() =>
+      /open for .* without a set/.test(document.querySelector('.confirm-msg')?.textContent || '')));
+    t.check('offering to end it where it really ended', await p0.evaluate(() =>
+      /Finish it — 2 sets, ended/.test(document.querySelector('#swFinish')?.textContent || '')));
+
+    await p0.click('#swFinish');
+    await p0.waitForTimeout(900);
+    t.check('the duration is the forty minutes you trained, not two days', await p0.evaluate(() =>
+      /· 40 min/.test(document.querySelector('.sheet-body .muted')?.textContent || '')),
+      await p0.evaluate(() => document.querySelector('.sheet-body .muted')?.textContent));
+    t.check('and the day defaults to the day you trained', await p0.evaluate(() => {
+      const d = new Date(Date.now() - 2 * 86400000);
+      const want = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      return document.querySelector('#wkDate').value === want;
+    }));
+
+    // and it can be moved to another day, keeping the clock times
+    await p0.evaluate(() => {
+      const d = new Date(Date.now() - 3 * 86400000);
+      const v = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      const el = document.querySelector('#wkDate');
+      el.value = v; el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await p0.click('#confirmFinish');
+    await p0.waitForTimeout(900);
+    const saved = (await readState(p0)).workouts[0];
+    t.equal('saved forty minutes long', Math.round((saved.finishedAt - saved.startedAt) / 60000), 40);
+    t.equal('on the day you moved it to', Math.round((Date.now() - saved.startedAt) / 86400000), 3);
+    t.equal('no page errors', p0.errors.length, 0);
+    await p0.close();
+  }
+
   /* ---- a record is the biggest set, and only one set can hold it ---- */
   {
     const clean = build();
@@ -669,6 +713,42 @@ module.exports = async (t) => {
       '40×8 60×5 80×3 100×5 100×5 100×5');
     await binWorkout();
 
+    /* ---- cardio gets a trend of its own ---- */
+    await p2.evaluate(() => {
+      const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+      const day = (n) => Date.now() - n * 86400000;
+      st.workouts = [...st.workouts, ...[[14, 3.0, 20, 9], [10, 3.33, 20, 10], [6, 3.7, 20, 11], [2, 4.0, 20, 12]]
+        .map(([back, km, min, kmh], i) => ({ id: 'ct' + i, name: 'Cardio', startedAt: day(back), finishedAt: day(back),
+          exercises: [{ exerciseId: 'treadmill', sets: [{ weight: km, reps: min, kmh, incl: 3, done: true }] }] }))];
+      localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+    });
+    await p2.reload();
+    await p2.waitForTimeout(800);
+    await p2.evaluate(() => document.querySelector('.tab[data-tab="home"]').click());
+    await p2.waitForTimeout(450);
+    await p2.click('#homeAvatar');
+    await p2.waitForTimeout(600);
+    await p2.evaluate(() => document.querySelector('[data-seg="trends"]').click());
+    await p2.waitForTimeout(600);
+    t.check('a treadmill can be picked in trends', await p2.evaluate(() =>
+      [...document.querySelectorAll('#segBody select option')].some((o) => /Treadmill/.test(o.textContent))));
+    await p2.evaluate(() => {
+      const sel = document.querySelector('#segBody select');
+      sel.value = [...sel.options].find((o) => /Treadmill/.test(o.textContent)).value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await p2.waitForTimeout(700);
+    t.check('and it is plotted as distance, not a one rep max', await p2.evaluate(() =>
+      /^Distance —/.test(document.querySelector('.chart-card h3').textContent)),
+      await p2.evaluate(() => document.querySelector('.chart-card h3').textContent));
+    t.equal('with a point per session', await p2.evaluate(() =>
+      document.querySelectorAll('#strengthChart circle[data-i]').length), 4);
+    t.check('and the whole set under it', await p2.evaluate(() =>
+      /12 km\/h/.test(document.querySelector('.chart-card .muted').textContent)),
+      await p2.evaluate(() => document.querySelector('.chart-card .muted').textContent));
+    await p2.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+    await p2.waitForTimeout(500);
+
     /* ---- what the week actually worked ---- */
     t.check('the weeks sets are broken down by muscle', await p2.evaluate(() =>
       document.querySelectorAll('.mb-row').length === 6));
@@ -722,6 +802,65 @@ module.exports = async (t) => {
     t.equal('the top of the range on every set means more weight', await p2.evaluate(() =>
       document.querySelector('#workoutRoot .ex-hint').textContent.replace(/\s+/g, ' ').trim()),
       '↑ Last 80 kg × 8,8,8 — try 82.5 kg × 6 (top of the range — go up)');
+    await binWorkout();
+
+    /* ---- replacing an exercise does not carry its weight across ---- */
+    await p2.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+    await p2.waitForTimeout(500);
+    await p2.evaluate(() => document.querySelector('#startEmpty').click());
+    await p2.waitForTimeout(700);
+    await p2.fill('#pickSearch', 'Barbell Bench');
+    await p2.waitForTimeout(400);
+    await p2.evaluate(() => document.querySelector('#pickList [data-pick]').click());
+    await p2.waitForTimeout(700);
+    await p2.evaluate(() => {
+      const row = document.querySelector('#workoutRoot .set-row');
+      const w = row.querySelector('.in-weight'), r = row.querySelector('.in-reps');
+      w.value = '100'; w.dispatchEvent(new Event('input', { bubbles: true }));
+      r.value = '5'; r.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await p2.waitForTimeout(400);
+    await p2.evaluate(() => document.querySelector('#workoutRoot .ex-menu').click());
+    await p2.waitForTimeout(600);
+    await p2.evaluate(() => document.querySelector('[data-act="replace"]').click());
+    await p2.waitForTimeout(600);
+    await p2.fill('#pickSearch', 'Dumbbell Fly');
+    await p2.waitForTimeout(400);
+    await p2.evaluate(() => document.querySelector('#pickList [data-pick]').click());
+    await p2.waitForTimeout(700);
+    const swapped = (await readState(p2)).activeWorkout.exercises[0];
+    t.equal('the exercise changes', swapped.exerciseId, 'db-fly');
+    t.equal('the reps are the shape of the work and stay', swapped.sets[0].reps, 5);
+    t.check('but a hundred kilos does not follow to a different movement',
+      swapped.sets[0].weight == null, String(swapped.sets[0].weight));
+    await binWorkout();
+
+    /* ---- a superset is drawn as one block ---- */
+    await p2.evaluate(() => {
+      const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+      st.activeWorkout = { id: 'ss', name: 'Push', startedAt: Date.now() - 600000, exercises: [
+        { exerciseId: 'bench-press', sets: [{ weight: null, reps: null, done: false }], ss: 1 },
+        { exerciseId: 'db-fly', sets: [{ weight: null, reps: null, done: false }], ss: 1 },
+        { exerciseId: 'triceps-pushdown', sets: [{ weight: null, reps: null, done: false }] } ] };
+      localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+    });
+    await p2.reload();
+    await p2.waitForTimeout(900);
+    t.equal('the pair is joined, the single one is not', await p2.evaluate(() =>
+      [...document.querySelectorAll('#workoutRoot .ex-block')]
+        .map((b) => [...b.classList].filter((c) => c.startsWith('ss-')).join('+') || '-').join(' ')),
+      'ss-in+ss-first ss-in+ss-last -');
+    t.check('so the gap between them closes', await p2.evaluate(() =>
+      getComputedStyle(document.querySelectorAll('#workoutRoot .ex-block')[0]).marginBottom === '0px'));
+    t.check('and the block is rounded at the ends only', await p2.evaluate(() => {
+      const a = document.querySelectorAll('#workoutRoot .ex-block')[0];
+      const s2 = getComputedStyle(a);
+      return s2.borderTopLeftRadius !== '0px' && s2.borderBottomLeftRadius === '0px';
+    }));
+    t.check('the progression line keeps its spaces', await p2.evaluate(() =>
+      !/try\d/.test(document.querySelector('#workoutRoot .ex-hint')?.textContent || '')));
     await binWorkout();
 
     /* ---- a pull-up has no weight to write down ---- */

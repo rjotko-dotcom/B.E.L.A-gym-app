@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '14.0';
+  const APP_VERSION = '14.1';
 
   /* ---------------- state ---------------- */
 
@@ -307,6 +307,23 @@
   function loggedSets(workout) {
     return workout.exercises.flatMap((ex) => ex.sets.filter((s) => s.done));
   }
+
+  /* A session you walked away from without finishing. The clock keeps running,
+     so by the next evening it reads 48:00:01 and the duration saved would be
+     nonsense. Eight hours without a set is the line: nobody trains that long,
+     and it is long enough not to catch a genuinely slow session. */
+  const WORKOUT_STALE = 8 * 3600e3;
+  function lastSetAt(w) {
+    const stamps = loggedSets(w || { exercises: [] }).map((s) => s.at).filter(Boolean);
+    return stamps.length ? Math.max(...stamps) : null;
+  }
+  function workoutIdle(w) {
+    if (!w || w.editingId) return 0;
+    return Date.now() - (lastSetAt(w) ?? w.startedAt);
+  }
+  const workoutStale = (w) => workoutIdle(w) > WORKOUT_STALE;
+  // where it really ended: the last set, or an hour after it started
+  const workoutEndedAt = (w) => lastSetAt(w) ?? Math.min(Date.now(), w.startedAt + 3600e3);
   function workoutVolume(workout) {
     return workout.exercises.reduce((sum, ex) => {
       if (isCardio(ex.exerciseId)) return sum;
@@ -1202,19 +1219,32 @@
       const d = new Date(w.startedAt);
       w.exercises.forEach((ex) => {
         const info = exerciseById(ex.exerciseId);
+        const cardio = isCardio(ex.exerciseId);
         ex.sets.forEach((s, i) => {
           if (!s.done) return;
+          /* A treadmill set keeps minutes where a barbell keeps reps and
+             kilometres where it keeps kilos. Writing those out under "weight
+             (kg)" and calling their product volume was a lie in a file meant
+             to be read by something else. */
           rows.push([
             dateKey(d), d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
             w.name, info?.name ?? ex.exerciseId, info?.muscle ?? '', info?.equipment ?? '',
-            i + 1, s.type || 'N', s.weight ?? '', unit(), s.reps ?? '', s.rpe ?? '', s.pr ? 'yes' : '',
-            Math.round((Number(s.weight) || 0) * (Number(s.reps) || 0)), w.note || '',
+            i + 1, s.type || 'N',
+            cardio ? '' : (s.weight ?? ''), cardio ? '' : unit(),
+            cardio ? '' : (s.reps ?? ''),
+            cardio ? (s.reps ?? '') : '',
+            cardio ? (s.weight ?? '') : '',
+            cardio ? (s.kmh ?? '') : '',
+            cardio ? (s.incl ?? '') : '',
+            s.rpe ?? '', s.pr ? 'yes' : '',
+            cardio ? '' : Math.round((Number(s.weight) || 0) * (Number(s.reps) || 0)),
+            w.note || '',
           ]);
         });
       });
     });
     return toCsv(['date', 'time', 'workout', 'exercise', 'muscle', 'equipment', 'set', 'type',
-      'weight', 'unit', 'reps', 'rpe', 'record', 'volume', 'note'], rows);
+      'weight', 'unit', 'reps', 'minutes', 'km', 'kmh', 'incline_pct', 'rpe', 'record', 'volume', 'note'], rows);
   }
 
   function mealsCsv() {
@@ -3629,6 +3659,44 @@
     });
   }
 
+  /* Opening the app on a session you walked away from. Saying nothing and
+     letting the clock run to 48:00:01 is the one thing that is certainly
+     wrong, so it asks — and offers the time you actually stopped. */
+  function checkStaleWorkout() {
+    const w = state.activeWorkout;
+    if (!workoutStale(w)) return;
+    const sets = loggedSets(w).length;
+    const ended = workoutEndedAt(w);
+    const idle = fmtDuration(workoutIdle(w));
+    openSheet('Still running', `
+      <p class="confirm-msg">"${esc(w.name)}" has been open for ${esc(idle)} without a set.
+      ${sets ? 'It looks like you finished and forgot to say so.' : 'Nothing was ever logged in it.'}</p>
+      ${sets ? `<button class="btn btn-primary" id="swFinish">Finish it — ${sets} set${sets === 1 ? '' : 's'}, ended ${esc(new Date(ended).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }))}</button>` : ''}
+      <button class="btn btn-danger" id="swDrop" style="margin-top:10px">Throw it away</button>
+      <button class="btn btn-quiet" id="swKeep" style="margin-top:10px">Still doing it</button>
+    `, (body) => {
+      $('#swFinish', body)?.addEventListener('click', () => {
+        closeSheetNow();
+        workoutOpen = true;
+        openWkEntry();
+        render();
+        queueMicrotask(finishWorkout);
+      });
+      $('#swDrop', body).addEventListener('click', () => {
+        closeSheetNow();
+        confirmDiscard(false);
+      });
+      $('#swKeep', body).addEventListener('click', () => {
+        /* Carrying on means carrying on from now — otherwise the duration
+           still counts the hours it sat there. */
+        const gap = Date.now() - (lastSetAt(w) ?? w.startedAt);
+        w.startedAt += gap;
+        closeSheet();
+        save(); render();
+      });
+    });
+  }
+
   /* -------- full-screen workout logger (Hevy-style) -------- */
 
   let wkScrollTo = null;   // index of an exercise to bring into view after a rebuild
@@ -3694,7 +3762,7 @@
           <div><span class="micro">Sets</span><b>${done.length}</b></div>
         </div>
         <div class="wk-body">
-          ${w.exercises.map((ex, exIdx) => renderExerciseBlock(ex, exIdx)).join('')}
+          ${w.exercises.map((ex, exIdx) => renderExerciseBlock(ex, exIdx, ssPos(w.exercises, exIdx))).join('')}
           <button class="btn btn-ghost" id="addExercise" style="margin-bottom:12px">+ Add exercise</button>
           <button class="btn btn-danger" id="cancelWorkout" style="margin-bottom:8px">Discard workout</button>
         </div>
@@ -3818,6 +3886,7 @@
             }
             if (!cardio && set.reps == null) { toast('Enter reps first'); return; }
             set.done = true;
+            set.at = Date.now();          // so a forgotten session can end where it really did
             haptic('tick');
             flashSet = exIdx + ':' + setIdx;
             /* Most sets repeat the one before them, so once a set is logged
@@ -3998,7 +4067,20 @@
         } else if (act === 'replace') {
           closeSheetNow();
           openExercisePicker((newId) => {
+            const was = ex.exerciseId;
             ex.exerciseId = newId;
+            /* A different movement takes a different weight. The sets and reps
+               are the shape of the work and stay; what you were lifting does
+               not carry across to a machine you have not tried. */
+            if (was !== newId) {
+              ex.sets.forEach((st) => {
+                if (st.done) return;
+                st.weight = null;
+                delete st.targetW;
+                if (isCardio(newId) !== isCardio(was)) { st.reps = null; delete st.target; delete st.targetMax; }
+                delete st.kmh; delete st.incl;
+              });
+            }
             save(); render();
           });
         } else if (act === 'note') {
@@ -4196,7 +4278,7 @@
           <div class="hist-top"><b style="font-size:0.88rem">${fmtDate(s.t)}</b></div>
           <p class="muted" style="margin-top:4px;font-variant-numeric:tabular-nums">${s.sets.map(fmtSet).join(', ')}</p>
         </div>`).join('')}
-      ${!cardio ? '<button class="btn btn-quiet" id="detTrend">View 1RM trend</button>' : ''}` : ''}
+      <button class="btn btn-quiet" id="detTrend">${cardio ? 'View distance trend' : 'View 1RM trend'}</button>` : ''}
     `, (body) => {
       $('#detTrend', body)?.addEventListener('click', () => {
         progressExerciseId = exerciseId;
@@ -4206,13 +4288,25 @@
     });
   }
 
+  /* Marking two exercises a superset should look like something. Where a card
+     has a neighbour in the same group, they are drawn as one block with a rail
+     down the side rather than two cards that happen to share a chip. */
+  function ssPos(list, i) {
+    const cur = list[i].ss;
+    if (!cur) return '';
+    const prev = i > 0 && list[i - 1].ss === cur;
+    const next = i < list.length - 1 && list[i + 1].ss === cur;
+    if (!prev && !next) return '';         // a group of one is not a superset
+    return ' ss-in' + (prev ? '' : ' ss-first') + (next ? '' : ' ss-last');
+  }
+
   /* Warm-ups are lettered and do not take a number; the rest count up. */
   function numbersFor(ex) {
     let n = 0;
     return ex.sets.map((s) => ((s.type || 'N') === 'N' ? String(++n) : (s.type || 'N')));
   }
 
-  function renderExerciseBlock(ex, exIdx) {
+  function renderExerciseBlock(ex, exIdx, ss = '') {
     const info = exerciseById(ex.exerciseId);
     const prev = previousSets(ex.exerciseId);
     const cardio = isCardio(ex.exerciseId);
@@ -4222,7 +4316,7 @@
     const numbers = numbersFor(ex);
     const rpeOn = state.settings.trackRpe !== false;
     return `
-      <div class="card ex-block" data-ex="${exIdx}">
+      <div class="card ex-block${ss}" data-ex="${exIdx}">
         <div class="ex-head">
           <h3 class="ex-name" role="button" tabindex="0">${ex.ss ? `<span class="ss-chip">SS${ex.ss}</span> ` : ''}${esc(info?.name ?? 'Unknown exercise')}
             <span class="muscle">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''}</span>
@@ -4341,12 +4435,20 @@
       return;
     }
     const prs = workoutPRs(w);
+    // a session left running all night ended when you stopped logging, not now
+    const endAt = w.editingId ? (w.finishedAt || w.startedAt)
+      : workoutStale(w) ? workoutEndedAt(w) : Date.now();
     openSheet(w.editingId ? 'Save changes' : 'Finish workout', `
       <div class="field">
         <label for="wkName">Workout name</label>
         <input id="wkName" type="text" value="${esc(w.name)}">
       </div>
-      <p class="muted" style="margin-bottom:10px">${done.length} sets · ${fmtNum(workoutVolume(w))} ${esc(unit())} total volume${w.editingId ? ' · ' + esc(fmtDate(w.startedAt)) : ' · ' + fmtDuration(Date.now() - w.startedAt)}</p>
+      <p class="muted" style="margin-bottom:10px">${done.length} sets · ${fmtNum(workoutVolume(w))} ${esc(unit())} total volume · ${esc(fmtDuration(endAt - w.startedAt))}</p>
+      <div class="field">
+        <label for="wkDate">Day</label>
+        <input id="wkDate" type="date" value="${dateKey(new Date(w.startedAt))}" max="${dateKey()}">
+        <i class="field-hint">Logged the morning after? Put it on the day you trained.</i>
+      </div>
       ${prs.length ? `<p class="finish-prs">${prIcon()} ${prs.length} new record${prs.length === 1 ? '' : 's'}: <span class="muted">${prs.map((p) => `${esc(exerciseById(p.exerciseId)?.name ?? '?')} ${fmtNum(p.weight)}×${p.reps}`).join(', ')}</span></p>` : ''}
       <div class="field">
         <label for="wkNote">Workout notes (optional)</label>
@@ -4361,7 +4463,18 @@
         w.name = $('#wkName', body).value.trim() || 'Workout';
         const note = $('#wkNote', body).value.trim();
         if (note) w.note = note;
-        w.finishedAt = Date.now();
+        w.finishedAt = endAt;
+        /* Moved to another day: the clock times stay, the date changes, so a
+           session logged the next morning still reads 18:00 to 19:10. */
+        const picked = $('#wkDate', body)?.value;
+        if (picked && picked !== dateKey(new Date(w.startedAt))) {
+          const [y, mo, dd] = picked.split('-').map(Number);
+          const from = new Date(w.startedAt);
+          const to = new Date(y, mo - 1, dd, from.getHours(), from.getMinutes(), from.getSeconds());
+          const shift = to.getTime() - w.startedAt;
+          w.startedAt += shift;
+          w.finishedAt += shift;
+        }
         w.exercises = w.exercises
           .map((ex) => ({ ...ex, sets: ex.sets.filter((s) => s.done) }))
           .filter((ex) => ex.sets.length);
@@ -4476,7 +4589,7 @@
             <input id="rbName" type="text" placeholder="e.g. Upper Body A" value="${esc(d.name)}"
                    autocomplete="off" enterkeyhint="done">
           </div>
-          ${d.exercises.map((e, i) => renderRoutineBlock(e, i, d.exercises.length)).join('')}
+          ${d.exercises.map((e, i) => renderRoutineBlock(e, i, d.exercises.length, ssPos(d.exercises, i))).join('')}
           ${d.exercises.length ? '' : '<p class="empty-note" style="padding:22px 16px">Nothing in it yet. Add the first exercise below.</p>'}
           <button class="btn btn-ghost" id="rbAdd" style="margin-bottom:12px">+ Add exercise</button>
           ${isEdit ? '<button class="btn btn-quiet" id="rbCopy" style="margin-bottom:8px">Duplicate this routine</button>' : ''}
@@ -4634,7 +4747,7 @@
   /* One exercise, laid out exactly like the logger's card: the name and its
      muscle, then a numbered row per set. What is missing is the part you can
      only fill in on the day — the weight, and the tick. */
-  function renderRoutineBlock(e, exIdx, total) {
+  function renderRoutineBlock(e, exIdx, total, ss = '') {
     const info = exerciseById(e.exerciseId);
     const prev = previousSets(e.exerciseId);
     const cardio = isCardio(e.exerciseId);
@@ -4647,7 +4760,7 @@
     let workingNo = 0;
     const numbers = rows.map((r) => ((r.type || 'N') === 'N' ? String(++workingNo) : (r.type || 'N')));
     return `
-      <div class="card ex-block rb-block${ranged ? ' is-ranged' : ''}" data-ex="${exIdx}">
+      <div class="card ex-block rb-block${ranged ? ' is-ranged' : ''}${ss}" data-ex="${exIdx}">
         <div class="ex-head">
           <h3 class="ex-name">${e.ss ? `<span class="ss-chip">SS${e.ss}</span> ` : ''}${esc(info?.name ?? 'Unknown exercise')}
             <span class="muscle">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''}</span>
@@ -4744,7 +4857,18 @@
         const act = b.dataset.act;
         if (act === 'replace') {
           closeSheetNow();
-          openExercisePicker((exId) => { ex.exerciseId = exId; showRoutineBuilder(); });
+          openExercisePicker((exId) => {
+            const was = ex.exerciseId;
+            ex.exerciseId = exId;
+            if (was !== exId) {
+              ex.sets = tplSets(ex).map((r) => {
+                const { weight, kmh, incl, ...rest } = r;
+                return isCardio(exId) !== isCardio(was) ? {} : rest;
+              });
+              delete ex.targetReps;
+            }
+            showRoutineBuilder();
+          });
           return;
         }
         if (act === 'note') { closeSheetNow(); openNoteSheet(ex, () => showRoutineBuilder()); return; }
@@ -5796,9 +5920,32 @@
 
   function exercisesWithHistory() {
     const ids = new Set();
-    for (const w of state.workouts) for (const ex of w.exercises) if (ex.sets.length && !isCardio(ex.exerciseId)) ids.add(ex.exerciseId);
+    for (const w of state.workouts) for (const ex of w.exercises) if (ex.sets.length) ids.add(ex.exerciseId);
     return [...ids].map(exerciseById).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
   }
+
+  /* A treadmill has no one-rep max. What it has is how far you went and how
+     fast, so that is what is drawn: distance per session where there is any,
+     minutes where there is not, with the pace on the tooltip. */
+  function cardioSeries(exerciseId) {
+    const points = [];
+    for (const w of [...state.workouts].sort((a, b) => a.startedAt - b.startedAt)) {
+      const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
+      if (!ex) continue;
+      const sets = ex.sets.filter((s) => (s.type || 'N') !== 'W' && (s.reps || s.weight));
+      if (!sets.length) continue;
+      const min = sets.reduce((t, s) => t + (Number(s.reps) || 0), 0);
+      const km = sets.reduce((t, s) => t + (Number(s.weight) || 0), 0);
+      const kmh = km && min ? Math.round((km / (min / 60)) * 10) / 10 : null;
+      points.push({
+        t: w.startedAt,
+        v: km ? Math.round(km * 100) / 100 : min,
+        note: cardioText({ reps: min, weight: km, kmh }),
+      });
+    }
+    return points;
+  }
+  const cardioPlotsKm = (pts) => pts.some((p) => p.note && / km/.test(p.note));
 
   function strengthSeries(exerciseId) {
     const points = [];
@@ -6171,8 +6318,11 @@
       progressExerciseId = options[0]?.id ?? null;
     }
 
-    const series = progressExerciseId ? strengthSeries(progressExerciseId) : [];
-    const best = progressExerciseId ? bestSetFor(progressExerciseId) : null;
+    const cardioPick = progressExerciseId ? isCardio(progressExerciseId) : false;
+    const series = !progressExerciseId ? []
+      : cardioPick ? cardioSeries(progressExerciseId) : strengthSeries(progressExerciseId);
+    const chartUnit = cardioPick ? (cardioPlotsKm(series) ? 'km' : 'min') : u;
+    const best = progressExerciseId && !cardioPick ? bestSetFor(progressExerciseId) : null;
     const totalWorkouts = state.workouts.length;
     const totalVolume = state.workouts.reduce((s, w) => s + workoutVolume(w), 0);
     const weeks = weeklyVolume();
@@ -6205,10 +6355,12 @@
       </select>
 
       <div class="card chart-card">
-        <h3>Estimated 1RM — ${esc(exerciseById(progressExerciseId)?.name ?? '')}</h3>
-        <p class="muted">${best ? `Best set: ${fmtNum(best.weight)} ${esc(u)} × ${best.reps}` : 'Best set per session, Epley formula'}</p>
+        <h3>${cardioPick ? 'Distance' : 'Estimated 1RM'} — ${esc(exerciseById(progressExerciseId)?.name ?? '')}</h3>
+        <p class="muted">${cardioPick
+          ? (series.length ? esc(series[series.length - 1].note) + ' last time' : 'Per session')
+          : (best ? `Best set: ${fmtNum(best.weight)} ${esc(u)} × ${best.reps}` : 'Best set per session, Epley formula')}</p>
         <div class="chart-wrap" id="strengthChart">
-          ${series.length >= 2 ? lineChartSVG(series, u, 'Estimated one rep max over time', 'var(--series-1)') : `<p class="empty-note">Log this exercise in at least two workouts to see a trend.</p>`}
+          ${series.length >= 2 ? lineChartSVG(series, chartUnit, cardioPick ? 'Distance per session' : 'Estimated one rep max over time', 'var(--series-1)') : `<p class="empty-note">Log this exercise in at least two workouts to see a trend.</p>`}
         </div>
       </div>
 
@@ -6333,7 +6485,9 @@
         tip.className = 'chart-tip';
         wrap.appendChild(tip);
       }
-      tip.innerHTML = `<span class="tip-date">${fmtDate(p.t)}</span><b>${fmtNum(p.v)} ${esc(u)}</b>${p.set ? ` <span style="color:var(--ink-2)">(${fmtNum(p.set.weight)}×${p.set.reps})</span>` : ''}`;
+      tip.innerHTML = `<span class="tip-date">${fmtDate(p.t)}</span>` + (p.note
+        ? `<b>${esc(p.note)}</b>`
+        : `<b>${fmtNum(p.v)} ${esc(u)}</b>${p.set ? ` <span style="color:var(--ink-2)">(${fmtNum(p.set.weight)}×${p.set.reps})</span>` : ''}`);
       const wrapRect = wrap.getBoundingClientRect();
       const dot = svg.querySelector(`circle[data-i="${i}"]`)?.getBoundingClientRect();
       tip.style.left = `${(px / w) * wrapRect.width}px`;
@@ -7255,6 +7409,7 @@
   else render();
   snapshotDaily();
   if (needsSetup()) setTimeout(openSetup, 350);
+  else if (workoutStale(state.activeWorkout)) setTimeout(checkStaleWorkout, 350);
   checkShortcut();
   checkSharedImport();
   armFullBleed();

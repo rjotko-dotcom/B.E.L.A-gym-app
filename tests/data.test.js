@@ -245,6 +245,45 @@ module.exports = async (t) => {
   t.check('meals come out one row per food',
     /^date,meal,time,food,kcal/.test(csv.meals), csv.meals.slice(0, 40));
 
+  /* A treadmill set keeps minutes where a barbell keeps reps and kilometres
+     where it keeps kilos; writing those out under "weight (kg)" was a lie in
+     a file meant to be read by something else. */
+  {
+    const cardioSeed = build();
+    cardioSeed.workouts = [{ id: 'c', name: 'Cardio', startedAt: Date.now() - 86400000, finishedAt: Date.now() - 86400000,
+      exercises: [{ exerciseId: 'treadmill', sets: [{ weight: 3.33, reps: 20, kmh: 10, incl: 3, done: true }] }] }];
+    const pc = await openApp(t.browser, { url: server.url, seed: cardioSeed });
+    await pc.waitForTimeout(500);
+    const out = await pc.evaluate(async () => {
+      const real = URL.createObjectURL; let blob = null;
+      URL.createObjectURL = (b) => { blob = b; return 'blob:x'; };
+      const click = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function () {};
+      document.querySelector('#homeAvatar').click();
+      await new Promise((r) => setTimeout(r, 400));
+      [...document.querySelectorAll('.icon-btn')].find((b) => /ettings/.test(b.getAttribute('aria-label') || ''))?.click();
+      await new Promise((r) => setTimeout(r, 450));
+      document.querySelector('#csvBtn').click();
+      await new Promise((r) => setTimeout(r, 500));
+      document.querySelector('[data-csv="workouts"]').click();
+      HTMLAnchorElement.prototype.click = click;
+      URL.createObjectURL = real;
+      return blob ? await blob.text() : '';
+    });
+    const head = out.split('\n')[0];
+    const row = (out.split('\n')[1] || '').split(',');
+    const col = (name) => row[head.split(',').indexOf(name)];
+    t.check('the CSV has cardio columns', /minutes,km,kmh,incline_pct/.test(head), head);
+    t.equal('minutes go under minutes', col('minutes'), '20');
+    t.equal('kilometres under km', col('km'), '3.33');
+    t.equal('the speed is kept', col('kmh'), '10');
+    t.equal('and the incline', col('incline_pct'), '3');
+    t.equal('nothing is claimed as a weight', col('weight'), '');
+    t.equal('nor as reps', col('reps'), '');
+    t.equal('and no volume is invented for it', col('volume'), '');
+    await pc.close();
+  }
+
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
 

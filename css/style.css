@@ -585,12 +585,13 @@ body {
   padding: 14px 14px calc(env(safe-area-inset-bottom) + 110px);
 }
 .ex-line {
-  /* sits on the exercise's name, not adrift between it and the set grid */
-  display: flex; align-items: center; width: 100%; min-height: 30px;
-  text-align: left;
+  /* sits on the exercise's name, not adrift between it and the set grid.
+     Block, not flex: flex makes each word its own item and eats the spaces
+     between them, so "try 80 kg" came out as "try80 kg". */
+  display: block; width: 100%; text-align: left;
   border: none; background: none; cursor: pointer; font: inherit;
-  color: var(--ink-muted); font-size: 0.84rem;
-  padding: 0 2px; margin: -4px 0 8px;
+  color: var(--ink-muted); font-size: 0.84rem; line-height: 1.5;
+  padding: 5px 2px; margin: -4px 0 6px;
 }
 .ex-line.has, .ex-line b { color: var(--ink-2); font-weight: 600; }
 .ex-note-line.has { font-style: italic; }
@@ -602,6 +603,19 @@ body {
   background: var(--ink-1); color: var(--page);
   font-size: 0.6rem; font-weight: 800; letter-spacing: 0.05em;
   border-radius: 6px; padding: 2px 6px;
+}
+/* A superset is one block with a rail down its side, not two cards that
+   happen to wear the same chip. */
+.ex-block.ss-in {
+  border-left: 3px solid var(--ink-1);
+  border-radius: 0;
+  margin-bottom: 0;
+}
+.ex-block.ss-in + .ex-block.ss-in { border-top: none; }
+.ex-block.ss-first { border-top-left-radius: 20px; border-top-right-radius: 20px; }
+.ex-block.ss-last {
+  border-bottom-left-radius: 20px; border-bottom-right-radius: 20px;
+  margin-bottom: 10px;
 }
 /* ---------- the routine builder: the logger, standing still ---------- */
 /* Two figures, not the logger's three — a routine has no clock. */
