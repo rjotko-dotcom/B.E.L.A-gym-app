@@ -295,5 +295,46 @@ module.exports = async (t) => {
 
   t.equal('no page errors', page.errors.length, 0);
   await page.close();
+
+  /* ---- a habit within reach of its target says so ----
+     Four grams short of a protein goal read the same as none of it done. */
+  {
+    const near = build();
+    const d = new Date();
+    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    near.nutrition.targets = { kcal: 2100, protein: 170, carbs: 210, fat: 65 };
+    near.nutrition.meals = [{ id: 'x', date: key, slot: 'breakfast', time: '08:00', name: 'Day',
+      kcal: 2110, protein: 166, carbs: 199, fat: 68 }];
+    near.habits = [
+      { id: 'h_pro', name: 'Protein', icon: 'heart', source: 'protein' },
+      { id: 'h_kcal', name: 'Calories', icon: 'flame', source: 'kcal' },
+      { id: 'h_steps', name: 'Steps', icon: 'steps', type: 'count', target: 10000, unit: 'steps', step: 1000 },
+      { id: 'h_read', name: 'Read', icon: 'book', type: 'count', target: 20, unit: 'pages', step: 5 },
+    ];
+    near.habitLog = { [key]: { h_steps: 9700, h_read: 5 } };
+    const p2 = await openApp(t.browser, { url: server.url, seed: near });
+    await p2.click('.tab[data-tab="habits"]');
+    await p2.waitForTimeout(700);
+    const rings = await p2.evaluate(() => {
+      const out = {};
+      document.querySelectorAll('.hb-row').forEach((r) => {
+        const name = r.querySelector('.hb-name, b')?.textContent?.trim();
+        const svg = r.querySelector('.hb-ring-svg');
+        out[name] = [...(svg?.classList || [])].filter((c) => c.startsWith('is-')).join() || 'plain';
+      });
+      return out;
+    });
+    t.equal('four grams short reads as nearly there', rings.Protein, 'is-near');
+    t.equal('a target met is still full', rings.Calories, 'is-full');
+    t.equal('and three hundred steps short is near too', rings.Steps, 'is-near');
+    t.equal('but a quarter of the way is plain', rings.Read, 'plain');
+    t.check('nearly there is not a tick', await p2.evaluate(() => {
+      const row = [...document.querySelectorAll('.hb-row')].find((r) => /Protein/.test(r.textContent));
+      return !row.querySelector('.hb-tick');
+    }));
+    t.equal('no page errors', p2.errors.length, 0);
+    await p2.close();
+  }
+
   await server.close();
 };

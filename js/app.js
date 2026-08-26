@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '14.2';
+  const APP_VERSION = '14.3';
 
   /* ---------------- state ---------------- */
 
@@ -5181,6 +5181,19 @@
     return habitType(h) === 'check' ? 1 : (h.target || 1);
   }
   function habitDone(h, key = dateKey()) { return habitValue(h.id, key) >= habitTarget(h); }
+  /* Almost there is worth saying here too. A habit that mirrors a macro uses
+     the same margin the nutrition page does, so 166 of 170 g reads the same
+     in both places; anything else is within a twentieth of its target. */
+  function habitNear(h, key = dateKey()) {
+    if (habitType(h) === 'check') return false;
+    const target = habitTarget(h);
+    const val = habitValue(h.id, key);
+    if (!target || val >= target || val <= 0) return false;
+    const margin = h.source === 'kcal' ? NEAR_KCAL
+      : h.source === 'protein' ? NEAR_G
+      : Math.max(1, target * 0.05);
+    return target - val <= margin;
+  }
   function setHabitValue(id, val, key = dateKey()) {
     if (!state.habitLog) state.habitLog = {};
     const day = state.habitLog[key] || (state.habitLog[key] = {});
@@ -5231,11 +5244,13 @@
   }
   function habitRing(h, key) {
     const frac = Math.min(1, habitValue(h.id, key) / habitTarget(h));
+    const near = frac < 1 && habitNear(h, key);
     const r = 15.5, C = 2 * Math.PI * r;
-    // a full ring goes green, the same as everywhere else a day is finished
-    return '<svg class="hb-ring-svg' + (frac >= 1 ? ' is-full' : '') + '" viewBox="0 0 36 36" aria-hidden="true">' +
+    // a full ring goes green, the same as everywhere else a day is finished;
+    // one nearly full takes the held-back green the macros use
+    return '<svg class="hb-ring-svg' + (frac >= 1 ? ' is-full' : near ? ' is-near' : '') + '" viewBox="0 0 36 36" aria-hidden="true">' +
       '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="var(--surface-2)" stroke-width="2.6"/>' +
-      '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="' + (frac >= 1 ? 'var(--done)' : 'var(--ink-1)') + '" stroke-width="2.6" stroke-linecap="round"' +
+      '<circle cx="18" cy="18" r="' + r + '" fill="none" stroke="' + (frac >= 1 ? 'var(--done)' : near ? 'var(--near)' : 'var(--ink-1)') + '" stroke-width="2.6" stroke-linecap="round"' +
       ' stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + (C * (1 - frac)).toFixed(1) + '" transform="rotate(-90 18 18)"/></svg>';
   }
   // the tick that sits inside a finished ring, so a counted habit reads as
