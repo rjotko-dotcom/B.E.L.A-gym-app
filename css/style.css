@@ -28,6 +28,8 @@
   --done: #34c759;
   --done-ink: #05320f;
   --done-soft: rgba(52, 199, 89, 0.16);
+  /* nearly there: the goal's colour, held back until it is actually met */
+  --near: color-mix(in srgb, var(--done) 52%, var(--ink-muted));
   --fill: rgba(0, 0, 0, 0.10);
 }
 /* system dark (Auto mode): same tokens, applied when the device is dark
@@ -1742,6 +1744,9 @@ body.has-mini .view.home-screen {
 .macro-fill.done, .mc-fill.done { background: var(--done); }
 .kcal-total .done, .kl-total .done, .klm-val.done, .nc-r.done, .nm-left.done,
 .nh-num.done, .m-val.done, .kl-left.done, .mc-card.done .mc-val { color: var(--done); }
+.macro-fill.near, .mc-fill.near { background: var(--near); }
+.kcal-total .near, .kl-total .near, .klm-val.near, .nc-r.near, .nm-left.near,
+.nh-num.near, .m-val.near, .kl-left.near, .mc-card.near .mc-val { color: var(--near); }
 .nh-num.nh-hit { font-size: 1.9rem; letter-spacing: -0.02em; }
 
 /* ---------- the home week strip, week by week ---------- */
@@ -1919,6 +1924,7 @@ body.has-mini .view.home-screen {
 .nw-col { width: 100%; height: 62px; display: flex; align-items: flex-end; background: var(--surface-2); border-radius: 8px; overflow: hidden; }
 .nw-fill { width: 100%; background: var(--ink-1); border-radius: 8px; }
 .nw-fill.done { background: var(--done); }
+.nw-fill.near { background: var(--near); }
 .nw-fill.over { background: var(--critical); }
 .nw-let { color: var(--ink-muted); font-size: 0.66rem; font-weight: 700; }
 /* two rows of two, label and figure on one line — four columns made every

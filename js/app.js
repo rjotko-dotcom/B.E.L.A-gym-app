@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '14.1';
+  const APP_VERSION = '14.2';
 
   /* ---------------- state ---------------- */
 
@@ -2458,8 +2458,16 @@
   /* Calories: a little past the goal is a normal day, not a red number. Only
      properly past it is worth flagging. */
   const KCAL_SLACK = 500;
+  /* Within touching distance of a goal is not the same as nowhere near it.
+     Ten grams of protein short is a good day with a snack left in it, so it
+     reads as most of the way there rather than as nothing. */
+  const NEAR_G = 10;
+  const NEAR_KCAL = 100;
   function goalState(val, target, kind) {
-    if (!target || val < target) return '';
+    if (!target) return '';
+    if (val < target) {
+      return (target - val) <= (kind === 'kcal' ? NEAR_KCAL : NEAR_G) ? 'near' : '';
+    }
     // more protein is never the problem, so passing that goal is just met
     if (kind === 'protein') return 'done';
     if (kind === 'kcal') return val > target + KCAL_SLACK ? 'over' : 'done';
@@ -2469,7 +2477,9 @@
     return 'done';
   }
   const macroKind = (label) => (String(label).toLowerCase() === 'protein' ? 'protein' : '');
-  const goalStroke = (st) => (st === 'over' ? 'var(--critical)' : st === 'done' ? 'var(--done)' : 'var(--ink-1)');
+  const goalStroke = (st) => (st === 'over' ? 'var(--critical)'
+    : st === 'done' ? 'var(--done)'
+    : st === 'near' ? 'var(--near)' : 'var(--ink-1)');
 
   function macroRing(label, val, target, size) {
     const frac = target ? Math.min(1, val / target) : 0;
@@ -2486,7 +2496,8 @@
           '</svg>' +
         '</div>' +
         '<div class="nm-text"><span class="nm-name">' + label + '</span>' +
-          '<b class="nm-left ' + st + '">' + (st === 'over' ? Math.round(val - target) + 'g over' : st ? 'goal hit' : left + 'g left') + '</b></div>' +
+          '<b class="nm-left ' + st + '">' + (st === 'over' ? Math.round(val - target) + 'g over'
+            : st === 'done' ? 'goal hit' : left + 'g left') + '</b></div>' +
       '</div>';
   }
 
@@ -2523,7 +2534,7 @@
         (kSt === 'done'
           ? '<div class="nh-num done nh-hit">Goal reached</div>' +
             '<div class="nh-sub">' + Math.round(totals.kcal).toLocaleString() + ' of ' + targets.kcal.toLocaleString() + ' kcal</div>'
-          : '<div class="nh-num ' + (over ? 'over' : '') + '" data-roll="nut-left" data-roll-to="' + Math.abs(left) + '">' +
+          : '<div class="nh-num ' + kSt + '" data-roll="nut-left" data-roll-to="' + Math.abs(left) + '">' +
               Math.abs(left).toLocaleString() + '<span>kcal</span></div>' +
             '<div class="nh-sub">' + (over ? 'over your goal' : 'left for today') + '</div>') +
       '</div>' +

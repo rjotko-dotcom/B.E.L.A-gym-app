@@ -205,6 +205,21 @@ module.exports = async (t) => {
   t.equal('with what is left to go', under.proteinText, '60g left');
   t.check('and the calories plain too', !/\b(done|over)\b/.test(under.hero), under.hero);
 
+  /* Within reach of a goal is not the same as nowhere near it. */
+  const close = await setDay({ kcal: 2700, protein: 176, carbs: 290, fat: 60 });
+  t.equal('ten grams short reads as nearly there', close.protein, 'near');
+  t.equal('but still says how much is left', close.proteinText, '4g left');
+  t.equal('carbs the same', close.carbs, 'near');
+  t.equal('and fat', close.fat, 'near');
+  t.check('a hundred calories short too', /\bnear\b/.test(close.hero), close.hero);
+
+  const edge = await setDay({ kcal: 2700, protein: 170, carbs: 290, fat: 60 });
+  t.equal('exactly ten grams short is still nearly there', edge.carbs, 'near');
+  const far = await setDay({ kcal: 2699, protein: 169, carbs: 289, fat: 54 });
+  t.equal('eleven grams short is not', far.carbs, '');
+  t.equal('nor is protein', far.protein, '');
+  t.check('nor a hundred and one calories', !/\bnear\b/.test(far.hero), far.hero);
+
   // swiping a meal row deletes it, holding one offers what to do with it
   // the earlier checks leave the page on some day; step until one has meals
   for (let i = 0; i < 4; i++) {
