@@ -1171,5 +1171,72 @@ module.exports = async (t) => {
     await p2.close();
   }
 
+  /* ---- a week can be moved around without moving every week ---- */
+  {
+    const planned = build();
+    planned.templates = [
+      { id: 't-push', name: 'Push A', exercises: [{ exerciseId: 'bench-press', sets: [{ reps: 8 }] }] },
+      { id: 't-pull', name: 'Pull A', exercises: [{ exerciseId: 'pull-up', sets: [{ reps: 8 }] }] },
+      { id: 't-legs', name: 'Legs', exercises: [{ exerciseId: 'squat', sets: [{ reps: 8 }] }] },
+    ];
+    planned.tplHidden = ['tpl-push', 'tpl-pull', 'tpl-legs', 'tpl-full'];
+    planned.schedule = ['t-push', 't-pull', 't-push', 't-pull', 't-legs', 'rest', 'rest'];
+    const pw = await openApp(t.browser, { url: server.url, seed: planned });
+    await pw.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+    await pw.waitForTimeout(700);
+    const week = () => pw.evaluate(() =>
+      [...document.querySelectorAll('.plan-day')].map((b) => b.querySelector('b').textContent).join());
+    const planNote = () => pw.evaluate(() => document.querySelector('.wk-plan .wc-note').textContent);
+    const todayIdx = await pw.evaluate(() =>
+      [...document.querySelectorAll('.plan-day')].findIndex((b) => b.classList.contains('is-today')));
+    const usual = await week();
+
+    await pw.evaluate((i) => document.querySelectorAll('.plan-day')[i].click(), todayIdx);
+    await pw.waitForTimeout(700);
+    t.equal('a day offers both scopes', await pw.evaluate(() =>
+      [...document.querySelectorAll('#planScope button')].map((b) => b.dataset.scope).join()), 'every,this');
+    t.check('and a way to shove the week along', await pw.evaluate(() =>
+      !!document.querySelector('#planPush') && !!document.querySelector('#planPull')));
+
+    await pw.click('#planPush');
+    await pw.waitForTimeout(800);
+    const shifted = await week();
+    t.equal('a rest lands on the day you picked', shifted.split(',')[todayIdx], 'Rest');
+    t.check('and everything after it moves along one',
+      shifted.split(',').slice(todayIdx + 1).join() === usual.split(',').slice(todayIdx, 6).join(),
+      shifted + ' vs ' + usual);
+    t.equal('the card says it has been moved', await planNote(), 'Moved for this week');
+    const after = await readState(pw);
+    t.equal('the usual week is untouched', JSON.stringify(after.schedule),
+      '["t-push","t-pull","t-push","t-pull","t-legs","rest","rest"]');
+    t.equal('the change is kept under this Monday only',
+      Object.keys(after.planWeeks || {}).length, 1);
+
+    await pw.evaluate(() => document.querySelector('#plNext').click());
+    await pw.waitForTimeout(600);
+    t.equal('so next week is the usual one', await week(), usual);
+    t.equal('and says nothing about being moved', await planNote(), 'Tap a day to set it');
+    await pw.evaluate(() => document.querySelector('#plPrev').click());
+    await pw.waitForTimeout(600);
+
+    // skipping a day pulls the rest forward instead
+    await pw.evaluate((i) => document.querySelectorAll('.plan-day')[i].click(), todayIdx);
+    await pw.waitForTimeout(700);
+    await pw.click('#planReset');
+    await pw.waitForTimeout(800);
+    t.equal('and it can be put back', await week(), usual);
+
+    await pw.evaluate((i) => document.querySelectorAll('.plan-day')[i].click(), todayIdx);
+    await pw.waitForTimeout(700);
+    await pw.click('#planPull');
+    await pw.waitForTimeout(800);
+    const pulled = await week();
+    t.check('skipping a day brings the rest forward',
+      pulled.split(',').slice(todayIdx).join() === usual.split(',').slice(todayIdx + 1).join() + ',—',
+      pulled + ' vs ' + usual);
+    t.equal('no page errors', pw.errors.length, 0);
+    await pw.close();
+  }
+
   await server.close();
 };

@@ -53,6 +53,7 @@
     { name: 'tplHidden', path: ['tplHidden'] },
     { name: 'exPrefs', path: ['exPrefs'] },
     { name: 'tplOrder', path: ['tplOrder'] },
+    { name: 'planWeeks', path: ['planWeeks'] },
     { name: 'habitOrder', path: ['habits'], derive: (v) => (v || []).map((h) => h.id) },
   ];
 

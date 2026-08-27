@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '14.3';
+  const APP_VERSION = '14.4';
 
   /* ---------------- state ---------------- */
 
@@ -29,6 +29,7 @@
     templates: [],
     tplHidden: [],    // built-in routines you removed
     tplOrder: [],     // the order you put them in, if you have
+    planWeeks: {},    // a week moved around, kept under its Monday
     workouts: [],          // finished workouts, newest first
     activeWorkout: null,
   });
@@ -137,6 +138,7 @@
     if (!Array.isArray(parsed.foods)) parsed.foods = [];
     if (!Array.isArray(parsed.tplHidden)) parsed.tplHidden = [];
     if (!Array.isArray(parsed.tplOrder)) parsed.tplOrder = [];
+    if (!parsed.planWeeks || typeof parsed.planWeeks !== 'object') parsed.planWeeks = {};
     /* How an exercise is done — the machine's pounds, the belt you hang off
        it — used to be written on each copy of it, so an ad-hoc workout forgot
        what a routine knew. It belongs to the exercise. Anything a routine
@@ -566,12 +568,43 @@
     || BUILTIN_TEMPLATES.find((t) => t.id === id)
     || (state.templates || []).find((t) => t.id === id)
     || null;
-  function plannedFor(i) {
-    const id = (state.schedule || [])[i];
+  /* The weekly plan is what you usually do. A week can also be moved around
+     without changing the usual: get in late on Thursday, put a rest day there
+     and push the rest along, and next Thursday is a Push day again. Those
+     changes are kept per week, under the Monday they belong to. */
+  const EMPTY_WEEK = () => [null, null, null, null, null, null, null];
+  function weekMondayKey(offset = 0) {
+    const n = new Date();
+    const m = new Date(n.getFullYear(), n.getMonth(), n.getDate() - ((n.getDay() + 6) % 7) + offset * 7);
+    return dateKey(m);
+  }
+  const weekOverride = (offset = 0) => (state.planWeeks || {})[weekMondayKey(offset)] || null;
+  function planFor(offset = 0) {
+    const own = weekOverride(offset);
+    return Array.isArray(own) ? own : (state.schedule || EMPTY_WEEK());
+  }
+  function setWeekPlan(offset, days) {
+    if (!state.planWeeks || typeof state.planWeeks !== 'object') state.planWeeks = {};
+    state.planWeeks[weekMondayKey(offset)] = days.slice(0, 7);
+    prunePlanWeeks();
+  }
+  function clearWeekPlan(offset) {
+    if (state.planWeeks) delete state.planWeeks[weekMondayKey(offset)];
+  }
+  /* A week that has been and gone is not worth carrying around. */
+  function prunePlanWeeks() {
+    if (!state.planWeeks) return;
+    const cut = weekMondayKey(-8);
+    Object.keys(state.planWeeks).forEach((k) => { if (k < cut) delete state.planWeeks[k]; });
+  }
+
+  function planEntry(id) {
     if (!id) return null;
     if (id === 'rest') return { rest: true, name: 'Rest' };
     return allTemplates().find((t) => t.id === id) || null;
   }
+  function plannedOn(i, offset = 0) { return planEntry(planFor(offset)[i]); }
+  function plannedFor(i) { return plannedOn(i, 0); }
   // a short label that survives a 48px column
   function planShort(t) {
     if (!t) return '—';
@@ -580,23 +613,46 @@
     return w.length > 6 ? w.slice(0, 5) + '…' : w;
   }
 
-  function openPlanPicker(dayIdx) {
-    const current = (state.schedule || [])[dayIdx] || null;
+  function openPlanPicker(dayIdx, offset = 0) {
+    const current = planFor(offset)[dayIdx] || null;
+    const moved = !!weekOverride(offset);
+    /* Changing a day changes the usual week unless you say otherwise; moving
+       one around is always just this week, because that is what moving means. */
+    let justThis = moved;
     const rowFor = (id, name, sub) =>
       '<div class="lib-item ' + (current === id ? 'is-on' : '') + '" data-pick="' + esc(id) + '" role="button" tabindex="0">' +
         '<div><div class="li-name">' + esc(name) + '</div>' + (sub ? '<div class="li-sub">' + esc(sub) + '</div>' : '') + '</div>' +
         '<span class="li-best">' + (current === id ? '✓' : '') + '</span>' +
       '</div>';
-    openSheet(DOW_LABELS[dayIdx], '' +
+    openSheet(DOW_LABELS[dayIdx] + (offset ? ' · ' + (offset > 0 ? 'in ' + offset + ' week' + (offset === 1 ? '' : 's') : Math.abs(offset) + ' week' + (offset === -1 ? '' : 's') + ' ago') : ''), '' +
+      '<div class="seg" id="planScope">' +
+        '<button data-scope="every" class="' + (justThis ? '' : 'is-on') + '">Every week</button>' +
+        '<button data-scope="this" class="' + (justThis ? 'is-on' : '') + '">Just this week</button>' +
+      '</div>' +
       '<div class="lib-group-title">Routine</div>' +
       allTemplates().map((t) => rowFor(t.id, t.name, t.exercises.length + ' exercises')).join('') +
       '<div class="lib-group-title">Other</div>' +
       rowFor('rest', 'Rest day', 'No session planned') +
-      '<button class="btn btn-quiet" id="planClear" style="margin-top:14px">Leave empty</button>',
+      '<button class="btn btn-quiet" id="planClear" style="margin-top:10px">Leave empty</button>' +
+      '<div class="lib-group-title">Move this week around</div>' +
+      '<button class="btn btn-quiet" id="planPush">Rest here, push the rest back</button>' +
+      '<button class="btn btn-quiet" id="planPull" style="margin-top:10px">Skip this day, pull the rest forward</button>' +
+      (moved ? '<button class="btn btn-quiet" id="planReset" style="margin-top:10px">Back to the usual week</button>' : ''),
     (body) => {
+      $$('#planScope button', body).forEach((b) => b.addEventListener('click', () => {
+        justThis = b.dataset.scope === 'this';
+        $$('#planScope button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+      }));
       const set = (val) => {
-        if (!Array.isArray(state.schedule)) state.schedule = [null, null, null, null, null, null, null];
-        state.schedule[dayIdx] = val;
+        if (justThis) {
+          const days = planFor(offset).slice();
+          days[dayIdx] = val;
+          setWeekPlan(offset, days);
+        } else {
+          if (!Array.isArray(state.schedule)) state.schedule = EMPTY_WEEK();
+          state.schedule[dayIdx] = val;
+        }
+        haptic('tick');
         save(); closeSheet(); render();
       };
       body.addEventListener('click', (e) => {
@@ -604,6 +660,36 @@
         if (item) set(item.dataset.pick);
       });
       $('#planClear', body).addEventListener('click', () => set(null));
+
+      /* Everything from here on slides a day later and a rest takes its place;
+         whatever fell off the end of the week is gone, which is what happens
+         when a week only has seven days in it. */
+      $('#planPush', body).addEventListener('click', () => {
+        const days = planFor(offset).slice();
+        const dropped = days[6];
+        for (let i = 6; i > dayIdx; i--) days[i] = days[i - 1];
+        days[dayIdx] = 'rest';
+        setWeekPlan(offset, days);
+        haptic('tick');
+        save(); closeSheet(); render();
+        const name = planEntry(dropped);
+        toast(name && !name.rest ? name.name + ' fell off the end of the week' : 'Pushed back — just this week');
+      });
+      $('#planPull', body).addEventListener('click', () => {
+        const days = planFor(offset).slice();
+        for (let i = dayIdx; i < 6; i++) days[i] = days[i + 1];
+        days[6] = null;
+        setWeekPlan(offset, days);
+        haptic('tick');
+        save(); closeSheet(); render();
+        toast('Pulled forward — just this week');
+      });
+      $('#planReset', body)?.addEventListener('click', () => {
+        clearWeekPlan(offset);
+        haptic('tap');
+        save(); closeSheet(); render();
+        toast('Back to the usual week');
+      });
     });
   }
 
@@ -3514,7 +3600,8 @@
       muscleBalanceHTML() +
 
       '<div class="card wk-plan week-wrap">' +
-        '<div class="wc-head"><span class="micro">Weekly plan</span><span class="wc-note">Tap a day to set it</span></div>' +
+        '<div class="wc-head"><span class="micro">Weekly plan</span><span class="wc-note">' +
+          (weekOverride(planWeekOffset) ? 'Moved for this week' : 'Tap a day to set it') + '</span></div>' +
         '<div class="ws-head">' +
           '<button class="ws-nav" id="plPrev" aria-label="Earlier week">‹</button>' +
           '<button class="ws-label' + (planWeekOffset ? ' is-off' : '') + '" id="plLabel">' + planWeekLabel +
@@ -3523,7 +3610,7 @@
         '</div>' +
         '<div class="plan-row">' +
           DOW_LABELS.map((L, i) => {
-            const t = plannedFor(i);
+            const t = plannedOn(i, planWeekOffset);
             const d = new Date(planMonday); d.setDate(d.getDate() + i);
             const key = dateKey(d);
             const trained = workoutDays.has(key);
@@ -3567,7 +3654,7 @@
     $('#newRoutine2').addEventListener('click', () => openRoutineBuilder());
 
     $('#wkWeight').addEventListener('click', openWeightSheet);
-    $$('.plan-day', v).forEach((b) => b.addEventListener('click', () => openPlanPicker(Number(b.dataset.plan))));
+    $$('.plan-day', v).forEach((b) => b.addEventListener('click', () => openPlanPicker(Number(b.dataset.plan), planWeekOffset)));
     const showPlanWeek = (off) => { planWeekOffset = Math.max(-52, Math.min(4, off)); render(); };
     $('#plPrev', v).addEventListener('click', () => showPlanWeek(planWeekOffset - 1));
     $('#plNext', v).addEventListener('click', () => showPlanWeek(planWeekOffset + 1));
