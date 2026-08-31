@@ -27,7 +27,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # the Capacitor CLI refuses to run on anything older
+          node-version: '22'
           cache: npm
 
       - uses: actions/setup-java@v4
