@@ -306,6 +306,83 @@ module.exports = async (t) => {
     }
   }
 
+  /* --- the runnable PC end: `node pc/bela-sync.js` with nothing wired in --- */
+  {
+    const { spawn } = require('child_process');
+    const os = require('os');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bela-pc-'));
+    const script = path.join(__dirname, '..', 'pc', 'bela-sync.js');
+    const PORT = 8793;
+
+    const start = () => {
+      const p = spawn(process.execPath, [script, '--dir', dir, '--port', String(PORT)],
+        { stdio: ['ignore', 'pipe', 'pipe'] });
+      p.out = '';
+      p.stdout.on('data', (c) => { p.out += c; });
+      p.stderr.on('data', (c) => { p.out += c; });
+      return p;
+    };
+    const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+    const get = (p) => new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port: PORT, path: p }, (res) => {
+        let out = ''; res.on('data', (c) => { out += c; });
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(out || '{}') }));
+      }).on('error', reject);
+    });
+    const post = (doc, code) => new Promise((resolve, reject) => {
+      const data = JSON.stringify({ protocol: 1, device: 'phone', doc });
+      const req = http.request({
+        host: '127.0.0.1', port: PORT, path: '/bela/sync', method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-bela-code': code },
+      }, (res) => {
+        let out = ''; res.on('data', (c) => { out += c; });
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(out || '{}') }));
+      });
+      req.on('error', reject); req.write(data); req.end();
+    });
+
+    let proc = start();
+    try {
+      await settle(1200);
+      t.check('it starts with no data and no setting up', /sync is running/.test(proc.out), proc.out.slice(0, 300));
+      t.check('it prints an address and a code', /PC address/.test(proc.out) && /Pairing code/.test(proc.out));
+
+      const code = fs.readFileSync(path.join(dir, 'bela-code.txt'), 'utf8').trim();
+      t.check('the code is six digits', /^\d{6}$/.test(code), code);
+      t.check('and it is the one on screen', proc.out.includes(code));
+
+      t.equal('it answers a ping', (await get('/bela/ping')).body.app, 'bela');
+
+      const phone = device(base(), 4000);
+      phone.save((d) => d.workouts.push({ id: 'w_ph', name: 'Push', finishedAt: 9 }));
+      t.equal('a wrong code is refused', (await post(Sync.outgoing(phone.doc), '000000')).status, 403);
+
+      const res = await post(Sync.outgoing(phone.doc), code);
+      t.equal('a real sync succeeds', res.status, 200);
+      await settle(200);
+      const saved = JSON.parse(fs.readFileSync(path.join(dir, 'bela.json'), 'utf8'));
+      t.check('the workout is written to bela.json', (saved.workouts || []).some((w) => w.id === 'w_ph'));
+
+      // something else edits the file between syncs — the PC must still win
+      saved.workouts.push({ id: 'w_pc', name: 'Made on the PC', finishedAt: 11 });
+      fs.writeFileSync(path.join(dir, 'bela.json'), JSON.stringify(saved));
+      const back = await post(Sync.outgoing(phone.doc), code);
+      t.check('an edit made outside it still reaches the phone',
+        (back.body.doc.workouts || []).some((w) => w.id === 'w_pc'));
+
+      proc.kill('SIGTERM');
+      await settle(700);
+      proc = start();
+      await settle(1200);
+      t.check('the pairing code survives a restart', proc.out.includes(code), proc.out.slice(0, 300));
+      t.check('and so does the data',
+        JSON.parse(fs.readFileSync(path.join(dir, 'bela.json'), 'utf8')).workouts.length >= 2);
+    } finally {
+      proc.kill('SIGKILL');
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
   /* --- the first stamp marks nothing as changed --- */
   {
     const doc = base();

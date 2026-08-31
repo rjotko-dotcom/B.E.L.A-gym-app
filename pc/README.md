@@ -1,15 +1,53 @@
 # The PC half of B.E.L.A sync
 
-Two files, no dependencies:
+Three files, no dependencies:
 
 | | |
 |---|---|
 | `sync.js` | the merge. **A copy of `js/sync.js`** — the phone runs the identical file, which is why the two ends always reach the same answer. Do not edit this copy; `npm run build:web` refreshes it, and the test suite fails if it drifts. |
 | `bela-sync-server.js` | a tiny HTTP server that takes the phone's document, merges it into yours, and sends the result back. |
+| `bela-sync.js` | that server as something you can just run, keeping the data in a JSON file. Start here. |
 
-Copy both into your Electron project.
+## Just run it
 
-## Wiring it in
+Copy the `pc/` folder to your PC and, in it:
+
+```bash
+node bela-sync.js
+```
+
+It prints an address and a six-digit code:
+
+```
+  B.E.L.A sync is running
+  ──────────────────────────────────────────────
+  On the phone:  Settings → Sync with the PC app
+
+     PC address    192.168.1.20:8765
+     Pairing code  500307
+
+  ──────────────────────────────────────────────
+  Data:  C:\Users\you\pc\bela.json
+  Leave this window open. Ctrl+C stops it.
+```
+
+Type those two into the phone — **Settings → Sync with the PC app** — tick
+**Sync on its own**, and that is it. The code is kept in `bela-code.txt`, so it
+is the same every time; you only ever type it once.
+
+Your data lands in `bela.json`, in exactly the shape **Settings → Save backup**
+produces. Anything else you write that reads or writes that file is syncing with
+your phone, without knowing anything about the protocol.
+
+| | |
+|---|---|
+| `--dir <folder>` | keep `bela.json` somewhere else |
+| `--port <n>` | listen on another port — put it on the phone too, as `192.168.1.20:8766` |
+| `--code <n>` | force a particular pairing code |
+
+Both machines must be on the same Wi-Fi, and the window has to stay open.
+
+## Or wire it into your Electron app
 
 ```js
 const fs = require('fs');
