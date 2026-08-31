@@ -1,5 +1,44 @@
 apply plugin: 'com.android.application'
 
+/* ---------- the signing key ----------
+   A release APK has to be signed with a key that never changes, or Android
+   refuses to install the next build over the last one. The key itself is never
+   in this repo. It comes from one of two places:
+
+     - android/keystore.properties on your own machine (git-ignored), or
+     - BELA_KEYSTORE_PATH and friends in the environment, which is how the
+       GitHub Actions build gets it out of the repository secrets.
+
+   With neither, the release build falls back to the debug key so it still
+   builds and installs — but it is not upgradable, so the build says so and CI
+   refuses to publish it. */
+def keystoreProps = rootProject.file('keystore.properties')
+def signStore = null
+def signStorePassword = null
+def signKeyAlias = null
+def signKeyPassword = null
+
+if (keystoreProps.exists()) {
+    def props = new Properties()
+    keystoreProps.withInputStream { props.load(it) }
+    if (props['storeFile']) {
+        signStore = file(props['storeFile'])
+        signStorePassword = props['storePassword']
+        signKeyAlias = props['keyAlias']
+        signKeyPassword = props['keyPassword']
+    }
+} else if (System.getenv('BELA_KEYSTORE_PATH')) {
+    signStore = file(System.getenv('BELA_KEYSTORE_PATH'))
+    signStorePassword = System.getenv('BELA_KEYSTORE_PASSWORD')
+    signKeyAlias = System.getenv('BELA_KEY_ALIAS')
+    signKeyPassword = System.getenv('BELA_KEY_PASSWORD')
+}
+
+def haveSigningKey = signStore != null && signStore.exists()
+if (!haveSigningKey) {
+    logger.lifecycle('B.E.L.A: no release key found — release builds will use the debug key.')
+}
+
 android {
     namespace = "com.rjotko.bela"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,10 +55,21 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (haveSigningKey) {
+            release {
+                storeFile signStore
+                storePassword signStorePassword
+                keyAlias signKeyAlias
+                keyPassword signKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig haveSigningKey ? signingConfigs.release : signingConfigs.debug
         }
     }
 }
