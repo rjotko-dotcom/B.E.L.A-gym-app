@@ -49,10 +49,14 @@ function playwright() {
 // a Galaxy S24+ in CSS pixels — the device this is actually used on
 const PHONE = { width: 384, height: 832 };
 
-async function openApp(browser, { url, seed, viewport = PHONE, theme = 'dark', touch = true } = {}) {
+async function openApp(browser, { url, seed, viewport = PHONE, theme = 'dark', touch = true, splash = false } = {}) {
   const page = await browser.newPage({
     viewport, colorScheme: theme, hasTouch: touch, deviceScaleFactor: 2,
   });
+  // The opening mark plays on a cold start and covers the app for a second.
+  // Suites that are not about it say they have already been opened; the one
+  // that is passes splash: true.
+  if (!splash) await page.addInitScript(() => sessionStorage.setItem('bela-opened', '1'));
   page.errors = [];
   page.on('pageerror', (e) => {
     // the service worker is deliberately absent in most suites

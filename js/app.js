@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '14.4';
+  const APP_VERSION = '14.5';
 
   /* ---------------- state ---------------- */
 
@@ -56,7 +56,6 @@
   let tabHasEntry = false;
   let wkHasEntry = false;
   let sheetHasEntry = false;
-  let scanHasEntry = false;
 
   function goTab(tab) {
     if (tab !== 'habits') habitReorder = false;
@@ -79,7 +78,6 @@
   }
   addEventListener('popstate', () => {
     if (skipPop > 0) { skipPop--; return; }
-    if (scanOpen) { scanHasEntry = false; closeScanner(false); return; }
     if ($('#sheetRoot').children.length) { sheetHasEntry = false; closeSheetNow(); return; }
     if (routineDraft) { rbHasEntry = false; closeRoutineBuilder(); return; }
     if (workoutOpen) { wkHasEntry = false; workoutOpen = false; render(); return; }
@@ -3094,8 +3092,8 @@
     if (same) Object.assign(same, rec); else state.foods.push(rec);
     return rec;
   }
-  /* One of your own foods, corrected: the numbers a scan got wrong, a better
-     name, or the portion the "+" should log. Built-in foods are read-only. */
+  /* One of your own foods, corrected: a number typed wrong, a better name,
+     or the portion the "+" should log. Built-in foods are read-only. */
   function openFoodEditor(id, after) {
     const f = (state.foods || []).find((x) => x.id === id);
     if (!f) return;
@@ -3320,9 +3318,6 @@
       </div>
       <div class="search-row">
         <input class="search-field" id="foodSearch" type="search" placeholder="Search foods…" autocomplete="off">
-        <button class="scan-btn" id="scanBtn" aria-label="Scan a barcode">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5V6a2 2 0 0 1 2-2h2.5M15.5 4H18a2 2 0 0 1 2 2v2.5M20 15.5V18a2 2 0 0 1-2 2h-2.5M8.5 20H6a2 2 0 0 1-2-2v-2.5M7.5 12h9"/></svg>
-        </button>
       </div>
       <p class="portion-per">Tap a food to set the grams, or + to log the usual portion.</p>
       <div id="savedList">${savedHtml()}</div>
@@ -3375,8 +3370,6 @@
         $$('#slotPick button', body).forEach((x) => x.classList.toggle('is-on', x === b));
         $('#savedList', body).innerHTML = savedHtml();
       }));
-
-      $('#scanBtn', body).addEventListener('click', () => openScanner((code) => lookupBarcode(code, slot, key)));
 
       const search = $('#foodSearch', body);
       const list = $('#foodList', body);
@@ -5080,119 +5073,6 @@
   }
 
 
-
-  /* ================= BARCODE SCANNING ================= */
-  /* Camera -> BarcodeDetector -> Open Food Facts. Needs a connection; every
-     other part of the app keeps working offline. */
-
-  let scanOpen = false;
-  let scanStream = null;
-  let scanTimer = null;
-
-  function closeScanner(pop = true) {
-    scanOpen = false;
-    clearInterval(scanTimer); scanTimer = null;
-    if (scanStream) { scanStream.getTracks().forEach((t) => t.stop()); scanStream = null; }
-    $('#scanRoot').innerHTML = '';
-    if (pop && scanHasEntry) { scanHasEntry = false; skipPop++; history.back(); }
-  }
-
-  function openScanner(onCode) {
-    const root = $('#scanRoot');
-    root.innerHTML = '' +
-      '<div class="scan-overlay">' +
-        '<video id="scanVideo" playsinline muted autoplay></video>' +
-        '<div class="scan-frame"><span></span><span></span><span></span><span></span></div>' +
-        '<div class="scan-bar">' +
-          '<button class="icon-btn" id="scanClose" aria-label="Close scanner"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>' +
-          '<p id="scanMsg">Point the camera at a barcode</p>' +
-          '<button class="chip-btn" id="scanManual">Type it</button>' +
-        '</div>' +
-      '</div>';
-    scanOpen = true;
-    if (!scanHasEntry) { history.pushState({ t: 'scan' }, ''); scanHasEntry = true; }
-    $('#scanClose').addEventListener('click', () => closeScanner());
-    $('#scanManual').addEventListener('click', () => {
-      closeScanner();
-      openSheet('Enter barcode', '' +
-        '<div class="field"><label for="bcNum">Barcode number</label>' +
-          '<input id="bcNum" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 5711953068881"></div>' +
-        '<button class="btn btn-primary" id="bcGo">Look it up</button>',
-      (body) => {
-        const input = $('#bcNum', body);
-        input.focus();
-        const go = () => {
-          const code = input.value.trim();
-          if (!/^\d{6,14}$/.test(code)) { toast('That does not look like a barcode'); return; }
-          onCode(code);
-        };
-        $('#bcGo', body).addEventListener('click', go);
-        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-      });
-    });
-
-    const msg = $('#scanMsg');
-    if (!('BarcodeDetector' in window)) {
-      msg.textContent = 'This browser can’t scan — tap “Type it”';
-      return;
-    }
-    const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'] });
-    const video = $('#scanVideo');
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-      .then((stream) => {
-        if (!scanOpen) { stream.getTracks().forEach((t) => t.stop()); return; }
-        scanStream = stream;
-        video.srcObject = stream;
-        scanTimer = setInterval(async () => {
-          if (!scanOpen || video.readyState < 2) return;
-          try {
-            const codes = await detector.detect(video);
-            if (codes.length) {
-              const code = codes[0].rawValue;
-              haptic('tap');
-              closeScanner();
-              onCode(code);
-            }
-          } catch (e) { /* a dropped frame is not worth reporting */ }
-        }, 350);
-      })
-      .catch(() => { msg.textContent = 'No camera access — tap “Type it”'; });
-  }
-
-  function lookupBarcode(code, slot, key) {
-    toast('Looking up ' + code + '…');
-    const url = 'https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) +
-      '.json?fields=product_name,brands,serving_size,nutriments';
-    fetch(url)
-      .then((r) => r.json())
-      .then((data) => {
-        const pr = data && data.product;
-        if (!pr || (data.status !== undefined && data.status !== 1)) { notFound(code, slot, key); return; }
-        const nut = pr.nutriments || {};
-        const per100 = {
-          kcal: Number(nut['energy-kcal_100g']) || (Number(nut.energy_100g) ? Number(nut.energy_100g) / 4.184 : 0),
-          protein: Number(nut.proteins_100g) || 0,
-          carbs: Number(nut.carbohydrates_100g) || 0,
-          fat: Number(nut.fat_100g) || 0,
-        };
-        if (!per100.kcal) { toast('No nutrition data for that product'); notFound(code, slot, key); return; }
-        const servMatch = String(pr.serving_size || '').match(/([\d.]+)\s*g/i);
-        // a scanned product is a per-100 g food like any other, and worth keeping
-        openPortionSheet({
-          name: [pr.brands ? String(pr.brands).split(',')[0].trim() : '', pr.product_name || 'Scanned product'].filter(Boolean).join(' — '),
-          unit: 'g', per: 100, serving: servMatch ? Math.round(Number(servMatch[1])) : 100,
-          kcal: per100.kcal, protein: per100.protein, carbs: per100.carbs, fat: per100.fat,
-        }, slot, key, { offerSave: true });
-      })
-      .catch(() => toast('Lookup failed — check your connection'));
-  }
-
-  function notFound(code, slot, key) {
-    openSheet('Not found', '' +
-      '<p class="empty-note">Barcode ' + esc(code) + ' isn’t in the food database yet.</p>' +
-      '<button class="btn btn-primary" id="nfManual">Enter it by hand</button>',
-      (body) => { $('#nfManual', body).addEventListener('click', () => { closeSheetNow(); openMealSheet(key || dateKey(), slot); }); });
-  }
 
   /* ================= HABITS TAB ================= */
 
@@ -7413,7 +7293,7 @@
     gestureClaimed = false;
     if (e.touches.length !== 1) return;
     // never hijack gestures inside the logger, a sheet, inputs or charts
-    if (workoutOpen || scanOpen || $('#sheetRoot').children.length) return;
+    if (workoutOpen || $('#sheetRoot').children.length) return;
     // a real swipe cancels the tap, so buttons are fine to start on —
     // only text fields and things that draw sideways must keep the gesture
     const el = e.target.nodeType === 1 ? e.target : e.target.parentElement;
@@ -7518,11 +7398,29 @@
     goTab(t.dataset.tab);
   }));
 
+  // ---------- the opening mark ----------
+  // The splash markup lives in the page so it is on screen at the first paint.
+  // All that is left here is to take it away once it has played, and to let an
+  // impatient tap cut it short. Its CSS ends hidden either way, so a failure
+  // in this block cannot lock the app behind it.
+  const splashWait = (() => {
+    const el = document.getElementById('splash');
+    if (!el) return 0;
+    const total = reducedMotion() ? 560 : 1310;
+    setTimeout(() => el.remove(), total);
+    el.addEventListener('pointerdown', () => {
+      el.classList.add('is-gone');
+      setTimeout(() => el.remove(), 220);
+    }, { once: true });
+    return total;
+  })();
+
   if (lastTab && lastTab !== 'home' && TAB_ORDER.includes(lastTab)) goTab(lastTab);
   else render();
   snapshotDaily();
-  if (needsSetup()) setTimeout(openSetup, 350);
-  else if (workoutStale(state.activeWorkout)) setTimeout(checkStaleWorkout, 350);
+  // sheets wait for the mark to clear, or they open behind it
+  if (needsSetup()) setTimeout(openSetup, 350 + splashWait);
+  else if (workoutStale(state.activeWorkout)) setTimeout(checkStaleWorkout, 350 + splashWait);
   checkShortcut();
   checkSharedImport();
   armFullBleed();

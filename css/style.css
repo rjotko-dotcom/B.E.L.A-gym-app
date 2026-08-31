@@ -1373,33 +1373,9 @@ body.has-mini .view.home-screen {
 .ex-hint b { color: var(--ink-1); }
 .ex-hint.up b { text-decoration: underline; text-underline-offset: 3px; }
 
-/* ---------- barcode scanner ---------- */
+/* ---------- food search ---------- */
 .search-row { display: flex; gap: 9px; align-items: stretch; margin-bottom: 12px; }
 .search-row .search-field { flex: 1; margin-bottom: 0; }
-.scan-btn {
-  width: 48px; flex-shrink: 0; border-radius: 14px; cursor: pointer;
-  border: 1px solid var(--baseline); background: transparent; color: var(--ink-1);
-  display: grid; place-items: center;
-}
-.scan-btn svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.scan-btn:active { background: var(--surface-2); }
-.scan-overlay { position: fixed; inset: 0; z-index: 80; background: #000; display: flex; align-items: center; justify-content: center; }
-.scan-overlay video { width: 100%; height: 100%; object-fit: cover; }
-.scan-frame { position: absolute; width: min(74vw, 300px); aspect-ratio: 1.5; }
-.scan-frame span { position: absolute; width: 30px; height: 30px; border: 3px solid #fff; }
-.scan-frame span:nth-child(1) { top: 0; left: 0; border-right: none; border-bottom: none; border-radius: 12px 0 0 0; }
-.scan-frame span:nth-child(2) { top: 0; right: 0; border-left: none; border-bottom: none; border-radius: 0 12px 0 0; }
-.scan-frame span:nth-child(3) { bottom: 0; left: 0; border-right: none; border-top: none; border-radius: 0 0 0 12px; }
-.scan-frame span:nth-child(4) { bottom: 0; right: 0; border-left: none; border-top: none; border-radius: 0 0 12px 0; }
-.scan-bar {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  display: flex; align-items: center; gap: 12px;
-  padding: 16px 16px calc(env(safe-area-inset-bottom) + 20px);
-  background: linear-gradient(to top, rgba(0,0,0,0.85), rgba(0,0,0,0));
-}
-.scan-bar p { flex: 1; color: #fff; font-size: 0.85rem; text-align: center; }
-.scan-bar .icon-btn { background: rgba(255,255,255,0.16); color: #fff; }
-.scan-bar .chip-btn { background: rgba(255,255,255,0.16); color: #fff; border-color: transparent; }
 .prod-macros { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
 .prod-macros > div { background: var(--surface-2); border-radius: 14px; padding: 11px 8px; text-align: center; }
 .prod-macros b { display: block; font-size: 1.02rem; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
@@ -2014,3 +1990,44 @@ body.has-mini .view.home-screen {
 }
 .note-state span { flex: 1; min-width: 0; }
 .note-state .chip-btn { flex: none; }
+
+/* ---------- opening the app ----------
+   Black, the mark drawing itself in two beats, then it opens into the app.
+   The whole thing is over in about a second: a greeting, not a wait. */
+.splash {
+  position: fixed; inset: 0; z-index: 200;
+  background: #000;
+  display: grid; place-items: center;
+  animation: splash-out 0.36s cubic-bezier(0.4, 0, 1, 1) 0.94s forwards;
+}
+.splash-mark {
+  width: 132px; height: 132px;
+  transform-origin: 50% 50%;
+  animation: splash-open 1.3s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+}
+.splash-mark path { opacity: 0; transform-origin: 50% 50%; }
+/* the bowl first, then the leg swings under it */
+.sp-bowl { animation: sp-in 0.42s cubic-bezier(0.2, 1.5, 0.4, 1) 0.04s forwards; }
+.sp-leg  { animation: sp-in 0.42s cubic-bezier(0.2, 1.5, 0.4, 1) 0.19s forwards; }
+
+@keyframes sp-in {
+  from { opacity: 0; transform: translateY(9px) scale(0.82); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes splash-open {
+  0%   { transform: scale(0.94); }
+  50%  { transform: scale(1); }
+  72%  { transform: scale(1); }
+  100% { transform: scale(1.1); }
+}
+@keyframes splash-out {
+  to { opacity: 0; visibility: hidden; }
+}
+/* Leaving early is the point of tapping, and a stiff phone should not be
+   made to sit through it either. */
+.splash.is-gone { animation: splash-out 0.2s ease forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .splash { animation: splash-out 0.2s ease 0.35s forwards; }
+  .splash-mark { animation: none; }
+  .splash-mark path { opacity: 1; animation: none; }
+}
