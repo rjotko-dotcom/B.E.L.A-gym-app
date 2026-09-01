@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { serve, openApp, ROOT } = require('./lib/harness');
+const { build } = require('./lib/seed');
 
 function copyApp(to) {
   fs.mkdirSync(to, { recursive: true });
@@ -75,4 +76,92 @@ module.exports = async (t) => {
   await page.close();
   await server.close();
   fs.rmSync(dir, { recursive: true, force: true });
+
+  /* --- the installed app has no service worker, so it asks GitHub --- */
+  {
+    const plain = await serve({ serviceWorker: false });
+
+    /* Pretend to be the APK, and answer for GitHub. Nothing here reaches the
+       network: the release the app is told about is whatever we hand back. */
+    const asNative = async (tag) => {
+      const page = await openApp(t.browser, { url: plain.url, seed: build() });
+      await page.addInitScript(() => { window.Capacitor = { isNativePlatform: () => true }; });
+      await page.evaluate((t) => {
+        window.Capacitor = { isNativePlatform: () => true };
+        window.fetch = async () => ({
+          ok: true,
+          json: async () => ({
+            tag_name: t,
+            html_url: 'https://example.invalid/releases/' + t,
+            assets: [{ name: 'bela-' + t.replace(/^v/, '') + '.apk',
+                       browser_download_url: 'https://example.invalid/bela.apk' }],
+          }),
+        });
+      }, tag);
+      await page.click('#homeAvatar');
+      await page.waitForTimeout(400);
+      await (await page.$('.icon-btn[aria-label*="ettings"]')).click();
+      await page.waitForTimeout(450);
+      return page;
+    };
+
+    const here = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8')
+      .match(/APP_VERSION = '([\d.]+)'/)[1];
+
+    let page = await asNative('v99.9.9');
+    t.equal('the installed app offers to check rather than to clear a cache',
+      await page.evaluate(() => document.querySelector('#forceUpdate').textContent.trim()),
+      'Check for updates');
+    await page.click('#forceUpdate');
+    await page.waitForTimeout(900);
+    const offer = await page.evaluate(() => document.querySelector('.toast')?.textContent || '');
+    t.check('a newer release is announced', /99\.9\.9/.test(offer), offer);
+    t.check('and it offers to fetch it', /Get it/.test(offer), offer);
+    await page.close();
+
+    page = await asNative('v' + here);
+    await page.click('#forceUpdate');
+    await page.waitForTimeout(900);
+    t.check('the current version is reported as current',
+      /newest version/.test(await page.evaluate(() => document.querySelector('.toast')?.textContent || '')));
+    await page.close();
+
+    // an older tag must never be offered as an update
+    page = await asNative('v0.1.0');
+    await page.click('#forceUpdate');
+    await page.waitForTimeout(900);
+    t.check('an older release is not offered',
+      !/Get it/.test(await page.evaluate(() => document.querySelector('.toast')?.textContent || '')));
+    await page.close();
+
+    // GitHub unreachable: say so, do not fail silently or throw
+    const off = await openApp(t.browser, { url: plain.url, seed: build() });
+    await off.evaluate(() => {
+      window.Capacitor = { isNativePlatform: () => true };
+      window.fetch = async () => { throw new Error('offline'); };
+    });
+    await off.click('#homeAvatar');
+    await off.waitForTimeout(400);
+    await (await off.$('.icon-btn[aria-label*="ettings"]')).click();
+    await off.waitForTimeout(450);
+    await off.click('#forceUpdate');
+    await off.waitForTimeout(900);
+    t.check('being offline is reported, not swallowed',
+      /Could not reach/.test(await off.evaluate(() => document.querySelector('.toast')?.textContent || '')));
+    t.equal('no page errors', off.errors.length, 0, off.errors.join(' | '));
+    await off.close();
+
+    // the website keeps the cache-clearing button it has always had
+    const web = await openApp(t.browser, { url: plain.url, seed: build() });
+    await web.click('#homeAvatar');
+    await web.waitForTimeout(400);
+    await (await web.$('.icon-btn[aria-label*="ettings"]')).click();
+    await web.waitForTimeout(450);
+    t.equal('the website still forces a reload instead',
+      await web.evaluate(() => document.querySelector('#forceUpdate').textContent.trim()),
+      'Force update now');
+    await web.close();
+
+    await plain.close();
+  }
 };

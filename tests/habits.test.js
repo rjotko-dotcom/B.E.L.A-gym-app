@@ -21,11 +21,19 @@ module.exports = async (t) => {
   t.check('partly-done days are filled proportionally', cal.fills.every((h) => /%$/.test(h)));
 
   // A perfect day is green. Train is linked to workouts, so the day has to be
-  // one that actually has a session in it.
+  // one that actually has a session in it — and it has to be a day the calendar
+  // is showing, which the newest seeded workout is not on the 1st of a month.
+  // So give today a session of its own rather than hunting for one.
   await page.evaluate(() => {
     const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
-    const d = new Date(st.workouts[0].startedAt);
+    const d = new Date();
     const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    st.workouts.push({
+      ...st.workouts[0],
+      id: 'w_today',
+      startedAt: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 18, 0).getTime(),
+      finishedAt: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 19, 10).getTime(),
+    });
     st.habitLog[key] = { h_steps: 12000, h_read: 30, h_sleep: 1 };
     localStorage.setItem('bela-gym-v1', JSON.stringify(st));
   });

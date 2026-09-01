@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '14.5';
+  const APP_VERSION = '14.6';
 
   /* ---------------- state ---------------- */
 
@@ -1775,6 +1775,73 @@
   addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') syncIfIdle();
   });
+
+  /* ================= KEEPING THE APP UP TO DATE ================= */
+  /* The website updates itself: the service worker fetches the new files and
+     offers a restart. The installed Android app cannot do that — its files are
+     sealed inside the APK — so instead it asks GitHub whether a newer release
+     exists and points you at it. Installing over the top keeps everything,
+     because every build is signed with the same key. */
+
+  const isNative = () => !!(window.Capacitor && (window.Capacitor.isNativePlatform
+    ? window.Capacitor.isNativePlatform() : true));
+  const RELEASE_API = 'https://api.github.com/repos/rjotko-dotcom/B.E.L.A-gym-app/releases/latest';
+  const RELEASE_PAGE = 'https://github.com/rjotko-dotcom/B.E.L.A-gym-app/releases/latest';
+  const UPDATE_GAP = 6 * 60 * 60 * 1000;      // asking more often than this is rude
+
+  const versionParts = (v) => String(v || '').replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  function isNewer(there, here) {
+    const a = versionParts(there), b = versionParts(here);
+    for (let i = 0; i < 3; i++) {
+      if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+    }
+    return false;
+  }
+
+  async function latestRelease() {
+    const res = await fetch(RELEASE_API, { headers: { accept: 'application/vnd.github+json' } });
+    if (!res.ok) throw new Error('GitHub said ' + res.status);
+    const data = await res.json();
+    const apk = (data.assets || []).find((a) => /\.apk$/i.test(a.name || ''));
+    return {
+      version: String(data.tag_name || '').replace(/^v/, ''),
+      url: (apk && apk.browser_download_url) || data.html_url || RELEASE_PAGE,
+    };
+  }
+
+  /* The download has to leave the app. Inside its own WebView Android will not
+     offer to install what comes back; in the browser it will. */
+  function openOutside(url) {
+    try { window.open(url, '_blank'); } catch (e) { location.href = url; }
+  }
+
+  async function checkForUpdate(quiet = true) {
+    if (!quiet) toast('Looking for a newer version…');
+    try {
+      const rel = await latestRelease();
+      if (!isNewer(rel.version, APP_VERSION)) {
+        if (!quiet) toast('You are on the newest version (' + APP_VERSION + ')');
+        return null;
+      }
+      toast('Version ' + rel.version + ' is out', false,
+        { label: 'Get it', onClick: () => openOutside(rel.url) });
+      return rel;
+    } catch (e) {
+      if (!quiet) toast('Could not reach GitHub — check your connection');
+      return null;
+    }
+  }
+
+  /* Only the installed app needs this, only every few hours, and never in the
+     first seconds of a cold start where it would talk over the opening mark. */
+  function checkForUpdateSoon() {
+    if (!isNative()) return;
+    let last = 0;
+    try { last = Number(localStorage.getItem('bela-update-check')) || 0; } catch (e) { /* private mode */ }
+    if (Date.now() - last < UPDATE_GAP) return;
+    try { localStorage.setItem('bela-update-check', String(Date.now())); } catch (e) { /* fine */ }
+    setTimeout(() => checkForUpdate(true), 2600);
+  }
 
   /* The screen where you point the phone at the PC. */
   function openPcSync() {
@@ -6873,7 +6940,7 @@
       <button class="btn btn-quiet" id="importBtn" style="margin-top:10px">Import a backup</button>
       <input id="importFile" type="file" accept="application/json" hidden>
       <button class="btn btn-danger" id="wipeBtn" style="margin-top:12px">Erase all data</button>
-      <button class="btn btn-quiet" id="forceUpdate" style="margin-top:12px">Force update now</button>
+      <button class="btn btn-quiet" id="forceUpdate" style="margin-top:12px">${isNative() ? 'Check for updates' : 'Force update now'}</button>
       <p class="muted" style="margin-top:16px;text-align:center">B.E.L.A Gym v${APP_VERSION} · data stays on this device</p>
     `, (body) => {
       $('#avPick', body).addEventListener('click', () => $('#avFile', body).click());
@@ -7075,6 +7142,8 @@
         });
       });
       $('#forceUpdate', body).addEventListener('click', async () => {
+        // the installed app has no cache to clear — it asks GitHub instead
+        if (isNative()) { checkForUpdate(false); return; }
         // clears every cached copy and re-registers, so the next load is fresh
         toast('Fetching the latest version…');
         try {
@@ -7423,5 +7492,6 @@
   else if (workoutStale(state.activeWorkout)) setTimeout(checkStaleWorkout, 350 + splashWait);
   checkShortcut();
   checkSharedImport();
+  checkForUpdateSoon();
   armFullBleed();
 })();
