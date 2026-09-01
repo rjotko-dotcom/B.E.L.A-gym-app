@@ -66,5 +66,28 @@ module.exports = async (t) => {
     await p3.evaluate(() => !!document.getElementById('splash')));
   await p3.close();
 
+  /* Installed, the system launch screen has already shown the mark, so the
+     app must not draw it in a second time — it is simply there, and leaves. */
+  const p4 = await t.browser.newPage({ viewport: { width: 384, height: 832 }, colorScheme: 'dark', deviceScaleFactor: 2 });
+  await p4.addInitScript((s) => {
+    localStorage.setItem('bela-gym-v1', JSON.stringify(s));
+    localStorage.setItem('bela-update-check', String(Date.now()));
+    window.Capacitor = { isNativePlatform: () => true, Plugins: {} };
+  }, seed);
+  await p4.goto(server.url);
+  const still = await p4.evaluate(() => {
+    const el = document.getElementById('splash');
+    if (!el) return null;
+    return {
+      marked: el.classList.contains('is-still'),
+      drawn: [...el.querySelectorAll('path')].every((path) => Number(getComputedStyle(path).opacity) === 1),
+    };
+  });
+  t.check('the installed app knows the logo was already shown', !!still && still.marked, JSON.stringify(still));
+  t.check('so the mark starts already drawn, not fading in', !!still && still.drawn);
+  await p4.waitForTimeout(1100);
+  t.check('and it leaves sooner', await p4.evaluate(() => !document.getElementById('splash')));
+  await p4.close();
+
   await server.close();
 };

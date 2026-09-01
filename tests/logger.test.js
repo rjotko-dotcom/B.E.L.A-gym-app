@@ -30,13 +30,34 @@ module.exports = async (t) => {
   await page.waitForTimeout(400);
   t.equal('a drop set does not take one either', (await setNums()).join(','), 'W,1,D,2');
 
-  // RPE
+  // RPE hides until asked for, and one exercise can ask on its own
+  t.equal('no RPE column out of the box', await page.evaluate(() => document.querySelectorAll('.ex-block .set-rpe').length), 0);
+  await page.click('.ex-block .ex-menu');
+  await page.waitForTimeout(500);
+  t.check('the exercise menu offers to track RPE', await page.evaluate(() =>
+    /Track RPE/.test(document.querySelector('[data-act="rpe"]')?.textContent || '')));
+  await page.click('[data-act="rpe"]');
+  await page.waitForTimeout(600);
+  t.check('which brings the column in', await page.evaluate(() => document.querySelectorAll('.ex-block .set-rpe').length > 0));
+
   await page.click('.ex-block .set-rpe');
   await page.waitForTimeout(350);
   t.equal('RPE offers 6 to 10 in halves', await page.evaluate(() => document.querySelectorAll('[data-rpe]').length), 8);
   await page.click('[data-rpe="9"]');
   await page.waitForTimeout(400);
   t.equal('RPE is stored on the set', (await readState(page)).activeWorkout.exercises[0].sets[0].rpe, 9);
+
+  // saying stop hides the column but keeps the number just logged
+  await page.click('.ex-block .ex-menu');
+  await page.waitForTimeout(500);
+  await page.click('[data-act="rpe"]');
+  await page.waitForTimeout(600);
+  t.equal('hiding it again leaves no column', await page.evaluate(() => document.querySelectorAll('.ex-block .set-rpe').length), 0);
+  t.equal('but the logged effort survives', (await readState(page)).activeWorkout.exercises[0].sets[0].rpe, 9);
+  await page.click('.ex-block .ex-menu');
+  await page.waitForTimeout(500);
+  await page.click('[data-act="rpe"]');
+  await page.waitForTimeout(600);
 
   // removing a set
   const before = (await readState(page)).activeWorkout.exercises[0].sets.length;
@@ -907,7 +928,7 @@ module.exports = async (t) => {
     await p2.waitForTimeout(900);
     t.equal('the logger drops it too', await p2.evaluate(() =>
       [...document.querySelectorAll('#workoutRoot .ex-block[data-ex="0"] .hdr')].map((h) => h.textContent).join('|')),
-      'Set|Prev|Reps|RPE|✓');
+      'Set|Prev|Reps|✓');
 
     // and reps alone can be a record, which they never could before
     const bwSet = async (i, r) => {

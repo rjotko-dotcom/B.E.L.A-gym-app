@@ -9,7 +9,7 @@
   --surface-2: #ececea;
   --ink-1: #141414;
   --ink-2: #55554f;
-  --ink-muted: #8a8a85;
+  --ink-muted: #6d6d68;
   --grid: #e6e6e3;
   --baseline: #c9c9c4;
   --border: rgba(0, 0, 0, 0.07);
@@ -508,7 +508,7 @@ body {
    place — down the list they line up as a column instead of drifting with the
    length of each routine's name. */
 .tpl-item > div:first-child { flex: 1; min-width: 0; }
-.tpl-acts { flex: none; display: flex; align-items: center; gap: 8px; }
+.tpl-acts { flex: none; display: flex; align-items: center; gap: 16px; }
 .tpl-acts .icon-btn { flex: none; width: 38px; height: 38px; }
 .tpl-acts .icon-btn svg { width: 17px; height: 17px; stroke-width: 1.8; }
 .tpl-item .li-name { font-weight: 700; font-size: 0.92rem; }
@@ -597,6 +597,7 @@ body {
 }
 .ex-line.has, .ex-line b { color: var(--ink-2); font-weight: 600; }
 .ex-note-line.has { font-style: italic; }
+.ex-note-line:not(.has) { color: var(--ink-muted); font-size: 0.76rem; opacity: 0.8; }
 .menu-item.on { border-color: var(--ink-1); }
 
 /* ---------- v3.0: routines, supersets, measurements ---------- */
@@ -1427,7 +1428,7 @@ body.has-mini .view.home-screen {
 /* the habits page is meant to be read at a glance — keep it on one screen */
 .hb-row { min-height: 52px; padding: 9px 8px 9px 0; }
 .hb-today-card { padding: 12px 8px 6px 14px; }
-.hc-day { aspect-ratio: 1.2; border-radius: 10px; }
+.hc-day { aspect-ratio: 1.02; border-radius: 10px; }
 .hc-pad { aspect-ratio: 1.2; }
 .hb-grid-card { padding: 12px 10px 10px; }
 .hb-month { margin-bottom: 8px; font-size: 0.92rem; }
@@ -2030,4 +2031,61 @@ body.has-mini .view.home-screen {
   .splash { animation: splash-out 0.2s ease 0.35s forwards; }
   .splash-mark { animation: none; }
   .splash-mark path { opacity: 1; animation: none; }
+}
+
+
+/* ---------- thumbs, not cursors ----------
+   Every small control keeps the size it was drawn at and grows an invisible
+   halo that takes the tap, so nothing offers less than ~44px of finger room.
+   The halo is part of the button, so a near miss still lands on it. */
+.icon-btn, .slot-add, .hb-plus, .hb-nav, .hb-move, .ws-nav, .day-nav button,
+.quick-chip, .chip-btn, .set-rpe, .hbh-chip, .hist-cal .cal-nav, #calPrev, #calNext {
+  position: relative;
+}
+.icon-btn::after, .slot-add::after, .hb-plus::after, .hb-nav::after, .hb-move::after,
+.ws-nav::after, .day-nav button::after, .quick-chip::after, .chip-btn::after,
+.set-rpe::after, .hbh-chip::after, #calPrev::after, #calNext::after {
+  content: ''; position: absolute; inset: -7px;
+}
+
+/* ---------- switches, not checkboxes ----------
+   The on/off rows use real switches: the browser's checkbox square was the one
+   piece of stock chrome left in the app. Same input, same markup — only drawn. */
+.switch-row input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none;
+  width: 46px; height: 27px; margin: 0; flex-shrink: 0;
+  border-radius: 999px; border: 1px solid var(--baseline);
+  background: var(--surface-2); cursor: pointer; position: relative;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.switch-row input[type="checkbox"]::before {
+  content: ''; position: absolute; top: 50%; left: 3px;
+  width: 19px; height: 19px; border-radius: 50%;
+  background: var(--ink-muted); transform: translateY(-50%);
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1), background 0.18s ease;
+}
+.switch-row input[type="checkbox"]:checked { background: var(--ink-1); border-color: var(--ink-1); }
+.switch-row input[type="checkbox"]:checked::before { transform: translateY(-50%) translateX(19px); background: var(--page); }
+@media (prefers-reduced-motion: reduce) {
+  .switch-row input[type="checkbox"], .switch-row input[type="checkbox"]::before { transition: none; }
+}
+
+/* ---------- the one nutrition summary ---------- */
+.nut-hero .nh-track { max-width: 330px; margin: 14px auto 0; }
+.nh-foot {
+  display: flex; justify-content: space-between; max-width: 330px; margin: 7px auto 0;
+  color: var(--ink-muted); font-size: 0.72rem; font-variant-numeric: tabular-nums;
+}
+
+/* ---------- opening when installed ----------
+   The APK (and the site pinned to a home screen) already showed this mark on
+   the system's own launch screen. So there it does not draw itself in again —
+   it is simply there, holds a beat, and opens out into the app. */
+.splash.is-still { animation: splash-out 0.3s cubic-bezier(0.4, 0, 1, 1) 0.44s forwards; }
+.splash.is-still .splash-mark { animation: splash-open-still 0.74s cubic-bezier(0.2, 0.8, 0.3, 1) forwards; }
+.splash.is-still .splash-mark path { opacity: 1; animation: none; }
+@keyframes splash-open-still {
+  0%   { transform: scale(1); }
+  55%  { transform: scale(1); }
+  100% { transform: scale(1.08); }
 }

@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '14.6';
+  const APP_VERSION = '14.7';
 
   /* ---------------- state ---------------- */
 
@@ -1602,7 +1602,19 @@
   async function nativeClearWorkoutNote() {
     const LN = nativePlugin('LocalNotifications');
     if (!LN) return;
-    try { await LN.cancel({ notifications: [{ id: WK_NOTE_ID }] }); } catch (e) { /* nothing posted */ }
+    /* cancel() only stops one that has not fired yet. This one has — it is
+       sitting in the shade, marked ongoing — so it also has to be removed as
+       a delivered notification, or finishing the workout leaves it there. */
+    try { await LN.cancel({ notifications: [{ id: WK_NOTE_ID }] }); } catch (e) { /* nothing queued */ }
+    try {
+      if (LN.getDeliveredNotifications && LN.removeDeliveredNotifications) {
+        const d = await LN.getDeliveredNotifications();
+        const ours = (d.notifications || []).filter((n) => Number(n.id) === WK_NOTE_ID);
+        if (ours.length) await LN.removeDeliveredNotifications({ notifications: ours });
+      } else if (LN.removeAllDeliveredNotifications) {
+        await LN.removeAllDeliveredNotifications();   // this app only ever posts the one
+      }
+    } catch (e) { /* nothing delivered */ }
   }
 
   /* A quiet channel, so the notification never makes a sound or a heads-up
@@ -2119,194 +2131,6 @@
   }
 
   /* the original home, kept so it can be switched back on in settings */
-  function renderHomeClassic() {
-    const v = $('#view');
-    const today = new Date();
-    const todayKey = dateKey(today);
-    const totals = dayTotals(todayKey);
-    const targets = state.nutrition.targets;
-    const frac = targets.kcal ? totals.kcal / targets.kcal : 0;
-    const kSt = goalState(totals.kcal, targets.kcal, 'kcal');
-    const over = kSt === 'over';
-
-    // week strip: Monday-based current week
-    const dow = (today.getDay() + 6) % 7; // 0 = Monday
-    const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow);
-    const letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-    const workoutDays = new Set(state.workouts.map((w) => dateKey(new Date(w.startedAt))));
-    const mealDays = new Set(state.nutrition.meals.map((m) => m.date));
-
-    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const strip = dayNames.map((L, i) => {
-      const d = new Date(monday); d.setDate(d.getDate() + i);
-      const key = dateKey(d);
-      const isToday = key === todayKey;
-      const past = key < todayKey;
-      const logged = workoutDays.has(key) || mealDays.has(key);
-      return `
-        <div class="wd ${isToday ? 'is-today' : past ? 'is-past' : ''}">
-          <span class="wd-letter">${L}</span>
-          <span class="wd-num">${d.getDate()}<span class="wd-inner ${logged ? 'on' : ''}"></span></span>
-          <span class="wd-mark ${logged ? 'on' : ''}"></span>
-        </div>`;
-    }).join('');
-
-    // bodyweight mini bars for this week
-    const weekWeights = letters.map((_, i) => {
-      const d = new Date(monday); d.setDate(d.getDate() + i);
-      return { key: dateKey(d), letter: letters[i], entry: weightOn(dateKey(d)) };
-    });
-    const lw = latestWeight();
-    const active = state.activeWorkout;
-
-    const hour = today.getHours();
-    const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-    const weekCount = state.workouts.filter((x) => {
-      const d = new Date(x.startedAt);
-      return d >= monday;
-    }).length;
-    const streak = streakWeeks();
-    // kept short: the sub-line is one line only, and an ellipsis there looks broken
-    const subParts = [
-      today.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
-      `${weekCount} workout${weekCount === 1 ? '' : 's'}`,
-    ];
-    if (streak >= 2) subParts.push(`${streak}w streak 🔥`);
-
-    const macros = [
-      ['Protein', totals.protein, targets.protein, '<path d="M12.409 13.017A5 5 0 0 1 22 15c0 3.866-4 7-9 7-4.077 0-8.153-.82-10.371-2.462-.426-.316-.631-.832-.62-1.362C2.118 12.723 2.627 2 6 2h4a2 2 0 0 1 0 4h-1a2 2 0 0 0 0 4h1a3 3 0 0 0 2.235-1"/>'],
-      ['Carbs', totals.carbs, targets.carbs, '<path d="M4 10.75h16a8 8 0 0 1-16 0Z"/><path d="M9.6 7.6c0-.9.8-1.4.8-2.4M14.2 7.6c0-.9.8-1.4.8-2.4"/>'],
-      ['Fat', totals.fat, targets.fat, '<path d="M12 4.4c3.2 3.9 5 6.5 5 8.85a5 5 0 0 1-10 0c0-2.35 1.8-4.95 5-8.85Z"/>'],
-    ];
-    const stats = weightStats();
-    const goal = state.settings.goalWeight;
-    const initial = ((state.settings.name || '').trim().charAt(0) || 'B').toUpperCase();
-    const kcalPct = Math.round(frac * 100);
-    const { done: hbDone, total: hbTotal } = habitsDone(todayKey);
-    const RING = 2 * Math.PI * 22;
-    const ringOffset = RING * (1 - Math.min(1, frac));
-
-    v.innerHTML = `
-      <div class="home-head">
-        <div class="hh-text">
-          <span class="hh-greet">${greeting},</span>
-          <h2 class="hh-name">${esc(state.settings.name || 'Athlete')}<span class="hh-dot">.</span></h2>
-          <p class="hh-sub">${subParts.join(' • ')}</p>
-        </div>
-        <button class="hh-avatar" id="homeAvatar" aria-label="Open profile">${avatarHTML('hh-initial')}</button>
-      </div>
-
-      <div class="week-strip">${strip}</div>
-
-      <div class="card bw-card">
-        <div class="bw-main">
-          <div class="bw-left">
-            <span class="micro">Bodyweight</span>
-            <div class="bw-value"${lw ? ` data-roll="bw" data-roll-to="${lw.value}" data-roll-dec="2"` : ''}>${lw ? fmtNum(lw.value) : '—'}<span class="t-unit">${esc(unit())}</span></div>
-            <div class="bw-delta">${
-              stats && stats.week != null
-                ? `<span class="bw-arrow">${stats.week > 0 ? '↑' : stats.week < 0 ? '↓' : '→'}</span> <b>${fmtNum(roundWeight(Math.abs(stats.week)))} ${esc(unit())}</b> this week`
-                : 'Tap to log today'
-            }</div>
-            <button class="bw-goal" id="bwGoal">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>
-              ${goal ? `Goal ${fmtNum(goal)} ${esc(unit())}` : 'Set a goal'}
-            </button>
-            <button class="bw-log" id="bwCard">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>
-              Log weight
-            </button>
-          </div>
-          <div class="bw-right">
-            <div class="bw-chart">${weightWeekChart(weekWeights, unit())}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card kcal-line">
-        <div class="kl-head">
-          <span class="micro">Calories</span>
-          <span class="kl-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c.7 3.1 3.4 4.4 3.4 7.4 0 1-.4 2-1.2 2.8.5-1.7-.6-3.1-1.7-3.9.2 2.3-1.4 3.5-2.3 4.8-1.7 2.2.2 5.5 3.4 5.5 3.1 0 5.4-2.4 5.4-5.4 0-4.9-4.3-7.9-7-11.2Z"/></svg></span>
-        </div>
-        <div class="kl-row">
-          <div class="kl-ring">
-            <svg viewBox="0 0 52 52" aria-hidden="true">
-              <circle cx="26" cy="26" r="22" fill="none" stroke="var(--surface-2)" stroke-width="4"/>
-              <circle cx="26" cy="26" r="22" fill="none" stroke="${goalStroke(kSt)}" stroke-width="4" stroke-linecap="round"
-                stroke-dasharray="${RING.toFixed(1)}" stroke-dashoffset="${ringOffset.toFixed(1)}" transform="rotate(-90 26 26)"/>
-            </svg>
-            <span class="kl-pct">${kcalPct}%</span>
-          </div>
-          <div class="kl-right">
-            <div class="macro-track kl-track"><div class="macro-fill ${kSt}" style="width:${Math.min(100, frac * 100)}%"></div></div>
-            <div class="kl-total"><b class="${kSt}" data-roll="home-kcal" data-roll-to="${Math.round(totals.kcal)}">${Math.round(totals.kcal)}</b> / ${targets.kcal.toLocaleString()} <span>kcal</span></div>
-            <div class="kl-left ${kSt}">${kSt === 'done' ? 'Goal reached' : kSt === 'over' ? `${Math.round(totals.kcal - targets.kcal)} kcal over` : `${Math.round(targets.kcal - totals.kcal)} kcal left`}</div>
-          </div>
-        </div>
-        <div class="kl-macros">
-          ${macros.map(([label, val, target]) => {
-            const pct = target ? Math.min(100, (val / target) * 100) : 0;
-            const mSt = goalState(val, target, macroKind(label));
-            return `
-            <div class="klm">
-              <div class="klm-head"><span class="klm-name">${label}</span><span class="klm-val ${mSt}">${Math.round(val)}<i>/${target}g</i></span></div>
-              <div class="mc-bar"><div class="mc-fill ${mSt}" style="width:${pct}%"></div></div>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>
-
-      <div class="card hb-home">
-        <div class="hbh-head">
-          <span class="micro">Habits</span>
-          <span class="hbh-count ${hbTotal && hbDone === hbTotal ? 'all-done' : ''}">${hbDone} / ${hbTotal} today</span>
-        </div>
-        ${hbTotal ? `<div class="hbh-row">${habitsList().slice(0, 6).map((h) => {
-          const done = habitDone(h, todayKey);
-          return `
-          <button class="hbh-chip ${done ? 'is-done' : ''}" data-h="${esc(h.id)}">
-            <span class="hbh-ico">${habitRing(h, todayKey)}<i>${habitIcon(h.icon)}</i></span>
-            <span class="hbh-name">${esc(h.name)}</span>
-          </button>`;
-        }).join('')}</div>` : '<p class="hbh-empty">Add your first habit in the Habits tab.</p>'}
-      </div>
-
-      ${active ? '' : `
-      <div class="home-actions">
-        <button class="ha-btn ha-primary" id="homeStart">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/></svg>
-          Start workout
-        </button>
-        <button class="ha-btn" id="homeLog">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.6 3.4v6.1a2 2 0 0 1-4 0V3.4M5.6 9.7V20.6"/><path d="M17.4 3.4c-1.5 1.6-2.2 3.2-2.2 5.2 0 1.6.7 2.6 2.2 2.9v9.1"/></svg>
-          Log meal
-        </button>
-      </div>`}`;
-
-    $('#homeAvatar').addEventListener('click', () => goTab('profile'));
-    $('#bwGoal').addEventListener('click', (e) => { e.stopPropagation(); openWeightSheet(); });
-    $('#bwCard').addEventListener('click', openWeightSheet);
-    // both are absent while a workout is running — the mini bar resumes it
-    if ($('#homeStart')) $('#homeStart').addEventListener('click', () => {
-      if (state.activeWorkout) { workoutOpen = true; openWkEntry(); }
-      goTab('workout');
-    });
-    if ($('#homeLog')) $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
-    $$('.hbh-chip', v).forEach((c) => c.addEventListener('click', () => {
-      const h = habitById(c.dataset.h);
-      if (!h) return;
-      if (h.source) goHabitSource(h);
-      else if (habitType(h) === 'check') toggleHabit(h);
-      else openHabitPad(h, todayKey);
-    }));
-    const hbHome = $('.hb-home', v);
-    if (hbHome) hbHome.addEventListener('click', (e) => { if (!e.target.closest('.hbh-chip')) goTab('habits'); });
-  }
-
-
-  /* Home, rebuilt in the same language as the other tabs: a page head, a
-     stat pair like the workouts dashboard, the calories card from nutrition,
-     and the habit cells from the habits calendar. */
   function renderHomeDash() {
     const v = $('#view');
     const today = new Date();
@@ -2512,10 +2336,7 @@
       '<div class="gb-ends"><span>' + fmtNum(roundWeight(start)) + '</span><span>' + fmtNum(goal) + ' ' + u + '</span></div>';
   }
 
-  function renderHome() {
-    if (state.settings.homeLayout === 'classic') renderHomeClassic();
-    else renderHomeDash();
-  }
+  const renderHome = () => renderHomeDash();
 
   function openWeightSheet() {
     const todayKey = dateKey();
@@ -2688,16 +2509,8 @@
           : '<div class="nh-num ' + kSt + '" data-roll="nut-left" data-roll-to="' + Math.abs(left) + '">' +
               Math.abs(left).toLocaleString() + '<span>kcal</span></div>' +
             '<div class="nh-sub">' + (over ? 'over your goal' : 'left for today') + '</div>') +
-      '</div>' +
-
-      '<div class="card nut-consumed">' +
-        '<div class="nc-head">' +
-          '<span class="nc-l"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c.7 3.1 3.4 4.4 3.4 7.4 0 1-.4 2-1.2 2.8.5-1.7-.6-3.1-1.7-3.9.2 2.3-1.4 3.5-2.3 4.8-1.7 2.2.2 5.5 3.4 5.5 3.1 0 5.4-2.4 5.4-5.4 0-4.9-4.3-7.9-7-11.2Z"/></svg>' +
-            'Consumed <i>(' + Math.round(frac * 100) + '%)</i></span>' +
-          '<span class="nc-r ' + kSt + '">' + Math.round(totals.kcal).toLocaleString() + ' kcal</span>' +
-        '</div>' +
-        '<div class="macro-track"><div class="macro-fill ' + kSt + '" style="width:' + Math.min(100, frac * 100) + '%"></div></div>' +
-        '<div class="nc-foot"><span>0</span><span>' + targets.kcal.toLocaleString() + ' kcal goal</span></div>' +
+        '<div class="macro-track nh-track"><div class="macro-fill ' + kSt + '" style="width:' + Math.min(100, frac * 100) + '%"></div></div>' +
+        '<div class="nh-foot"><span>' + Math.round(totals.kcal).toLocaleString() + ' eaten</span><span>' + targets.kcal.toLocaleString() + ' kcal goal</span></div>' +
       '</div>' +
 
       '<div class="nut-macros">' +
@@ -3644,7 +3457,7 @@
 
       '<div class="card wk-cons">' +
         '<div class="wc-head"><span class="micro">Consistency</span>' +
-          '<span class="wc-note">' + state.workouts.length + ' total' + (streak >= 2 ? ' · ' + streak + '-week streak' : '') + '</span></div>' +
+          '<span class="wc-note">' + state.workouts.length + (state.workouts.length === 1 ? ' session' : ' sessions') + (streak >= 2 ? ' · ' + streak + '-week streak' : '') + '</span></div>' +
         '<div class="dot-months">' +
           monthDots(new Date(now.getFullYear(), now.getMonth() - 2, 1), workoutDays) +
           monthDots(new Date(now.getFullYear(), now.getMonth() - 1, 1), workoutDays) +
@@ -4185,6 +3998,7 @@
         ${showsWeight(ex) && !cardioEx ? `<button class="menu-item" data-act="unit">⚖ &nbsp;${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>` : ''}
         ${ex.ss ? `<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>`
           : exIdx < w.exercises.length - 1 ? `<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>` : ''}
+        ${!cardioEx ? `<button class="menu-item" data-act="rpe">📊 &nbsp;${(exPref(ex.exerciseId).rpe !== undefined ? !!exPref(ex.exerciseId).rpe : (ex.sets.some((st) => st.rpe) || state.settings.trackRpe === true)) ? 'Hide the RPE column here' : 'Track RPE here'}</button>` : ''}
         <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
         ${showsWeight(ex) && !cardioEx ? '<button class="menu-item" data-act="warmup">🔥 &nbsp;Add warm-up sets</button>' : ''}
         ${showsWeight(ex) && !cardioEx ? '<button class="menu-item" data-act="plates">🏋️ &nbsp;Plate calculator</button>' : ''}
@@ -4221,6 +4035,11 @@
           save(); closeSheet(); render();
         } else if (act === 'ssbreak') {
           delete ex.ss;
+          save(); closeSheet(); render();
+        } else if (act === 'rpe') {
+          const on = exPref(ex.exerciseId).rpe !== undefined ? !!exPref(ex.exerciseId).rpe
+            : (ex.sets.some((st) => st.rpe) || state.settings.trackRpe === true);
+          setExPref(ex.exerciseId, { rpe: on ? 0 : 1 });   // the values themselves stay
           save(); closeSheet(); render();
         } else if (act === 'replace') {
           closeSheetNow();
@@ -4472,7 +4291,14 @@
     const u = unit();
     // only working sets are numbered — a warm-up shouldn't push set 1 to set 2
     const numbers = numbersFor(ex);
-    const rpeOn = state.settings.trackRpe !== false;
+    /* the column has to earn its place: your explicit choice for this
+       exercise wins, sets already carrying an effort keep it visible, and the
+       Settings switch turns it on everywhere — off out of the box */
+    /* kept as 1/0 rather than true/false: the pref store prunes false, and
+       an explicit "off" has to survive to outrank sets that carry values */
+    const pRpe = exPref(ex.exerciseId).rpe;
+    const rpeOn = !cardio && (pRpe !== undefined ? !!pRpe
+      : (ex.sets.some((st) => st.rpe) || state.settings.trackRpe === true));
     return `
       <div class="card ex-block${ss}" data-ex="${exIdx}">
         <div class="ex-head">
@@ -6905,16 +6731,9 @@
         <input type="checkbox" id="fullBleed" ${s.fullscreen ? 'checked' : ''}>
       </label>
       <label class="switch-row">
-        <span><b>Track effort (RPE)</b><i>An extra column on every set</i></span>
-        <input type="checkbox" id="trackRpe" ${s.trackRpe === false ? '' : 'checked'}>
+        <span><b>Track effort (RPE)</b><i>A column on every exercise. One exercise alone can have it from its ⋯ menu</i></span>
+        <input type="checkbox" id="trackRpe" ${s.trackRpe === true ? 'checked' : ''}>
       </label>
-      <div class="field">
-        <label>Home layout</label>
-        <div class="seg" id="homeLayoutSeg">
-          <button data-hl="dash" class="${s.homeLayout === 'classic' ? '' : 'is-on'}">Dashboard</button>
-          <button data-hl="classic" class="${s.homeLayout === 'classic' ? 'is-on' : ''}">Classic</button>
-        </div>
-      </div>
       <div class="section-title" style="margin-top:8px">Nutrition targets</div>
       <div class="field">
         <label for="tKcal">Calories (kcal / day)</label>
@@ -7002,12 +6821,6 @@
           onConfirm: apply,
         });
       });
-      $$('#homeLayoutSeg button', body).forEach((b) => b.addEventListener('click', () => {
-        state.settings.homeLayout = b.dataset.hl === 'classic' ? 'classic' : 'dash';
-        $$('#homeLayoutSeg button', body).forEach((x) => x.classList.toggle('is-on', x === b));
-        save(); render();
-        toast(state.settings.homeLayout === 'classic' ? 'Classic home restored' : 'Dashboard home on');
-      }));
 
       const bindTarget = (id, keyName) => {
         $(id, body).addEventListener('change', (e) => {
@@ -7475,7 +7288,7 @@
   const splashWait = (() => {
     const el = document.getElementById('splash');
     if (!el) return 0;
-    const total = reducedMotion() ? 560 : 1310;
+    const total = reducedMotion() ? 560 : (el.classList.contains('is-still') ? 760 : 1310);
     setTimeout(() => el.remove(), total);
     el.addEventListener('pointerdown', () => {
       el.classList.add('is-gone');
