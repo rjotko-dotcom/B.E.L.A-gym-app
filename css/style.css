@@ -2061,16 +2061,3 @@ body.has-mini .view.home-screen {
   display: flex; justify-content: space-between; max-width: 330px; margin: 7px auto 0;
   color: var(--ink-muted); font-size: 0.72rem; font-variant-numeric: tabular-nums;
 }
-
-/* ---------- opening when installed ----------
-   The APK (and the site pinned to a home screen) already showed this mark on
-   the system's own launch screen. So there it does not draw itself in again —
-   it is simply there, holds a beat, and opens out into the app. */
-.splash.is-still { animation: splash-out 0.3s cubic-bezier(0.4, 0, 1, 1) 0.44s forwards; }
-.splash.is-still .splash-mark { animation: splash-open-still 0.74s cubic-bezier(0.2, 0.8, 0.3, 1) forwards; }
-.splash.is-still .splash-mark path { opacity: 1; animation: none; }
-@keyframes splash-open-still {
-  0%   { transform: scale(1); }
-  55%  { transform: scale(1); }
-  100% { transform: scale(1.08); }
-}
