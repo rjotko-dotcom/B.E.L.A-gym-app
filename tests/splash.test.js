@@ -73,42 +73,49 @@ module.exports = async (t) => {
     await p3.evaluate(() => !!document.getElementById('splash')));
   await p3.close();
 
-  /* Installed — where Android's own launch screen showed this same mark a
-     moment earlier — it is the same still picture, so the hand-off does not
-     show the logo twice or move it. */
-  const p4 = await t.browser.newPage({ viewport: { width: 384, height: 832 }, colorScheme: 'dark', deviceScaleFactor: 2 });
-  await p4.addInitScript((s) => {
+  /* Installed, Android draws its own launch screen from the same logo. The
+     page must not draw a second one — that was the jump: two copies at two
+     sizes, one replacing the other. */
+  const asSystem = async (setup) => {
+    const p4 = await t.browser.newPage({ viewport: { width: 384, height: 832 }, colorScheme: 'dark', deviceScaleFactor: 2 });
+    p4.errors = [];
+    p4.on('pageerror', (e) => { if (!/ServiceWorker/.test(String(e))) p4.errors.push(String(e)); });
+    await p4.addInitScript(setup, seed);
+    await p4.goto(server.url);
+    return p4;
+  };
+
+  const native = await asSystem((s) => {
     localStorage.setItem('bela-gym-v1', JSON.stringify(s));
     localStorage.setItem('bela-update-check', String(Date.now()));
     window.Capacitor = { isNativePlatform: () => true, Plugins: {} };
-  }, seed);
-  await p4.goto(server.url);
-  const installed = await p4.evaluate(() => {
-    const el = document.getElementById('splash');
-    if (!el) return null;
-    const mark = el.querySelector('.splash-mark');
-    return {
-      drawn: [...el.querySelectorAll('path')].every((p) => Number(getComputedStyle(p).opacity) === 1),
-      still: getComputedStyle(mark).animationName === 'none',
-      box: Math.round(mark.getBoundingClientRect().width),
-    };
   });
-  t.check('installed, the mark is there and already drawn', !!installed && installed.drawn, JSON.stringify(installed));
-  t.check('and motionless, so it matches the system splash', !!installed && installed.still);
+  t.check('the installed app draws no mark of its own',
+    await native.evaluate(() => !document.getElementById('splash')));
+  t.check('and goes straight to the app', await native.locator('#view').innerText().then((x) => /kcal|Good/i.test(x)));
+  t.equal('no page errors', native.errors.length, 0, native.errors.join(' | '));
+  await native.close();
 
-  // it must not drift or resize between two frames — that is what read as a glitch
-  await p4.waitForTimeout(180);
-  const later = await p4.evaluate(() => {
-    const m = document.querySelector('.splash-mark');
-    if (!m) return null;
-    const r = m.getBoundingClientRect();
-    return { w: Math.round(r.width), x: Math.round(r.left) };
+  // a home-screen shortcut gets a launch screen from Android too
+  const pinned = await asSystem((s) => {
+    localStorage.setItem('bela-gym-v1', JSON.stringify(s));
+    localStorage.setItem('bela-update-check', String(Date.now()));
+    matchMedia = ((real) => (q) => (/display-mode: standalone/.test(q)
+      ? { matches: true, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }
+      : real(q)))(matchMedia.bind(window));
   });
-  t.check('the mark does not move or grow while it is up',
-    !later || (later.w === installed.box), JSON.stringify(later) + ' vs ' + installed.box);
-  await p4.waitForTimeout(900);
-  t.check('and it still takes itself away', await p4.evaluate(() => !document.getElementById('splash')));
-  await p4.close();
+  t.check('a pinned shortcut draws no mark either',
+    await pinned.evaluate(() => !document.getElementById('splash')));
+  await pinned.close();
+
+  // but a plain browser tab, where nothing came before, still shows it
+  const tab = await asSystem((s) => {
+    localStorage.setItem('bela-gym-v1', JSON.stringify(s));
+    localStorage.setItem('bela-update-check', String(Date.now()));
+  });
+  t.check('a browser tab still gets the mark',
+    await tab.evaluate(() => !!document.getElementById('splash')));
+  await tab.close();
 
   await server.close();
 };

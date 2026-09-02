@@ -17,9 +17,13 @@
         <item name="android:windowBackground">@color/belaBlack</item>
     </style>
 
-    <!-- The launch screen: black with the logo, handing over to the app. -->
+    <!-- The launch screen: black, with the mark drawn once by the system.
+         It used to also set android:background to a layer-list holding the
+         same logo, so two surfaces drew it at two different sizes and the
+         second one appeared as a jump. The splash-screen icon is the only
+         thing that draws it now. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="android:windowBackground">@color/belaBlack</item>
         <item name="windowSplashScreenBackground">@color/belaBlack</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
