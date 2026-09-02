@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '14.7';
+  const APP_VERSION = '14.8';
 
   /* ---------------- state ---------------- */
 
@@ -7288,12 +7288,9 @@
   const splashWait = (() => {
     const el = document.getElementById('splash');
     if (!el) return 0;
-    const total = reducedMotion() ? 560 : (el.classList.contains('is-still') ? 760 : 1310);
+    const total = reducedMotion() ? 620 : 870;
     setTimeout(() => el.remove(), total);
-    el.addEventListener('pointerdown', () => {
-      el.classList.add('is-gone');
-      setTimeout(() => el.remove(), 220);
-    }, { once: true });
+    el.addEventListener('pointerdown', () => el.remove(), { once: true });
     return total;
   })();
 

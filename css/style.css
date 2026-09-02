@@ -1993,44 +1993,29 @@ body.has-mini .view.home-screen {
 .note-state .chip-btn { flex: none; }
 
 /* ---------- opening the app ----------
-   Black, the mark drawing itself in two beats, then it opens into the app.
-   The whole thing is over in about a second: a greeting, not a wait. */
+   The mark, held still on black, and then the app. Nothing moves: it is drawn
+   at full size from the first frame and simply stops being there. The animated
+   version read as a glitch on the installed app, where Android's own launch
+   screen has already put this same mark on screen — the hand-off has to be one
+   continuous picture, and any motion breaks it. */
 .splash {
   position: fixed; inset: 0; z-index: 200;
   background: #000;
   display: grid; place-items: center;
-  animation: splash-out 0.36s cubic-bezier(0.4, 0, 1, 1) 0.94s forwards;
+  /* a zero-length animation, purely so the overlay still takes itself away
+     if the script never runs — nothing about it is visible */
+  animation: splash-off 0s linear 0.85s forwards;
 }
-.splash-mark {
-  width: 132px; height: 132px;
-  transform-origin: 50% 50%;
-  animation: splash-open 1.3s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
-}
-.splash-mark path { opacity: 0; transform-origin: 50% 50%; }
-/* the bowl first, then the leg swings under it */
-.sp-bowl { animation: sp-in 0.42s cubic-bezier(0.2, 1.5, 0.4, 1) 0.04s forwards; }
-.sp-leg  { animation: sp-in 0.42s cubic-bezier(0.2, 1.5, 0.4, 1) 0.19s forwards; }
+.splash-mark { width: 132px; height: 132px; }
+.splash-mark path { opacity: 1; }
 
-@keyframes sp-in {
-  from { opacity: 0; transform: translateY(9px) scale(0.82); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes splash-open {
-  0%   { transform: scale(0.94); }
-  50%  { transform: scale(1); }
-  72%  { transform: scale(1); }
-  100% { transform: scale(1.1); }
-}
-@keyframes splash-out {
+@keyframes splash-off {
   to { opacity: 0; visibility: hidden; }
 }
-/* Leaving early is the point of tapping, and a stiff phone should not be
-   made to sit through it either. */
-.splash.is-gone { animation: splash-out 0.2s ease forwards; }
+/* tapping says get on with it */
+.splash.is-gone { opacity: 0; visibility: hidden; }
 @media (prefers-reduced-motion: reduce) {
-  .splash { animation: splash-out 0.2s ease 0.35s forwards; }
-  .splash-mark { animation: none; }
-  .splash-mark path { opacity: 1; animation: none; }
+  .splash { animation: splash-off 0s linear 0.6s forwards; }
 }
 
 

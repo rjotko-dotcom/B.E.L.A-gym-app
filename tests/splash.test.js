@@ -1,6 +1,7 @@
-/* The mark that plays when the app is opened. It has to be on screen at the
-   first paint, it has to get out of the way on its own, and it must not play
-   again every time the page reloads — "opened" means opened, not refreshed. */
+/* The mark shown when the app is opened. It has to be on screen at the first
+   paint, fully drawn and motionless, it has to get out of the way on its own,
+   and it must not come back every time the page reloads — "opened" means
+   opened, not refreshed. */
 const { openApp } = require('./lib/harness');
 const { build } = require('./lib/seed');
 
@@ -24,9 +25,15 @@ module.exports = async (t) => {
       overEverything: Number(cs.zIndex) >= 100,
       paths: el.querySelectorAll('path').length,
       markWide: mark ? Math.round(mark.getBoundingClientRect().width) : 0,
+      pathsSolid: [...el.querySelectorAll('path')].every((p) => Number(getComputedStyle(p).opacity) === 1),
+      pathsStill: [...el.querySelectorAll('path')].every((p) => getComputedStyle(p).animationName === 'none'),
+      markStill: mark ? getComputedStyle(mark).animationName === 'none' : false,
     };
   });
   t.check('the mark is up while the app opens', !!early);
+  t.check('it is fully drawn from the start', early && early.pathsSolid, JSON.stringify(early));
+  t.check('and nothing about it is animated', early && early.markStill && early.pathsStill,
+    JSON.stringify(early));
   t.check('it covers the screen', early && early.covers);
   t.check('on black', early && /rgb\(0, 0, 0\)/.test(early.black));
   t.check('above everything else', early && early.overEverything);
@@ -66,8 +73,9 @@ module.exports = async (t) => {
     await p3.evaluate(() => !!document.getElementById('splash')));
   await p3.close();
 
-  /* Installed, the system launch screen has already shown the mark, so the
-     app must not draw it in a second time — it is simply there, and leaves. */
+  /* Installed — where Android's own launch screen showed this same mark a
+     moment earlier — it is the same still picture, so the hand-off does not
+     show the logo twice or move it. */
   const p4 = await t.browser.newPage({ viewport: { width: 384, height: 832 }, colorScheme: 'dark', deviceScaleFactor: 2 });
   await p4.addInitScript((s) => {
     localStorage.setItem('bela-gym-v1', JSON.stringify(s));
@@ -75,18 +83,31 @@ module.exports = async (t) => {
     window.Capacitor = { isNativePlatform: () => true, Plugins: {} };
   }, seed);
   await p4.goto(server.url);
-  const still = await p4.evaluate(() => {
+  const installed = await p4.evaluate(() => {
     const el = document.getElementById('splash');
     if (!el) return null;
+    const mark = el.querySelector('.splash-mark');
     return {
-      marked: el.classList.contains('is-still'),
-      drawn: [...el.querySelectorAll('path')].every((path) => Number(getComputedStyle(path).opacity) === 1),
+      drawn: [...el.querySelectorAll('path')].every((p) => Number(getComputedStyle(p).opacity) === 1),
+      still: getComputedStyle(mark).animationName === 'none',
+      box: Math.round(mark.getBoundingClientRect().width),
     };
   });
-  t.check('the installed app knows the logo was already shown', !!still && still.marked, JSON.stringify(still));
-  t.check('so the mark starts already drawn, not fading in', !!still && still.drawn);
-  await p4.waitForTimeout(1100);
-  t.check('and it leaves sooner', await p4.evaluate(() => !document.getElementById('splash')));
+  t.check('installed, the mark is there and already drawn', !!installed && installed.drawn, JSON.stringify(installed));
+  t.check('and motionless, so it matches the system splash', !!installed && installed.still);
+
+  // it must not drift or resize between two frames — that is what read as a glitch
+  await p4.waitForTimeout(180);
+  const later = await p4.evaluate(() => {
+    const m = document.querySelector('.splash-mark');
+    if (!m) return null;
+    const r = m.getBoundingClientRect();
+    return { w: Math.round(r.width), x: Math.round(r.left) };
+  });
+  t.check('the mark does not move or grow while it is up',
+    !later || (later.w === installed.box), JSON.stringify(later) + ' vs ' + installed.box);
+  await p4.waitForTimeout(900);
+  t.check('and it still takes itself away', await p4.evaluate(() => !document.getElementById('splash')));
   await p4.close();
 
   await server.close();
