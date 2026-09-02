@@ -158,6 +158,25 @@ module.exports = async (t) => {
     await page.evaluate(() => window.visualViewport?.dispatchEvent(new Event('scroll')));
     await page.waitForTimeout(250);
     t.equal('scrolling never re-fits home', await tiers(), was);
+
+    /* But a height change must always be answered, however small. Skipping the
+       small ones left home overflowing behind the nav bar, because the window
+       it was first measured against was not the one it ended up in. */
+    const fits = () => page.evaluate(() => {
+      const v = document.querySelector('#view');
+      const nav = document.querySelector('.tab-bar').getBoundingClientRect().top;
+      const kids = [...v.children].filter((k) => getComputedStyle(k).position !== 'absolute');
+      const last = kids[kids.length - 1].getBoundingClientRect().bottom;
+      return Math.round(nav - last);
+    });
+    for (const h of [820, 812, 800, 744, 700]) {
+      await page.setViewportSize({ width: 384, height: h });
+      await page.waitForTimeout(320);
+      t.check('home still fits after a ' + (832 - h) + 'px height change', (await fits()) >= 0,
+        'overlap ' + -(await fits()) + 'px at ' + h);
+    }
+    await page.setViewportSize({ width: 384, height: 832 });
+    await page.waitForTimeout(320);
     t.equal('no page errors', page.errors.length, 0, page.errors.join(' | '));
     await page.close();
   }

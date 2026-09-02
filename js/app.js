@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '15.0';
+  const APP_VERSION = '15.1';
 
   /* ---------------- state ---------------- */
 
@@ -7238,7 +7238,6 @@
 
   // Home must fit one screen on any device and font-scale setting: measure the
   // rendered result and step down through the compact tiers until it fits.
-  let fittedFor = 0;      // the viewport height the current fit was made for
   function fitHome() {
     const v = $('#view');
     if (!v.classList.contains('home-screen')) { v.style.height = ''; v.style.gap = ''; return; }
@@ -7247,7 +7246,6 @@
     // pin the container to the height actually visible right now
     const vpH = window.visualViewport?.height || document.documentElement.clientHeight;
     v.style.height = vpH + 'px';
-    fittedFor = Math.round(vpH);
     // measure the container against itself: comparing against the document
     // height gets fooled whenever the page is taller than the visible viewport,
     // which silently forced the smallest tier on tall phones
@@ -7269,23 +7267,31 @@
       }
     }
   }
-  /* Browser chrome sliding in and out changes the usable height, so home has
-     to be re-fitted when it moves. But a tier carries different type sizes and
-     paddings, so flipping one moves the whole screen — and the visual viewport
-     reports small changes constantly while a finger is down. So a re-fit only
-     happens when the height really moved, and never merely because the page
-     scrolled. */
+  /* Browser chrome sliding in and out changes the usable height, so home is
+     re-fitted whenever it moves — always, because a fit that is skipped leaves
+     the screen overflowing behind the nav bar. Only two things are held back:
+     it is debounced, so a run of resize events costs one fit, and a scroll
+     never triggers one, because scrolling does not change the height and the
+     visual viewport reports it constantly while a finger is down. */
   let refitTimer = null;
-  function refitIfMoved() {
-    const h = Math.round(window.visualViewport?.height || document.documentElement.clientHeight);
-    if (Math.abs(h - fittedFor) < 24) return;
+  function refitSoon(delay = 60) {
     clearTimeout(refitTimer);
-    refitTimer = setTimeout(() => { fittedFor = h; fitHome(); }, 90);
+    refitTimer = setTimeout(fitHome, delay);
   }
-  addEventListener('resize', refitIfMoved);
-  addEventListener('orientationchange', () => setTimeout(() => { fittedFor = 0; fitHome(); }, 120));
+  addEventListener('resize', () => refitSoon());
+  addEventListener('orientationchange', () => setTimeout(fitHome, 120));
   addEventListener('pageshow', () => setTimeout(fitHome, 60));
-  window.visualViewport?.addEventListener('resize', refitIfMoved);
+  window.visualViewport?.addEventListener('resize', () => refitSoon());
+
+  /* The window's insets and its final height can both land a moment after the
+     first paint. On the installed app this happens behind the launch screen,
+     which is held open for it; here we simply make sure a fit follows each of
+     them rather than trusting the first one to have been measured against the
+     finished window. */
+  function settleLayout() {
+    requestAnimationFrame(() => { latchSafeArea(); fitHome(); });
+    [120, 400, 900].forEach((t) => setTimeout(() => { latchSafeArea(); fitHome(); }, t));
+  }
 
   function render() {
     ensureElapsedTimer();
@@ -7348,5 +7354,6 @@
   checkShortcut();
   checkSharedImport();
   checkForUpdateSoon();
+  settleLayout();
   armFullBleed();
 })();
