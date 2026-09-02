@@ -118,5 +118,49 @@ module.exports = async (t) => {
     await page.close();
   }
 
+  /* --- the page must not slide once it is on screen --- */
+  {
+    const page = await openApp(t.browser, { url: server.url, seed: build() });
+
+    const vars = await page.evaluate(() => {
+      const cs = getComputedStyle(document.documentElement);
+      return { top: cs.getPropertyValue('--safe-top').trim(), bot: cs.getPropertyValue('--safe-bot').trim() };
+    });
+    t.check('the window insets are latched into variables', /px$/.test(vars.top) && /px$/.test(vars.bot),
+      JSON.stringify(vars));
+    t.check('and the layout is measured from them', await page.evaluate(() =>
+      [...document.styleSheets].some((sh) => {
+        try { return [...sh.cssRules].some((r) => /var\(--safe-top/.test(r.cssText)); }
+        catch (e) { return false; }
+      })));
+
+    /* Android can report a status-bar inset and then revise it away. Whatever
+       it does, what is already on screen must stay where it is. */
+    const topOf = () => page.evaluate(() => Math.round(document.querySelector('#view').getBoundingClientRect().top)
+      + '|' + Math.round(document.querySelector('.home-head, #view > *').getBoundingClientRect().top));
+    await page.evaluate(() => document.documentElement.style.setProperty('--safe-top', '40px'));
+    await page.waitForTimeout(120);
+    const settled = await topOf();
+    await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+    await page.waitForTimeout(300);
+    t.equal('an inset that shrinks does not drag the page up', await topOf(), settled);
+
+    // and it is still allowed to grow, or a real notch would be sat on
+    await page.evaluate(() => document.documentElement.style.setProperty('--safe-top', '0px'));
+    await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+    await page.waitForTimeout(300);
+    t.check('a larger inset is still taken', await page.evaluate(() =>
+      parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-top')) >= 0));
+
+    // scrolling must never re-tier home: that is what moved everything at once
+    const tiers = () => page.evaluate(() => document.querySelector('#view').className);
+    const was = await tiers();
+    await page.evaluate(() => window.visualViewport?.dispatchEvent(new Event('scroll')));
+    await page.waitForTimeout(250);
+    t.equal('scrolling never re-fits home', await tiers(), was);
+    t.equal('no page errors', page.errors.length, 0, page.errors.join(' | '));
+    await page.close();
+  }
+
   await server.close();
 };

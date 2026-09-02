@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '14.9';
+  const APP_VERSION = '15.0';
 
   /* ---------------- state ---------------- */
 
@@ -1245,6 +1245,39 @@
   function exitFullBleed() {
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
   }
+  /* ---------------- the window's own edges ----------------
+     Android reports the status-bar and navigation-bar insets to the page, but
+     not always by the first paint, and it can revise them a moment later. Every
+     top padding in the stylesheet is measured from the top one, so when it
+     changed from 40px to 0 the whole screen slid up — which is what was being
+     seen as the page jumping after it opened.
+
+     So the value is read once into --safe-top / --safe-bot and then held: it is
+     allowed to grow, never to shrink, so nothing already on screen moves. A
+     rotation genuinely changes the insets, so that starts the measurement over.
+     The stylesheet keeps env() as its fallback, and is correct if none of this
+     ever runs. */
+  const insetProbe = (() => {
+    const el = document.createElement('div');
+    el.setAttribute('aria-hidden', 'true');
+    el.style.cssText = 'position:fixed;top:0;left:0;width:0;visibility:hidden;pointer-events:none;' +
+      'padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);';
+    document.body.appendChild(el);
+    return el;
+  })();
+
+  function latchSafeArea(afresh = false) {
+    const root = document.documentElement;
+    const cs = getComputedStyle(insetProbe);
+    const held = (name) => (afresh ? 0 : parseFloat(getComputedStyle(root).getPropertyValue(name)) || 0);
+    const seen = (v) => parseFloat(v) || 0;
+    root.style.setProperty('--safe-top', Math.max(seen(cs.paddingTop), held('--safe-top')) + 'px');
+    root.style.setProperty('--safe-bot', Math.max(seen(cs.paddingBottom), held('--safe-bot')) + 'px');
+  }
+  latchSafeArea();
+  addEventListener('resize', () => latchSafeArea());
+  addEventListener('orientationchange', () => setTimeout(() => latchSafeArea(true), 150));
+
   function armFullBleed() {
     if (!state.settings.fullscreen) return;
     const go = () => { requestFullBleed(); removeEventListener('pointerdown', go); };
@@ -7205,6 +7238,7 @@
 
   // Home must fit one screen on any device and font-scale setting: measure the
   // rendered result and step down through the compact tiers until it fits.
+  let fittedFor = 0;      // the viewport height the current fit was made for
   function fitHome() {
     const v = $('#view');
     if (!v.classList.contains('home-screen')) { v.style.height = ''; v.style.gap = ''; return; }
@@ -7213,6 +7247,7 @@
     // pin the container to the height actually visible right now
     const vpH = window.visualViewport?.height || document.documentElement.clientHeight;
     v.style.height = vpH + 'px';
+    fittedFor = Math.round(vpH);
     // measure the container against itself: comparing against the document
     // height gets fooled whenever the page is taller than the visible viewport,
     // which silently forced the smallest tier on tall phones
@@ -7234,13 +7269,23 @@
       }
     }
   }
-  // browser chrome (URL bar) sliding in/out changes the usable height, so
-  // re-fit whenever it moves as well as on rotation and load
-  addEventListener('resize', fitHome);
-  addEventListener('orientationchange', () => setTimeout(fitHome, 120));
+  /* Browser chrome sliding in and out changes the usable height, so home has
+     to be re-fitted when it moves. But a tier carries different type sizes and
+     paddings, so flipping one moves the whole screen — and the visual viewport
+     reports small changes constantly while a finger is down. So a re-fit only
+     happens when the height really moved, and never merely because the page
+     scrolled. */
+  let refitTimer = null;
+  function refitIfMoved() {
+    const h = Math.round(window.visualViewport?.height || document.documentElement.clientHeight);
+    if (Math.abs(h - fittedFor) < 24) return;
+    clearTimeout(refitTimer);
+    refitTimer = setTimeout(() => { fittedFor = h; fitHome(); }, 90);
+  }
+  addEventListener('resize', refitIfMoved);
+  addEventListener('orientationchange', () => setTimeout(() => { fittedFor = 0; fitHome(); }, 120));
   addEventListener('pageshow', () => setTimeout(fitHome, 60));
-  window.visualViewport?.addEventListener('resize', fitHome);
-  window.visualViewport?.addEventListener('scroll', fitHome);
+  window.visualViewport?.addEventListener('resize', refitIfMoved);
 
   function render() {
     ensureElapsedTimer();
