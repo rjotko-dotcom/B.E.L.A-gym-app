@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>B.E.L.A — bank connection</title>
+<style>
+  body { max-width: 560px; margin: 60px auto; padding: 0 20px; font: 16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #e6e6e6; background: #0b0b0c; }
+  h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: 0.02em; }
+  .muted { color: #8a8a8a; font-size: 14px; }
+  .box { margin-top: 22px; padding: 16px 18px; border: 1px solid #262626; border-radius: 10px; background: #111; }
+  .ok { color: #4ade80; }
+  .bad { color: #f87171; }
+  code { font: 13px/1.5 ui-monospace, Consolas, monospace; background: #1a1a1a; padding: 2px 6px; border-radius: 5px; word-break: break-all; }
+  button { margin-top: 12px; padding: 8px 14px; border-radius: 8px; border: 1px solid #333; background: #1a1a1a; color: #e6e6e6; cursor: pointer; font: inherit; }
+  button:hover { background: #222; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<h1>B.E.L.A</h1>
+<p class="muted">Bank connection · Enable Banking</p>
+
+<div class="box" id="working">Handing the confirmation to B.E.L.A on your PC…</div>
+
+<div class="box" id="done" hidden>
+  <div class="ok">Connected.</div>
+  <p class="muted">B.E.L.A has the confirmation. You can close this tab.</p>
+</div>
+
+<div class="box" id="manual" hidden>
+  <div>B.E.L.A on this PC did not answer.</div>
+  <p class="muted">Open B.E.L.A → Settings → Connections → Enable Banking and paste this code:</p>
+  <code id="code"></code>
+  <div><button id="copy">Copy code</button></div>
+  <p class="muted" style="margin-top:14px">The code is one-time and expires in minutes. On its own it grants nothing — B.E.L.A's private key is still needed to use it.</p>
+</div>
+
+<div class="box" id="cancelled" hidden>
+  <div class="bad">Not connected.</div>
+  <p class="muted" id="why"></p>
+</div>
+
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var code = q.get("code"), state = q.get("state"), error = q.get("error");
+  var show = function (id) {
+    ["working", "done", "manual", "cancelled"].forEach(function (k) { document.getElementById(k).hidden = k !== id; });
+  };
+  if (error || !code) {
+    document.getElementById("why").textContent = error
+      ? "The bank reported: " + error + (q.get("error_description") ? " — " + q.get("error_description") : "")
+      : "No confirmation code arrived with this page. Start the connection again from B.E.L.A.";
+    show("cancelled");
+    return;
+  }
+  document.getElementById("code").textContent = code;
+  document.getElementById("copy").onclick = function () {
+    navigator.clipboard && navigator.clipboard.writeText(code).then(function () {
+      document.getElementById("copy").textContent = "Copied";
+    });
+  };
+  /* Chromium treats http://localhost as a secure context, so an https page may
+     call it. B.E.L.A listens only while a connection is in progress, only on
+     this machine, and checks `state` against the one it issued. */
+  var ctl = new AbortController();
+  var t = setTimeout(function () { ctl.abort(); }, 4000);
+  fetch("http://localhost:47391/enablebanking/callback", {
+    method: "POST", mode: "cors", signal: ctl.signal,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: code, state: state })
+  }).then(function (r) { clearTimeout(t); return r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)); })
+    .then(function (j) { if (j && j.ok) { show("done"); history.replaceState(null, "", location.pathname); } else show("manual"); })
+    .catch(function () { clearTimeout(t); show("manual"); });
+})();
+</script>
+</body>
+</html>
