@@ -1665,6 +1665,113 @@
   }
   if (native()) nativeChannel();
 
+  /* ---------------- the feed from the PC ----------------
+     The desktop app posts a line whenever something is worth interrupting
+     a day for. js/bela-feed.js reads the relay and keeps the copy; this is
+     only the wiring: where the settings live, what counts as a poll, and
+     how the app raises its own notification.
+
+     The settings sit in their own key rather than in `state`, for the same
+     reason the PC pairing does — where the phone reads its messages from is
+     this phone's business, not a record to be merged onto the PC. */
+  const FEED_CFG_KEY = 'bela-feed-cfg';
+  function feedCfg() {
+    try { return JSON.parse(localStorage.getItem(FEED_CFG_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function setFeedCfg(next) {
+    try { localStorage.setItem(FEED_CFG_KEY, JSON.stringify(next)); } catch (e) { /* full */ }
+  }
+
+  const feed = (window.BelaFeed ? window.BelaFeed.create({
+    notifier: {
+      allowed: nativeNotifyAllowed,
+      createChannel: (ch) => {
+        const LN = nativePlugin('LocalNotifications');
+        return LN && LN.createChannel ? LN.createChannel(ch) : null;
+      },
+      schedule: (p) => {
+        const LN = nativePlugin('LocalNotifications');
+        return LN ? LN.schedule(p) : null;
+      },
+    },
+    /* A message arriving while the app is open should show up without
+       waiting for the next thing that happens to redraw the screen. */
+    onChange: () => { feedBadge(); if (currentTab === 'home' || currentTab === 'bela') render(); },
+  }) : null);
+
+  let feedBusy = false;
+  async function feedPoll(opts) {
+    const cfg = feedCfg();
+    if (!feed || !cfg.topic || feedBusy) return null;
+    feedBusy = true;
+    try { return await feed.poll(cfg, opts || {}); }
+    finally { feedBusy = false; }
+  }
+
+  /* The tab keeps a dot while something is unread. It is painted directly
+     rather than through render(), so a message landing mid-workout does not
+     rebuild the screen underneath you. */
+  function feedBadge() {
+    const dot = document.getElementById('belaTabDot');
+    if (dot) dot.hidden = !(feed && feed.unread() > 0);
+  }
+
+  (function armFeed() {
+    if (!feed) return;
+    /* Polling only runs while the app is up: on open, whenever it comes back
+       to the front, and every few minutes in between. Android suspends this
+       the moment the app is not in front, which is why the relay's own app
+       stays subscribed as well — that one is the copy that always arrives. */
+    const A = nativePlugin('App');
+    if (A && A.addListener) A.addListener('appStateChange', (s) => { if (s && s.isActive) feedPoll(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) feedPoll(); });
+    setInterval(() => { if (!document.hidden) feedPoll(); }, 5 * 60 * 1000);
+    /* The first poll after a topic is entered is a day of history in one
+       answer. Keep it, show it, say nothing — nobody wants nine
+       notifications for things that already happened. */
+    const firstEver = !feed.lastPollAt();
+    setTimeout(() => { feedPoll({ notify: !firstEver }).then(feedBadge); }, 1500);
+  })();
+
+  /* The card on Home: the two most recent, and a way in. Absent entirely
+     until there is a topic, so an app nobody has connected looks no
+     different from the one shipped. */
+  function feedCardHTML() {
+    if (!feed) return '';
+    const cfg = feedCfg();
+    const msgs = feed.list();
+    if (!cfg.topic && !msgs.length) return '';
+    const unread = feed.unread();
+    const rows = msgs.slice(0, 2).map((m) => (
+      '<div class="bela-row' + (m.read ? '' : ' is-new') + '">' +
+        '<span class="bela-when">' + esc(feedWhen(m.at)) + '</span>' +
+        '<span class="bela-title">' + esc(m.title || 'B.E.L.A') + '</span>' +
+        '<span class="bela-body">' + esc((m.body || '').split('\n')[0]) + '</span>' +
+      '</div>'
+    )).join('');
+    return '<button class="card bela-card" id="belaCard" aria-label="Open B.E.L.A">' +
+      '<div class="bela-head"><span class="micro">B.E.L.A</span>' +
+        (unread ? '<span class="bela-count">' + unread + '</span>' : '') + '</div>' +
+      (rows || '<div class="bela-empty">' +
+        (cfg.topic ? 'Nothing yet. The PC posts here.' : 'Not connected yet.') + '</div>') +
+      '</button>';
+  }
+
+  /* Relative for the first day, then the date — a feed is read by when, not
+     by exactly when. */
+  function feedWhen(at) {
+    const mins = Math.floor((Date.now() - at) / 60000);
+    if (mins < 1) return 'now';
+    if (mins < 60) return mins + 'm';
+    if (mins < 60 * 24) return Math.floor(mins / 60) + 'h';
+    return fmtShortDate(at);
+  }
+
+  /* Inside the tab the day is already a heading, so an older message shows
+     the clock instead of repeating the date next to its title. */
+  const feedClock = (at) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
   /* Android's back gesture. Without this the shell closes the app on the
      first swipe, which would end a session you are in the middle of. Instead
      it walks back through the layers the app already pushed, and at the top
@@ -2245,6 +2352,8 @@
             '</svg>' + avatarHTML('hh-initial') + '</span>' +
         '</button>' +
       '</div>' +
+
+      feedCardHTML() +
 
       '<div class="week-strip">' + strip + '</div>' +
 
@@ -5770,6 +5879,118 @@
     return hasData && Date.now() - last > 30 * 864e5;
   }
 
+  /* The B.E.L.A tab: everything the PC has said, newest first, grouped by
+     day. Opening it is what marks it read — a feed you have looked at is
+     read, and there is nothing to tap to say so. */
+  function renderBela() {
+    const v = $('#view');
+    const cfg = feedCfg();
+    const msgs = feed ? feed.list() : [];
+    const err = feed && feed.lastError();
+    const last = feed && feed.lastPollAt();
+
+    let body;
+    if (!cfg.topic) {
+      body = '<div class="bela-setup">' +
+        '<p class="empty-note">The PC app posts your morning brief, alerts and the Sunday review here.<br>' +
+        'Open B.E.L.A on the PC, go to Settings → Connections → Phone push, and copy the topic across.</p>' +
+        '<button class="btn btn-primary" id="belaConnect">Connect</button>' +
+      '</div>';
+    } else if (!msgs.length) {
+      body = '<p class="empty-note">Connected, nothing posted yet.<br>' +
+        'The first brief lands in the morning.</p>';
+    } else {
+      let day = '';
+      body = msgs.map((m) => {
+        const d = fmtShortDate(m.at);
+        const head = d === day ? '' : '<h3 class="bela-day">' + esc(d) + '</h3>';
+        day = d;
+        return head +
+          '<article class="bela-item' + (m.read ? '' : ' is-new') + '">' +
+            '<div class="bela-item-head">' +
+              '<span class="bela-item-title">' + esc(m.title || 'B.E.L.A') + '</span>' +
+              '<span class="bela-when">' + esc(Date.now() - m.at < 86400000 ? feedWhen(m.at) : feedClock(m.at)) + '</span>' +
+            '</div>' +
+            (m.body ? '<p class="bela-item-body">' + esc(m.body).replace(/\n/g, '<br>') + '</p>' : '') +
+          '</article>';
+      }).join('');
+    }
+
+    v.innerHTML =
+      '<div class="page-head">' +
+        '<h2>B.E.L.A</h2>' +
+        '<button class="icon-btn" id="belaSettings" aria-label="Feed settings">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>' +
+        '</button>' +
+      '</div>' +
+      '<p class="subtitle">' + esc(
+        !cfg.topic ? 'Not connected'
+          : err ? 'Last check failed — ' + err
+            : last ? 'Checked ' + feedWhen(last) + ' ago' : 'Checking…') + '</p>' +
+      body;
+
+    const st = $('#belaSettings');
+    if (st) st.addEventListener('click', openFeedSettings);
+    const conn = $('#belaConnect');
+    if (conn) conn.addEventListener('click', openFeedSettings);
+
+    /* Looking at it is reading it. Done after paint so the unread marks are
+       still visible on the screen you opened. */
+    if (feed && feed.unread()) setTimeout(() => { feed.markAllRead(); feedBadge(); }, 1200);
+  }
+
+  /* Where the topic and the relay are set. The relay is a field rather than
+     a constant because ntfy can be self-hosted, and then it is one address
+     change here instead of a new build. */
+  function openFeedSettings() {
+    const cfg = feedCfg();
+    openSheet('B.E.L.A feed', `
+      <p class="sheet-note">The PC app posts your brief, alerts and the weekly review to a topic.
+      Use the same topic here as in B.E.L.A on the PC — anyone who knows it can read them, so keep it long and private.</p>
+      <div class="field">
+        <label for="feedTopic">Topic</label>
+        <input id="feedTopic" type="text" inputmode="url" autocomplete="off" spellcheck="false"
+          placeholder="bela-..." value="${esc(cfg.topic || '')}">
+      </div>
+      <div class="field">
+        <label for="feedServer">Relay</label>
+        <input id="feedServer" type="text" inputmode="url" autocomplete="off" spellcheck="false"
+          placeholder="https://ntfy.sh" value="${esc(cfg.server || '')}">
+        <p class="muted">Leave blank for ntfy.sh. Point it at your own server when you have one.</p>
+      </div>
+      <button class="btn btn-primary" id="feedSave" style="margin-top:8px">Save</button>
+      <button class="btn btn-quiet" id="feedCheck" style="margin-top:10px">Check now</button>
+      ${feed && feed.list().length ? '<button class="btn btn-danger" id="feedClear" style="margin-top:12px">Clear this feed</button>' : ''}
+      <p class="muted" style="margin-top:14px">Messages are kept on this phone. The relay forgets after about a day,
+      so what you see here is whatever this app has collected.</p>
+    `, (body) => {
+      $('#feedSave', body).addEventListener('click', () => {
+        const topic = $('#feedTopic', body).value.trim();
+        const server = $('#feedServer', body).value.trim();
+        const had = !!feedCfg().topic;
+        setFeedCfg({ topic, server });
+        closeSheet();
+        if (topic) {
+          toast(had ? 'Saved' : 'Connected — checking…');
+          feedPoll({ notify: had }).then(() => { feedBadge(); render(); });
+        } else { toast('Disconnected'); render(); }
+      });
+      $('#feedCheck', body).addEventListener('click', () => {
+        const topic = $('#feedTopic', body).value.trim();
+        if (!topic) { toast('Enter a topic first'); return; }
+        setFeedCfg({ topic, server: $('#feedServer', body).value.trim() });
+        feedPoll().then((r) => {
+          toast(!r ? 'Nothing to check'
+            : r.ok ? (r.fresh ? r.fresh + ' new' : 'Up to date')
+              : r.reason === 'offline' ? 'No connection' : 'Relay said ' + r.reason);
+          feedBadge(); render();
+        });
+      });
+      const clr = $('#feedClear', body);
+      if (clr) clr.addEventListener('click', () => { feed.clear(); closeSheet(); toast('Cleared'); render(); });
+    });
+  }
+
   function renderProfile() {
     const v = $('#view');
     v.innerHTML = `
@@ -6787,6 +7008,7 @@
       <button class="btn btn-quiet" id="setupBtn" style="margin-top:10px">Run setup again</button>
       <button class="btn btn-quiet" id="snapBtn" style="margin-top:10px">Snapshots</button>
       <button class="btn btn-quiet" id="pcSyncBtn" style="margin-top:10px">Sync with the PC app</button>
+      <button class="btn btn-quiet" id="feedBtn" style="margin-top:10px">B.E.L.A feed</button>
       ${(state.tplHidden || []).length ? '<button class="btn btn-quiet" id="tplRestore" style="margin-top:10px">Bring back ' +
         (state.tplHidden.length === 1 ? 'the removed routine' : 'the ' + state.tplHidden.length + ' removed routines') + '</button>' : ''}
       <button class="btn btn-quiet" id="importBtn" style="margin-top:10px">Import a backup</button>
@@ -6966,6 +7188,7 @@
       $('#setupBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openSetup); });
       $('#snapBtn', body).addEventListener('click', () => { closeSheetNow(); openBackups(); });
       $('#pcSyncBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openPcSync); });
+      $('#feedBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openFeedSettings); });
       $('#tplRestore', body)?.addEventListener('click', () => {
         undoable('Routines restored', () => { state.tplHidden = []; });
         closeSheet();
@@ -7188,7 +7411,7 @@
 
   /* ---------------- swipe between tabs ---------------- */
 
-  const TAB_ORDER = ['home', 'workout', 'meals', 'habits'];
+  const TAB_ORDER = ['home', 'workout', 'meals', 'habits', 'bela'];
   let swipeStart = null;
   let slideDir = null;
   /* Anything that drags sideways on its own — a meal row, the plan card, a
@@ -7304,6 +7527,7 @@
       case 'workout': renderWorkout(); break;
       case 'meals': renderMeals(); break;
       case 'habits': renderHabits(); break;
+      case 'bela': renderBela(); break;
       case 'profile': renderProfile(); break;
     }
     renderWorkoutOverlay();
@@ -7317,6 +7541,9 @@
       slideDir = null;
     }
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === currentTab));
+    const belaCard = $('#belaCard');
+    if (belaCard) belaCard.addEventListener('click', () => goTab('bela'));
+    feedBadge();
     rollNumbers();
     celebrateIfDue();
     // a long page: the title is the way back up

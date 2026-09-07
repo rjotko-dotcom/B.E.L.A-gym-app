@@ -2064,3 +2064,57 @@ body.has-mini .view.home-screen {
   display: flex; justify-content: space-between; max-width: 330px; margin: 7px auto 0;
   color: var(--ink-muted); font-size: 0.72rem; font-variant-numeric: tabular-nums;
 }
+
+
+/* ============================================================
+   B.E.L.A feed — what the PC has to say.
+   Deliberately the quietest thing on Home: a card that reads like a
+   note, not a second dashboard. Unread is a single mark down the left,
+   the same language the app already uses for a set that still needs
+   doing, rather than a colour the rest of the app does not have.
+   ============================================================ */
+.bela-card { display: block; text-align: left; padding: 12px 14px; }
+.bela-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.bela-count {
+  margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--ink-1); color: var(--surface-1);
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.bela-row { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; padding: 5px 0 5px 9px; position: relative; }
+.bela-row + .bela-row { border-top: 1px solid var(--border); }
+.bela-row.is-new::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+  width: 2px; border-radius: 1px; background: var(--ink-1);
+}
+.bela-when { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.bela-title { font-size: 13px; font-weight: 600; color: var(--ink-1); }
+.bela-body {
+  grid-column: 2; font-size: 12px; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bela-empty { font-size: 12px; color: var(--ink-2); padding: 4px 0 2px; }
+
+.bela-day {
+  font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-2); margin: 16px 0 6px; font-weight: 600;
+}
+.bela-item {
+  background: var(--surface-2); border-radius: 12px;
+  padding: 11px 13px 11px 14px; margin-bottom: 8px; position: relative;
+}
+.bela-item.is-new::before {
+  content: ''; position: absolute; left: 0; top: 12px; bottom: 12px;
+  width: 2px; border-radius: 0 2px 2px 0; background: var(--ink-1);
+}
+.bela-item-head { display: flex; align-items: baseline; gap: 8px; }
+.bela-item-title { font-size: 14px; font-weight: 600; color: var(--ink-1); flex: 1; min-width: 0; }
+.bela-item-body { margin: 5px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.bela-setup { text-align: center; }
+.bela-setup .btn { margin-top: 12px; }
+
+/* the unread mark on the tab itself */
+.tab { position: relative; }
+.tab-dot {
+  position: absolute; top: 6px; right: 50%; transform: translateX(14px);
+  width: 6px; height: 6px; border-radius: 50%; background: var(--ink-1);
+}

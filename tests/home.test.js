@@ -35,7 +35,7 @@ module.exports = async (t) => {
     t.check(size.label + ': nothing is cut off by the nav', m.clearsNav >= 0, 'overlap ' + -m.clearsNav + 'px');
     t.check(size.label + ': every gap is the same', new Set(m.gaps).size === 1, 'gaps ' + m.gaps.join(','));
     t.equal(size.label + ': no sideways scroll', m.horizontal, 0);
-    t.equal(size.label + ': four tabs', m.tabs, 4);
+    t.equal(size.label + ': five tabs', m.tabs, 5);
     await page.close();
   }
 
