@@ -181,5 +181,67 @@ module.exports = async (t) => {
     await page.close();
   }
 
+  /* --- the one-tap strip scrolls sideways, and nothing else --- */
+  {
+    const seed = build();
+    const d = new Date();
+    const key = (back) => {
+      const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back);
+      return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+    };
+    const names = ['"GARDĖSIS" sumuštinis su vištiena ir sūriu', 'Whole egg · 4×', 'Oats & whey',
+      'Greek yoghurt 200 g', 'Banana', 'Rye bread 2 slices', 'Cottage cheese'];
+    // pushed oldest first, so the long one is the most recent and leads the strip
+    [...names].reverse().forEach((name, i) => seed.nutrition.meals.push({
+      id: 'qc' + i, date: key(names.length - i), time: '08:00', slot: 'breakfast',
+      name, kcal: 200 + i * 10, protein: 10, carbs: 20, fat: 5,
+    }));
+    const page = await openApp(t.browser, { url: server.url, seed });
+    await page.click('.tab[data-tab="meals"]');
+    await page.waitForTimeout(450);
+
+    const strip = await page.evaluate(() => {
+      const row = document.querySelector('.slot-quick');
+      const cs = getComputedStyle(row);
+      const span = row.querySelector('.quick-chip span');
+      return {
+        touch: cs.touchAction, over: cs.overscrollBehaviorX,
+        chips: row.querySelectorAll('.quick-chip').length,
+        overflows: row.scrollWidth > row.clientWidth + 2,
+        more: row.classList.contains('has-more'),
+        fullName: span.textContent, clipped: span.scrollWidth > span.clientWidth,
+      };
+    });
+    t.equal('a drag on the strip pans sideways only', strip.touch, 'pan-x');
+    t.equal('and its end is the end', strip.over, 'contain');
+    t.equal('it holds six one-tap foods', strip.chips, 6);
+    t.check('and overflows on this phone', strip.overflows);
+    t.check('so it says there is more', strip.more);
+    t.check('a long name is kept whole and clipped by the chip, not cut to 18 letters',
+      /GARDĖSIS/.test(strip.fullName) && strip.fullName.length > 18 && strip.clipped, strip.fullName);
+
+    await page.evaluate(() => {
+      const r = document.querySelector('.slot-quick');
+      r.scrollLeft = r.scrollWidth; r.dispatchEvent(new Event('scroll'));
+    });
+    await page.waitForTimeout(150);
+    t.check('and stops saying so at the end',
+      !(await page.evaluate(() => document.querySelector('.slot-quick').classList.contains('has-more'))));
+
+    // a sideways swipe on the chips scrolls them; it must never change the tab
+    await page.evaluate(() => {
+      const chip = document.querySelector('.slot-quick .quick-chip');
+      const touch = (x) => new Touch({ identifier: 1, target: chip, clientX: x, clientY: 600 });
+      chip.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [touch(300)], changedTouches: [touch(300)] }));
+      chip.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [], changedTouches: [touch(60)] }));
+    });
+    await page.waitForTimeout(350);
+    t.equal('a sideways swipe on the strip does not change the tab',
+      await page.evaluate(() => document.querySelector('.tab.active').dataset.tab), 'meals');
+    t.equal('no page errors', page.errors.length, 0, page.errors.join(' | '));
+    await page.screenshot({ path: require('path').join(require('os').tmpdir(), 'bela-quick-strip.png') });
+    await page.close();
+  }
+
   await server.close();
 };

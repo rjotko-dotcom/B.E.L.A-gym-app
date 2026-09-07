@@ -1494,15 +1494,33 @@ body.has-mini .view.home-screen {
 .plan-day.is-today span { color: var(--ink-1); }
 .lib-item.is-on { background: var(--surface-2); }
 
-/* ---------- one-tap meals ---------- */
-.slot-quick { display: flex; gap: 6px; margin-top: 10px; overflow-x: auto; }
+/* ---------- one-tap meals ----------
+   A strip that scrolls sideways and does nothing else. A drag that starts on
+   it pans the chips and never the page (touch-action), and reaching its end
+   goes nowhere further (overscroll-behavior). It bleeds to the card's edge so
+   a chip can slide under it, the chips settle on their edges, and a fade on
+   the right says there is more — only while there is. */
+.slot-quick {
+  display: flex; gap: 6px; margin: 6px -14px 0; padding: 4px 14px;
+  overflow-x: auto; overflow-y: hidden;
+  touch-action: pan-x; overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity; scroll-padding-inline: 14px;
+  scrollbar-width: none;
+}
+.slot-quick::-webkit-scrollbar { display: none; }
+.slot-quick.has-more {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+}
 .quick-chip {
   display: flex; align-items: center; gap: 7px; flex-shrink: 0; cursor: pointer;
-  min-height: 34px; padding: 0 11px; border-radius: 11px;
+  min-height: 34px; max-width: 230px; padding: 0 11px; border-radius: 11px;
   border: 1px dashed var(--baseline); background: transparent; color: var(--ink-2);
-  font-size: 0.76rem; font-weight: 500;
+  font-size: 0.76rem; font-weight: 500; scroll-snap-align: start;
 }
-.quick-chip i { font-style: normal; color: var(--ink-muted); font-size: 0.7rem; font-variant-numeric: tabular-nums; }
+/* the name gets whatever room the chip has, and an ellipsis after that */
+.quick-chip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-chip i { flex-shrink: 0; font-style: normal; color: var(--ink-muted); font-size: 0.7rem; font-variant-numeric: tabular-nums; }
 .quick-chip:active { background: var(--surface-2); }
 .copy-yday { display: flex; align-items: center; justify-content: center; gap: 9px; margin-bottom: 10px; }
 .copy-yday svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }

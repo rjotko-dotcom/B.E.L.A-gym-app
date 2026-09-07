@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '15.4';
+  const APP_VERSION = '15.5';
 
   /* ---------------- state ---------------- */
 
@@ -2536,7 +2536,16 @@
   ];
   const mealSlot = (m) => m.slot || slotFromTime(m.time);
   // what you actually eat for this meal, newest first — one tap to log again
-  function recentForSlot(slot, exceptKey, limit = 3) {
+  /* The fade on a chip strip's right edge means "there is more" — so it is
+     only there while there is, and goes as the last chip comes into view. */
+  function markQuickOverflow(root) {
+    $$('.slot-quick', root).forEach((row) => {
+      const check = () => row.classList.toggle('has-more', row.scrollWidth - row.clientWidth - row.scrollLeft > 6);
+      check();
+      row.addEventListener('scroll', check, { passive: true });
+    });
+  }
+  function recentForSlot(slot, exceptKey, limit = 6) {
     const out = [];
     for (let i = state.nutrition.meals.length - 1; i >= 0; i--) {
       const m = state.nutrition.meals[i];
@@ -2680,7 +2689,7 @@
             if (!recents.length) return '';
             return '<div class="slot-quick">' + recents.map((m, i) =>
               '<button class="quick-chip" data-quick="' + slot + '" data-i="' + i + '">' +
-                '<span>' + esc(m.name.length > 18 ? m.name.slice(0, 17) + '…' : m.name) + '</span>' +
+                '<span>' + esc(m.name) + '</span>' +
                 '<i>' + Math.round(m.kcal) + '</i></button>').join('') + '</div>';
           })() +
           (items.length ? '<div class="slot-items">' + items.map((m) =>
@@ -2715,6 +2724,7 @@
     $('#editTargets').addEventListener('click', openTargetsSheet);
     $$('.slot-add', v).forEach((b) => b.addEventListener('click', () => openMealSheet(key, b.dataset.slot)));
     $$('.slot-save', v).forEach((b) => b.addEventListener('click', () => openSaveMealSheet(b.dataset.save, key)));
+    markQuickOverflow(v);
     $$('.quick-chip', v).forEach((b) => b.addEventListener('click', () => {
       const src = recentForSlot(b.dataset.quick, key)[Number(b.dataset.i)];
       if (!src) return;
