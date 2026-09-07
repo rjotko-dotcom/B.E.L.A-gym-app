@@ -120,6 +120,23 @@
 
   const unreadOf = (messages) => (messages || []).filter((m) => m && !m.read).length;
 
+  /* The PC puts "B.E.L.A:" in front of every title for the relay's own app,
+     where it names the sender among others. Inside B.E.L.A everything is
+     from it, so the prefix would only repeat the brand down the page. */
+  const displayTitle = (title) =>
+    String(title || '').replace(/^\s*B\.?\s*E\.?\s*L\.?\s*A\.?\s*[:·—–-]\s*/i, '').trim() || 'B.E.L.A';
+
+  /* The PC does not say what a message is; its title does. Read it, so the
+     list can be scanned and filtered by kind without a protocol change. */
+  function kindOf(title) {
+    const t = displayTitle(title).toLowerCase();
+    if (/\bbrief\b/.test(t)) return 'brief';
+    if (/\bjob\b|\bfinished\b|\bdone\b|\bscheduled\b|\breport\b/.test(t)) return 'job';
+    if (/\breview\b|\bweekly\b|\bweek\b/.test(t)) return 'review';
+    if (/alert|changed|due|exam|halt|error|warning|overdue|missed|without|unusual|anomal|spike|drop|fail/.test(t)) return 'alert';
+    return 'note';
+  }
+
   /* Android wants a 32-bit id and the relay hands out strings, so the
      string decides the number. The same message therefore always lands
      on the same notification instead of stacking up a new one each poll. */
@@ -266,6 +283,6 @@
 
   return {
     create, parseStream, merge, pollUrl, unreadOf, notificationFor, notificationId,
-    channelFor, STYLE, DEFAULT_SERVER, KEEP, PROTOCOL,
+    channelFor, displayTitle, kindOf, STYLE, DEFAULT_SERVER, KEEP, PROTOCOL,
   };
 }));

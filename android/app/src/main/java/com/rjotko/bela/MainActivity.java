@@ -35,5 +35,11 @@ public class MainActivity extends BridgeActivity {
         splash.setKeepOnScreenCondition(
                 () -> System.currentTimeMillis() - startedAt < HOLD_MS);
         super.onCreate(savedInstanceState);
+
+        // The page hides its own scrollbars. This one is the WebView's, drawn
+        // by Android over the page whenever it moves, and CSS cannot reach it.
+        // Same rule as the page: none, anywhere.
+        getBridge().getWebView().setVerticalScrollBarEnabled(false);
+        getBridge().getWebView().setHorizontalScrollBarEnabled(false);
     }
 }

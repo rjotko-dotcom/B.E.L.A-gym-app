@@ -143,4 +143,15 @@ module.exports = async (t) => {
   bad.setItem('bela-feed-v1', '{ this is not json');
   const recovered = Feed.create({ storage: bad });
   t.equal('an unreadable copy starts empty instead of killing the app', recovered.list().length, 0);
+
+  /* ---------------- kinds ---------------- */
+  t.equal('the PC\'s sender prefix is dropped', Feed.displayTitle('B.E.L.A: Morning brief'), 'Morning brief');
+  t.equal('a title without it is untouched', Feed.displayTitle('Bill changed'), 'Bill changed');
+  t.equal('an empty title still has a name', Feed.displayTitle(''), 'B.E.L.A');
+  t.equal('a brief is a brief', Feed.kindOf('B.E.L.A: Morning brief'), 'brief');
+  t.equal('the Sunday review is a review', Feed.kindOf('Week 2026-W36 review'), 'review');
+  t.equal('a changed bill is an alert', Feed.kindOf('Bill changed'), 'alert');
+  t.equal('an exam with no study is an alert', Feed.kindOf('Exam without study'), 'alert');
+  t.equal('a finished job is a job', Feed.kindOf('Job done: weekly research'), 'job');
+  t.equal('anything else is a note', Feed.kindOf('B.E.L.A: test'), 'note');
 };

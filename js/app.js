@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '15.2';
+  const APP_VERSION = '15.3';
 
   /* ---------------- state ---------------- */
 
@@ -1730,30 +1730,50 @@
     /* The first poll after a topic is entered is a day of history in one
        answer. Keep it, show it, say nothing — nobody wants nine
        notifications for things that already happened. */
+    /* A tap on one of its notifications lands on the feed, not on Home. */
+    const LN = nativePlugin('LocalNotifications');
+    if (LN && LN.addListener) {
+      LN.addListener('localNotificationActionPerformed', (e) => {
+        const x = e && e.notification && e.notification.extra;
+        if (x && x.belaId) { window.scrollTo(0, 0); goTab('bela'); }
+      });
+    }
     const firstEver = !feed.lastPollAt();
     setTimeout(() => { feedPoll({ notify: !firstEver }).then(feedBadge); }, 1500);
   })();
 
-  /* The card on Home: the two most recent, and a way in. Absent entirely
-     until there is a topic, so an app nobody has connected looks no
-     different from the one shipped. */
+  /* Kinds and titles come from the module, so they are tested; the filter
+     the Info page is showing lives here, with the rest of what is on screen. */
+  const feedKind = (m) => window.BelaFeed.kindOf(m.title);
+  const feedTitle = (m) => window.BelaFeed.displayTitle(m.title);
+  const feedFirstLine = (m) => ((m.body || '').split('\n')[0] || feedTitle(m));
+  const KIND_LABEL = { brief: 'Brief', alert: 'Alert', review: 'Review', job: 'Job', note: 'Note' };
+  const FEED_FILTERS = [['all', 'All'], ['brief', 'Briefs'], ['alert', 'Alerts'], ['review', 'Reviews']];
+  let feedFilter = 'all';
+  let feedChecking = false;
+
+  /* The card on Home: the two most recent as two short notes, and a way in.
+     Absent entirely until there is a topic, so an app nobody has connected
+     looks no different from the one shipped. */
   function feedCardHTML() {
     if (!feed) return '';
     const cfg = feedCfg();
     const msgs = feed.list();
     if (!cfg.topic && !msgs.length) return '';
     const unread = feed.unread();
-    const rows = msgs.slice(0, 2).map((m) => (
-      '<div class="bela-row' + (m.read ? '' : ' is-new') + '">' +
-        '<span class="bela-when">' + esc(feedWhen(m.at)) + '</span>' +
-        '<span class="bela-title">' + esc(m.title || 'B.E.L.A') + '</span>' +
-        '<span class="bela-body">' + esc((m.body || '').split('\n')[0]) + '</span>' +
+    const notes = msgs.slice(0, 2).map((m) => (
+      '<div class="bela-note' + (m.read ? '' : ' is-new') + '">' +
+        '<div class="bela-note-head">' +
+          '<span class="bela-title">' + esc(feedTitle(m)) + '</span>' +
+          '<span class="bela-when">' + esc(feedWhen(m.at)) + '</span>' +
+        '</div>' +
+        '<div class="bela-body">' + esc((m.body || '').split('\n')[0]) + '</div>' +
       '</div>'
     )).join('');
-    return '<button class="card bela-card" id="belaCard" aria-label="Open B.E.L.A">' +
+    return '<button class="card bela-card" id="belaCard" aria-label="Open Info">' +
       '<div class="bela-head"><span class="micro">B.E.L.A</span>' +
         (unread ? '<span class="bela-count">' + unread + '</span>' : '') + '</div>' +
-      (rows || '<div class="bela-empty">' +
+      (notes || '<div class="bela-empty">' +
         (cfg.topic ? 'Nothing yet. The PC posts here.' : 'Not connected yet.') + '</div>') +
       '</button>';
   }
@@ -5879,36 +5899,51 @@
     return hasData && Date.now() - last > 30 * 864e5;
   }
 
-  /* The B.E.L.A tab: everything the PC has said, newest first, grouped by
-     day. Opening it is what marks it read — a feed you have looked at is
-     read, and there is nothing to tap to say so. */
+  /* The Info tab. Across the top, where things stand: the connection and a
+     way to check it, what today has brought, and the PC pairing — so this is
+     the one place for everything that comes from the PC. Below, everything
+     it has said, newest first, grouped by day and filterable by kind.
+     Opening the tab is what marks it read; there is nothing to tap to say so. */
   function renderBela() {
     const v = $('#view');
     const cfg = feedCfg();
-    const msgs = feed ? feed.list() : [];
+    const all = feed ? feed.list() : [];
     const err = feed && feed.lastError();
     const last = feed && feed.lastPollAt();
+    const unread = feed ? feed.unread() : 0;
+    const todayKey = fmtShortDate(Date.now());
+    const today = all.filter((m) => fmtShortDate(m.at) === todayKey);
+    const headline = today.find((m) => feedKind(m) === 'brief') || today[0];
+    const pc = pcCfg();
+    const shown = feedFilter === 'all' ? all : all.filter((m) => feedKind(m) === feedFilter);
 
-    let body;
+    let status;
+    if (!cfg.topic) status = 'Not connected';
+    else if (feedChecking) status = 'Checking…';
+    else if (err) status = 'Last check failed · ' + (err === 'offline' ? 'no connection' : err);
+    else if (last) status = 'Connected · checked ' + fmtAgo(last) + (unread ? ' · ' + unread + ' unread' : '');
+    else status = 'Connected';
+
+    let list;
     if (!cfg.topic) {
-      body = '<div class="bela-setup">' +
-        '<p class="empty-note">The PC app posts your morning brief, alerts and the Sunday review here.<br>' +
-        'Open B.E.L.A on the PC, go to Settings → Connections → Phone push, and copy the topic across.</p>' +
-        '<button class="btn btn-primary" id="belaConnect">Connect</button>' +
-      '</div>';
-    } else if (!msgs.length) {
-      body = '<p class="empty-note">Connected, nothing posted yet.<br>' +
-        'The first brief lands in the morning.</p>';
+      list = '<p class="empty-note" style="margin-top:18px">The PC app posts your morning brief, alerts and the Sunday review here.<br>' +
+        'On the PC: Settings → Connections → Phone push. Use the same topic in Settings here.</p>';
+    } else if (!all.length) {
+      list = '<p class="empty-note" style="margin-top:18px">Connected, nothing posted yet.<br>The first brief lands in the morning.</p>';
+    } else if (!shown.length) {
+      list = '<p class="empty-note" style="margin-top:18px">Nothing under ' +
+        esc(FEED_FILTERS.find(([k]) => k === feedFilter)[1]) + ' yet.</p>';
     } else {
       let day = '';
-      body = msgs.map((m) => {
+      list = shown.map((m) => {
         const d = fmtShortDate(m.at);
-        const head = d === day ? '' : '<h3 class="bela-day">' + esc(d) + '</h3>';
+        const head = d === day ? '' : '<h3 class="bela-day">' + esc(d === todayKey ? 'Today' : d) + '</h3>';
         day = d;
         return head +
           '<article class="bela-item' + (m.read ? '' : ' is-new') + '">' +
+            '<span class="bela-kind">' + KIND_LABEL[feedKind(m)] + '</span>' +
             '<div class="bela-item-head">' +
-              '<span class="bela-item-title">' + esc(m.title || 'B.E.L.A') + '</span>' +
+              '<span class="bela-item-title">' + esc(feedTitle(m)) + '</span>' +
               '<span class="bela-when">' + esc(Date.now() - m.at < 86400000 ? feedWhen(m.at) : feedClock(m.at)) + '</span>' +
             '</div>' +
             (m.body ? '<p class="bela-item-body">' + esc(m.body).replace(/\n/g, '<br>') + '</p>' : '') +
@@ -5917,22 +5952,55 @@
     }
 
     v.innerHTML =
-      '<div class="page-head">' +
-        '<h2>B.E.L.A</h2>' +
-        '<button class="icon-btn" id="belaSettings" aria-label="Feed settings">' +
-          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>' +
+      '<div class="page-head"><h2>Info</h2></div>' +
+      '<p class="subtitle">From B.E.L.A on the PC</p>' +
+      '<div class="info-status">' +
+        '<span class="info-status-text">' + esc(status) + '</span>' +
+        (cfg.topic
+          ? '<button class="btn btn-quiet btn-sm" id="infoCheck"' + (feedChecking ? ' disabled' : '') + '>' + (feedChecking ? 'Checking…' : 'Check now') + '</button>'
+          : '<button class="btn btn-primary btn-sm" id="infoConnect">Connect</button>') +
+      '</div>' +
+      '<div class="info-pair">' +
+        '<div class="card info-tile">' +
+          '<span class="micro">Today</span>' +
+          '<div class="info-tile-val">' + today.length + '<i>' + (today.length === 1 ? 'message' : 'messages') + '</i></div>' +
+          '<div class="info-tile-sub">' + esc(headline ? feedFirstLine(headline) : 'Nothing yet today') + '</div>' +
+        '</div>' +
+        '<button class="card info-tile" id="infoPc" aria-label="' + (pc.host ? 'Sync with the PC app' : 'Pair with the PC app') + '">' +
+          '<span class="micro">PC app</span>' +
+          '<div class="info-tile-val">' + (pc.host ? 'Paired' : 'Not paired') + '</div>' +
+          '<div class="info-tile-sub">' + esc(pc.host
+            ? (pc.last ? 'Synced ' + fmtAgo(pc.last) + (pc.lastNote ? ' · ' + pc.lastNote.replace(/^Synced — /, '') : '') : 'Never synced yet')
+            : 'Same Wi-Fi as the PC') + '</div>' +
+          '<span class="info-tile-act">' + (pc.host ? 'Sync now' : 'Pair') + '</span>' +
         '</button>' +
       '</div>' +
-      '<p class="subtitle">' + esc(
-        !cfg.topic ? 'Not connected'
-          : err ? 'Last check failed — ' + err
-            : last ? 'Checked ' + feedWhen(last) + ' ago' : 'Checking…') + '</p>' +
-      body;
+      (all.length
+        ? '<div class="info-chips">' + FEED_FILTERS.map(([k, l]) =>
+            '<button class="info-chip' + (feedFilter === k ? ' active' : '') + '" data-filter="' + k + '">' + l + '</button>').join('') + '</div>'
+        : '') +
+      list;
 
-    const st = $('#belaSettings');
-    if (st) st.addEventListener('click', openFeedSettings);
-    const conn = $('#belaConnect');
+    const check = $('#infoCheck');
+    if (check) check.addEventListener('click', () => {
+      feedChecking = true; render();
+      feedPoll().then((r) => {
+        feedChecking = false;
+        toast(!r ? 'Nothing to check' : r.ok ? (r.fresh ? r.fresh + ' new' : 'Up to date')
+          : r.reason === 'offline' ? 'No connection' : 'Relay said ' + r.reason);
+        feedBadge(); render();
+      });
+    });
+    const conn = $('#infoConnect');
     if (conn) conn.addEventListener('click', openFeedSettings);
+    const pcBtn = $('#infoPc');
+    if (pcBtn) pcBtn.addEventListener('click', () => {
+      if (pc.host) syncNow().then(() => render());
+      else openPcSync();
+    });
+    $$('.info-chip').forEach((c) => c.addEventListener('click', () => {
+      feedFilter = c.dataset.filter; render();
+    }));
 
     /* Looking at it is reading it. Done after paint so the unread marks are
        still visible on the screen you opened. */
