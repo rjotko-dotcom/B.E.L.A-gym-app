@@ -2072,7 +2072,7 @@ body.has-mini .view.home-screen {
    uses for a set that still needs doing. Seen sits back: the same card,
    the ink turned down. No colour the rest of the app does not have.
    ============================================================ */
-.info-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; margin: 4px 0 4px; }
+.info-chips { display: flex; gap: 8px; overflow-x: auto; padding: 6px 0 2px; margin: 0 0 6px; }
 .info-chip {
   flex-shrink: 0; padding: 7px 13px; border-radius: 999px;
   border: 1px solid var(--border); background: var(--surface-2); color: var(--ink-2);

@@ -5914,8 +5914,6 @@
     }
 
     v.innerHTML =
-      '<div class="page-head"><h2>Info</h2></div>' +
-      '<p class="subtitle">From B.E.L.A on the PC</p>' +
       (all.length
         ? '<div class="info-chips">' + FEED_FILTERS.map(([k, l]) =>
             '<button class="info-chip' + (feedFilter === k ? ' active' : '') + '" data-filter="' + k + '">' + l + '</button>').join('') + '</div>'
