@@ -2068,52 +2068,11 @@ body.has-mini .view.home-screen {
 
 /* ============================================================
    B.E.L.A feed — what the PC has to say.
-   The card on Home reads as two short notes, not a table: title and time
-   on one line, the first line of the body under it, and air between them.
-   Unread is a single mark down the left, the same language the app uses
-   for a set that still needs doing, rather than a colour the rest of the
-   app does not have.
+   New reads bright, with a mark down the left — the same language the app
+   uses for a set that still needs doing. Seen sits back: the same card,
+   the ink turned down. No colour the rest of the app does not have.
    ============================================================ */
-.bela-card { display: block; text-align: left; padding: 14px 16px 4px; }
-.bela-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
-.bela-count {
-  margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px;
-  border-radius: 10px; background: var(--ink-1); color: var(--surface-1);
-  font-size: 11px; font-weight: 700; line-height: 20px; text-align: center;
-}
-.bela-note { position: relative; padding: 12px 0 13px; }
-.bela-note + .bela-note { border-top: 1px solid var(--border); }
-.bela-note.is-new { padding-left: 12px; }
-.bela-note.is-new::before {
-  content: ''; position: absolute; left: 0; top: 15px; bottom: 16px;
-  width: 2px; border-radius: 1px; background: var(--ink-1);
-}
-.bela-note-head { display: flex; align-items: baseline; gap: 10px; }
-.bela-title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: var(--ink-1); line-height: 1.3; }
-.bela-when { flex-shrink: 0; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.bela-body {
-  margin-top: 3px; font-size: 13px; line-height: 1.45; color: var(--ink-2);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-.bela-empty { font-size: 13px; color: var(--ink-2); padding: 8px 0 12px; }
-
-/* the Info page: where things stand across the top, then the feed */
-.info-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; }
-.info-status-text { font-size: 13px; color: var(--ink-2); min-width: 0; }
-.btn-sm { width: auto; flex-shrink: 0; padding: 8px 14px; font-size: 13px; border-radius: 10px; }
-.info-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-.info-tile { display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 14px 14px 12px; min-height: 0; }
-.info-tile-val {
-  margin-top: 8px; font-size: 22px; font-weight: 700; line-height: 1.1;
-  color: var(--ink-1); font-variant-numeric: tabular-nums;
-}
-.info-tile-val i { font-style: normal; font-size: 13px; font-weight: 500; color: var(--ink-2); margin-left: 5px; }
-.info-tile-sub {
-  margin-top: 6px; font-size: 12px; line-height: 1.4; color: var(--ink-2);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-.info-tile-act { margin-top: auto; padding-top: 10px; font-size: 12px; font-weight: 600; color: var(--ink-1); }
-.info-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; margin-bottom: 4px; }
+.info-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; margin: 4px 0 4px; }
 .info-chip {
   flex-shrink: 0; padding: 7px 13px; border-radius: 999px;
   border: 1px solid var(--border); background: var(--surface-2); color: var(--ink-2);
@@ -2139,11 +2098,19 @@ body.has-mini .view.home-screen {
 }
 .bela-item-head { display: flex; align-items: baseline; gap: 10px; }
 .bela-item-title { font-size: 15px; font-weight: 600; color: var(--ink-1); flex: 1; min-width: 0; line-height: 1.3; }
-.bela-item-body { margin: 5px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.bela-when { flex-shrink: 0; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.bela-item-body { margin: 5px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-1); opacity: .86; }
+/* seen: the same card with the ink turned down */
+.bela-item.is-read .bela-item-title { color: var(--ink-2); }
+.bela-item.is-read .bela-item-body { color: var(--ink-2); opacity: .8; }
+.bela-item.is-read .bela-kind, .bela-item.is-read .bela-when { opacity: .7; }
 
-/* the unread mark on the tab itself */
+/* how many are waiting, on the tab itself */
 .tab { position: relative; }
-.tab-dot {
-  position: absolute; top: 6px; right: 50%; transform: translateX(14px);
-  width: 6px; height: 6px; border-radius: 50%; background: var(--ink-1);
+.tab-badge {
+  position: absolute; top: 3px; right: 50%; transform: translateX(15px);
+  min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px;
+  background: var(--ink-1); color: var(--surface-1);
+  font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center;
+  font-variant-numeric: tabular-nums;
 }
