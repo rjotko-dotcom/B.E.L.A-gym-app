@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '15.5';
+  const APP_VERSION = '15.6';
 
   /* ---------------- state ---------------- */
 
@@ -1881,6 +1881,7 @@
       syncShadow = BelaSync.snapshot(state);
       save();
       syncAt = Date.now();
+      planFetch({ quiet: true });   /* the plan travels with the gym data */
       const t = data.tally || {};
       pcCfgSave({ last: syncAt, lastNote: describeTally(t) });
       applyTheme();
@@ -5888,6 +5889,132 @@
      filterable by kind. What is new reads bright with a mark down the left;
      what has been seen sits back. Nothing else lives here — the connection
      and the PC pairing are under Settings, where the rest of the setup is. */
+  /* ---------------- Plan: what awaits him ----------------
+     The PC answers /bela/agenda with the next three weeks: classes (with
+     paskaita/seminaras), tasks, darbai, egzaminai, skolos and įmokos. It is
+     fetched on every PC sync and whenever the tab is opened, and kept here so
+     the tab is never blank away from home. */
+  const PLAN_KEY = 'bela-plan-v1';
+  const PLAN_FILTERS = [['all', 'All'], ['university', 'Studies'], ['task', 'To do']];
+  let agdFilter = 'all';
+  let planBusy = false;
+
+  function planCache() {
+    try { return JSON.parse(localStorage.getItem(PLAN_KEY)) || { items: [], at: 0 }; }
+    catch (e) { return { items: [], at: 0 }; }
+  }
+  function planSave(next) {
+    try { localStorage.setItem(PLAN_KEY, JSON.stringify(next)); } catch (e) { /* full */ }
+  }
+
+  /* One fetch, shared by the sync button and the tab. Quiet failures: the
+     cached plan is better than an error where a day should be. */
+  async function planFetch(opts = {}) {
+    const cfg = pcCfg();
+    if (!cfg.host || !pcReachable() || planBusy) return false;
+    planBusy = true;
+    try {
+      const res = await pcFetch('/bela/agenda', { method: 'GET' }, 12000);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      if (!data || !Array.isArray(data.items)) throw new Error('nothing');
+      planSave({ items: data.items, at: Date.now(), from: data.from, to: data.to });
+      planBadge();
+      if (currentTab === 'plan') render();
+      return true;
+    } catch (err) {
+      if (!opts.quiet) toast('Could not read the plan from the PC');
+      return false;
+    } finally { planBusy = false; }
+  }
+
+  const planToday = () => {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  };
+  /* Today's own items, for the dot on the tab and the Home line. */
+  function planTodayItems() {
+    const key = planToday();
+    return planCache().items.filter((i) => i && i.date === key);
+  }
+  function planBadge() {
+    const dot = document.getElementById('planTabDot');
+    if (dot) dot.hidden = planTodayItems().length === 0;
+  }
+
+  const PLAN_MARK = {
+    seminar: 'is-filled', lab: 'is-filled', exam: 'is-square', payment: 'is-square',
+    task: 'is-soft', assignment: 'is-soft', skola: 'is-soft', deadline: 'is-soft', event: 'is-soft',
+  };
+  function planDayName(key) {
+    const [y, m, d] = key.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    const today = planToday();
+    if (key === today) return 'Today';
+    const tm = new Date(); tm.setDate(tm.getDate() + 1);
+    const tmKey = tm.getFullYear() + '-' + String(tm.getMonth() + 1).padStart(2, '0') + '-' + String(tm.getDate()).padStart(2, '0');
+    if (key === tmKey) return 'Tomorrow';
+    return dt.toLocaleDateString(undefined, { weekday: 'long' });
+  }
+  function planDayDate(key) {
+    const [y, m, d] = key.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  function renderPlan() {
+    const v = $('#view');
+    const cache = planCache();
+    const cfg = pcCfg();
+    const items = cache.items.filter((i) => {
+      if (agdFilter === 'all') return true;
+      if (agdFilter === 'university') return i.area === 'university';
+      return i.kind === 'task' || i.kind === 'assignment' || i.kind === 'deadline' || i.kind === 'skola' || i.kind === 'payment';
+    });
+
+    let body;
+    if (!cfg.host) {
+      body = '<p class="agd-empty">Pair with the PC first — Profile → Sync with the PC app.<br>Then your classes, darbai and terminai land here.</p>';
+    } else if (!cache.items.length) {
+      body = '<p class="agd-empty">Nothing read from the PC yet.<br>Open B.E.L.A on the PC, same Wi-Fi, and pull down.</p>';
+    } else if (!items.length) {
+      body = '<p class="agd-empty">Nothing under that filter in the next three weeks.</p>';
+    } else {
+      let day = '';
+      body = items.map((i) => {
+        let head = '';
+        if (i.date !== day) {
+          day = i.date;
+          head = '<div class="agd-day' + (i.date === planToday() ? ' is-today' : '') + '">' +
+            '<span class="agd-day-name">' + esc(planDayName(i.date)) + '</span>' +
+            '<span class="agd-day-date">' + esc(planDayDate(i.date)) + '</span></div>';
+        }
+        const mark = PLAN_MARK[i.kind] || '';
+        const sub = [i.label, i.detail].filter(Boolean).join(' · ');
+        return head + '<div class="agd-row">' +
+          '<span class="agd-time">' + esc(i.time || '—') + '</span>' +
+          '<span class="agd-mark ' + mark + '"></span>' +
+          '<span><span class="agd-title">' + esc(i.title) + '</span>' +
+          (sub ? '<span class="agd-sub">' + esc(sub) + '</span>' : '') + '</span>' +
+          '</div>';
+      }).join('');
+    }
+
+    const when = cache.at ? 'read ' + feedWhen(cache.at) : 'never read';
+    v.innerHTML =
+      '<div class="agd-head"><span class="micro">WHAT AWAITS YOU</span>' +
+        '<span class="agd-when">' + esc(when) + '</span></div>' +
+      '<div class="agd-chips">' +
+        PLAN_FILTERS.map(([k, label]) => '<button class="agd-chip' + (agdFilter === k ? ' is-on' : '') +
+          '" data-agd-filter="' + k + '">' + esc(label) + '</button>').join('') +
+      '</div>' + body;
+
+    $$('[data-agd-filter]', v).forEach((b) => b.addEventListener('click', () => {
+      agdFilter = b.dataset.agdFilter;
+      render();
+    }));
+    planFetch({ quiet: true });
+  }
+
   function renderBela() {
     const v = $('#view');
     const cfg = feedCfg();
@@ -7422,7 +7549,7 @@
 
   /* ---------------- swipe between tabs ---------------- */
 
-  const TAB_ORDER = ['home', 'workout', 'meals', 'habits', 'bela'];
+  const TAB_ORDER = ['home', 'workout', 'meals', 'habits', 'plan', 'bela'];
   let swipeStart = null;
   let slideDir = null;
   /* Anything that drags sideways on its own — a meal row, the plan card, a
@@ -7538,6 +7665,7 @@
       case 'workout': renderWorkout(); break;
       case 'meals': renderMeals(); break;
       case 'habits': renderHabits(); break;
+      case 'plan': renderPlan(); break;
       case 'bela': renderBela(); break;
       case 'profile': renderProfile(); break;
     }
@@ -7557,6 +7685,7 @@
     if (feedLastTab === 'bela' && currentTab !== 'bela' && feed) { feedLastTab = currentTab; feed.markAllRead(); }
     feedLastTab = currentTab;
     feedBadge();
+    planBadge();
     rollNumbers();
     celebrateIfDue();
     // a long page: the title is the way back up

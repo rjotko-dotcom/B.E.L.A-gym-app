@@ -11,9 +11,9 @@
   <meta name="description" content="B.E.L.A Gym — workouts, nutrition and progress in one place." />
   <title>B.E.L.A Gym</title>
   <link rel="manifest" href="manifest.webmanifest?v=13" />
-  <link rel="icon" href="icons/icon.svg?v=15.5" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png?v=15.5" />
-  <link rel="stylesheet" href="css/style.css?v=15.5" />
+  <link rel="icon" href="icons/icon.svg?v=15.6" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png?v=15.6" />
+  <link rel="stylesheet" href="css/style.css?v=15.6" />
   <script>
     // apply saved appearance before first paint (default: follow the device)
     try {
@@ -84,6 +84,11 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.7h12A1.3 1.3 0 0 1 19.3 6v12a1.3 1.3 0 0 1-1.3 1.3H6A1.3 1.3 0 0 1 4.7 18V6A1.3 1.3 0 0 1 6 4.7Z"/><path d="M8.7 12.2l2.4 2.4 4.2-5"/></svg>
       <span class="tab-label">Habits</span>
     </button>
+    <button class="tab" data-tab="plan" aria-label="Plan">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.3h14A1.3 1.3 0 0 1 20.3 7.6v11A1.3 1.3 0 0 1 19 19.9H5a1.3 1.3 0 0 1-1.3-1.3v-11A1.3 1.3 0 0 1 5 6.3Z"/><path d="M3.7 10.4h16.6M8.2 4.1v4M15.8 4.1v4"/></svg>
+      <span class="tab-label">Plan</span>
+      <span class="tab-badge" id="planTabDot" hidden></span>
+    </button>
     <button class="tab" data-tab="bela" aria-label="Info">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.6a7.4 7.4 0 0 0-7.4 7.4c0 1.5.4 2.8 1.2 4l-.9 3.4 3.5-.9c1.1.6 2.4 1 3.6 1a7.4 7.4 0 0 0 0-14.9Z"/><path d="M9.3 11.8h.01M12 11.8h.01M14.7 11.8h.01"/></svg>
       <span class="tab-label">Info</span>
@@ -95,11 +100,11 @@
   <div id="sheetRoot"></div>
   <div id="toastRoot" class="toast-root" aria-live="polite"></div>
 
-  <script src="js/sync.js?v=15.5"></script>
-  <script src="js/bela-feed.js?v=15.5"></script>
-  <script src="js/exercises.js?v=15.5"></script>
-  <script src="js/foods.js?v=15.5"></script>
-  <script src="js/app.js?v=15.5"></script>
+  <script src="js/sync.js?v=15.6"></script>
+  <script src="js/bela-feed.js?v=15.6"></script>
+  <script src="js/exercises.js?v=15.6"></script>
+  <script src="js/foods.js?v=15.6"></script>
+  <script src="js/app.js?v=15.6"></script>
   <script>
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       addEventListener('load', () => {

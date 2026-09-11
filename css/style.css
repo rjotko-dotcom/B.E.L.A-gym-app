@@ -1040,7 +1040,7 @@ body.has-mini .view.home-screen {
 /* ============ v6: reference polish ============ */
 /* nav with labels */
 .tab-bar { padding: 10px 6px calc(var(--safe-bot, env(safe-area-inset-bottom)) + 10px); }
-.tab { gap: 5px; padding: 6px 10px 2px; }
+.tab { gap: 5px; padding: 6px 8px 2px; }
 .tab svg { width: 24px; height: 24px; }
 .tab-label { font-size: 0.72rem; font-weight: 500; letter-spacing: 0.01em; }
 .tab.active .tab-label { font-weight: 600; }
@@ -2132,3 +2132,30 @@ body.has-mini .view.home-screen {
   font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+
+/* ---------------- Plan: what awaits him (owner 2026-09-11) ----------------
+   One list, grouped by day, read from the PC over the LAN and kept locally so
+   the tab says something with no Wi-Fi. Shape carries the kind, exactly as on
+   the desktop: a seminar is filled, a lecture is a ring. */
+.agd-head { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 12px; }
+.agd-when { font-size: 0.74rem; color: var(--ink-muted); margin-left: auto; }
+.agd-day { margin: 16px 0 6px; display: flex; align-items: baseline; gap: 8px; }
+.agd-day-name { font-size: 0.82rem; font-weight: 700; letter-spacing: 0.01em; }
+.agd-day-date { font-size: 0.72rem; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.agd-day.is-today .agd-day-name { color: var(--accent, #4ade80); }
+.agd-row { display: grid; grid-template-columns: 46px 12px 1fr; gap: 10px; align-items: start;
+  padding: 9px 0; border-top: 1px solid var(--line, rgba(255,255,255,.08)); }
+.agd-time { font-size: 0.76rem; color: var(--ink-muted); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.agd-mark { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; box-sizing: border-box;
+  border: 1.5px solid var(--ink-1); }
+.agd-mark.is-filled { background: var(--ink-1); }
+.agd-mark.is-square { border-radius: 2px; background: var(--ink-1); }
+.agd-mark.is-soft { border-color: var(--ink-muted); }
+.agd-title { display: block; font-size: 0.9rem; font-weight: 600; line-height: 1.35; }
+.agd-sub { display: block; font-size: 0.74rem; color: var(--ink-muted); margin-top: 2px; line-height: 1.4; }
+.agd-empty { text-align: center; color: var(--ink-muted); margin-top: 26px; line-height: 1.6; }
+.agd-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.agd-chip { font-size: 0.72rem; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line, rgba(255,255,255,.12));
+  background: none; color: var(--ink-muted); }
+.agd-chip.is-on { background: var(--ink-1); color: var(--page); border-color: var(--ink-1); font-weight: 600; }
