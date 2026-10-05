@@ -28,6 +28,7 @@ NODE_PATH=$(npm root -g) node tests/run.js
 | `habits` | Both views and the remembered choice, completion fills, green perfect days, linked habits, the keypad, importing an export |
 | `nutrition` | Editing goals, saving a meal and logging it again, one-tap recents |
 | `data` | kg↔lb converting the stored values rather than relabelling them, old backups migrating, destructive actions never using a browser dialog |
+| `design` | Inter loading, equal calendar columns, the sliding tab marker and segment thumbs, sheets leaving through the ghost layer, the logger's progress line, reduced motion turning it all off |
 | `update` | The service worker actually shipping a new build, and every page still scrolling |
 
 ## Adding one

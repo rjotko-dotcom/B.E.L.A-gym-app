@@ -35,7 +35,7 @@ Target device: Samsung Galaxy S24+, 384×832 CSS px, dark theme.
 ## Tests
 
 ```
-CHROMIUM_PATH=/opt/pw-browsers/chromium npm test            # all (~670 checks)
+CHROMIUM_PATH=/opt/pw-browsers/chromium npm test            # all (~690 checks)
 CHROMIUM_PATH=/opt/pw-browsers/chromium npm test -- logger   # one suite
 ```
 
@@ -78,6 +78,12 @@ check the APK Signing Block certificate fingerprint is
 - Nutrition shows its number once: hero + bar + "eaten / goal"; the separate Consumed card is gone. The one-tap food strip (`.slot-quick`) is `touch-action: pan-x` and holds six recents.
 - Bodyweight is exact to 0.05 (`roundWeight`), never re-rounded by the number roll.
 - Records are by total mass (weight × reps; reps alone for bodyweight).
+- **Design system (16.0):** Inter ships in `fonts/` (no CDN — offline). Surfaces, shape and motion are tokens at the top of `css/style.css` (`--card-bg`, `--card-edge`, `--card-shadow`, `--sheet-bg`, `--ease-out`/`--ease-spring`/`--ease-emph`); the final look of each component is the "16.0 — the design pass" layer at the bottom. Use the tokens, not new literal colours or curves.
+- **Motion (16.0):** the view is rebuilt on every action, so motion is done by remembering: `animateProgress()` animates bars (inline `width`/`height`) and rings (`circle[stroke-dasharray][stroke-dashoffset]`) from their last value, `staggerIn()` raises the blocks only when you *arrive* on a tab (never on a re-render, never on the first render), `markJustDone()` draws the tick on something just finished. New bars and rings get this for free if they follow those shapes. `prefers-reduced-motion` turns all of it off.
+- **Sheets close through `sheetOut()`**: the node leaves `#sheetRoot` at once (so to the app it is closed, as before) and plays its exit in `#sheetGhost` — inert, ids stripped, gone after 280ms.
+- `.seg` controls get a `.seg-thumb` appended (last child, so `:first-child` is still the first option) by a MutationObserver; keep an `id` on every `.seg` so a rebuilt one slides from where it was.
+- Confetti (`burst()`) only for a saved workout and for closing the day's habits *here and now* — not for opening the app on a day already closed.
+- The tab bar is glass and its height is fixed at 79px over the inset — the mini workout bar and home's fit are measured against it.
 - Tab swipe stands down inside anything in `OWN_GESTURE` (`.slot-card`, `.wk-plan`, `.hbh-row`, sheets…); add a selector there rather than fighting it.
 
 ## Where things are
@@ -94,6 +100,7 @@ check the APK Signing Block certificate fingerprint is
 
 Add a line when you ship. Say what changed and why, not the diff.
 
+- **16.0** (session C — the design pass, asked for with "full freedom" to make it look and feel professional) — Inter bundled; dark cards lit from above, light cards on soft shadows; glass tab bar with one marker that slides between tabs; sheets on their own surface with a scrim, sprung in and played out; blocks rise in on arriving at a tab; every bar and ring fills from its last value; segmented controls get a sliding thumb; charts draw themselves (line traces, points pop, bars grow; past weeks a step quieter); ticks draw in; confetti for a saved workout and for closing the day; empty states with a mark; the logger's ⋯ is a real button and a hairline under its figures fills as sets are logged ("Save as routine" is a switch). Fixed: the calories card centred its text (it is a button), the habits calendar's first three columns were wider, the backup nudge's title was grey. Monochrome + one green kept; the green is still only for "reached" (the logger's line turns green only when every set is in). Rest timer deliberately not brought back. New suite `tests/design.test.js`.
 - **15.5** (session A) — the one-tap food strip under each meal scrolls sideways only (`touch-action: pan-x`, `overscroll-behavior-x: contain`), bleeds to the card edge with snap and an edge fade while there is more, shows full names with CSS ellipsis, and holds six recents. A vertical drag on it used to scroll the page.
 - **15.2–15.4** (session B) — the **Info** tab (`bela` in `TAB_ORDER`): the PC's feed inside the app via a relay (`js/bela-feed.js`), the app's own notifications, filter chips and kind labels; `privacy.html`, `terms.html`, `enablebanking.html`; WebView scrollbars disabled in `MainActivity`. He reviewed it on the phone and cut it back: **no Home card, no page heading** — Info is the chips and the feed, nothing else, and the connection status lives in the feed sheet under Settings. New reads bright with the left mark, seen has the ink turned down, and leaving the tab is what marks it read, so the distinction survives while you are looking at it. The tab carries an unread count, hidden while you are on it.
 - **15.1** (A) — `MainActivity` holds the launch screen 950ms; home re-fits on every height change (15.0 had a 24px threshold that left buttons behind the nav bar).

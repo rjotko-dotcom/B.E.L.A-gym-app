@@ -2560,3 +2560,22 @@ body.has-mini .view.home-screen {
 
 /* the nudge's title sits inside its muted line and took its grey */
 .backup-nudge b { color: var(--ink-1); }
+
+/* the exercise's ⋯ menu: a real control, not three specks */
+.ex-remove.ex-menu, .ex-remove.rb-ex-menu {
+  width: 36px; height: 36px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; flex-shrink: 0;
+  background: var(--surface-2); color: var(--ink-1);
+  position: relative;
+  transition: transform 0.2s var(--ease-spring);
+}
+.ex-remove.ex-menu svg, .ex-remove.rb-ex-menu svg { stroke-width: 3.2; width: 18px; height: 18px; }
+.ex-remove.ex-menu::after, .ex-remove.rb-ex-menu::after { content: ''; position: absolute; inset: -7px; }
+.ex-remove.ex-menu:active, .ex-remove.rb-ex-menu:active { transform: scale(0.88); }
+.ex-head h3 { font-size: 1.04rem; font-weight: 700; letter-spacing: -0.02em; }
+
+/* the session's progress, as a hairline that fills under the figures */
+.wk-stats { border-bottom: none; padding-bottom: 10px; }
+.wk-progress { height: 3px; background: var(--grid); margin: 0; overflow: hidden; }
+.wk-progress i { display: block; height: 100%; background: var(--ink-1); border-radius: 0 3px 3px 0; transition: width 0.6s var(--ease-out); }
+.wk-progress.is-done i { background: var(--done); }  /* green only once every set is in */

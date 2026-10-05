@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '15.6';
+  const APP_VERSION = '16.0';
 
   /* ---------------- state ---------------- */
 
@@ -4063,7 +4063,8 @@
   /* -------- full-screen workout logger (Hevy-style) -------- */
 
   let wkScrollTo = null;   // index of an exercise to bring into view after a rebuild
-  let flashSet = null;     // 'exIdx:setIdx' of a set just logged, so its row can light up
+  let flashSet = null;
+  let wkProgLast = null;   // the logger's progress line, as it was last drawn     // 'exIdx:setIdx' of a set just logged, so its row can light up
 
   function renderWorkoutOverlay() {
     const root = $('#workoutRoot');
@@ -4113,6 +4114,9 @@
     }
     const done = loggedSets(w);
     const vol = workoutVolume(w);
+    // how much of the session is behind you: done sets over every set laid out
+    const allSets = w.exercises.reduce((n, ex) => n + ex.sets.length, 0);
+    const setPct = allSets ? Math.round((done.length / allSets) * 1000) / 10 : 0;
     root.innerHTML = `
       <div class="wk-overlay${wasShowing ? '' : ' wk-enter'}">
         <div class="wk-bar">
@@ -4127,6 +4131,7 @@
           <div class="wk-vol-cell"><span class="micro">Volume</span><b>${fmtNum(Math.round(vol))} ${esc(unit())}</b></div>
           <div><span class="micro">Sets</span><b>${done.length}</b></div>
         </div>
+        <div class="wk-progress${allSets && done.length >= allSets ? ' is-done' : ''}" role="progressbar" aria-label="Sets done" aria-valuemin="0" aria-valuemax="${allSets}" aria-valuenow="${done.length}"><i style="width:${setPct}%"></i></div>
         <div class="wk-body">
           ${w.exercises.map((ex, exIdx) => renderExerciseBlock(ex, exIdx, ssPos(w.exercises, exIdx))).join('')}
           <button class="btn btn-ghost" id="addExercise" style="margin-bottom:12px">+ Add exercise</button>
@@ -4135,6 +4140,15 @@
       </div>`;
 
     ensureElapsedTimer();
+
+    // the progress line grows from where it stood before this rebuild
+    const prog = $('.wk-progress i', root);
+    if (prog && wkProgLast != null && wkProgLast !== setPct && !reducedMotion()) {
+      prog.style.transition = 'none'; prog.style.width = wkProgLast + '%';
+      void prog.offsetWidth;
+      prog.style.transition = ''; prog.style.width = setPct + '%';
+    }
+    wkProgLast = setPct;
 
     const wkBody = $('.wk-body', root);
     if (keptScroll != null && wkBody) wkBody.scrollTop = keptScroll;
