@@ -78,7 +78,7 @@
   }
   addEventListener('popstate', () => {
     if (skipPop > 0) { skipPop--; return; }
-    if ($('#sheetRoot').children.length) { sheetHasEntry = false; closeSheetNow(); return; }
+    if ($('#sheetRoot').children.length) { sheetHasEntry = false; sheetOut(); return; }
     if (routineDraft) { rbHasEntry = false; closeRoutineBuilder(); return; }
     if (workoutOpen) { wkHasEntry = false; workoutOpen = false; render(); return; }
     if (currentTab !== 'home') { tabHasEntry = false; currentTab = 'home'; rememberTab('home'); render(); return; }
@@ -1066,6 +1066,163 @@
     });
   }
 
+  /* ---------------- motion ----------------
+     The view is rebuilt from a string on every action, so nothing in it can
+     transition on its own — a bar that was 40% is simply a new bar at 60%.
+     These put the movement back: each one remembers what was on screen last
+     time and animates the fresh element from there.
+
+     Arriving on a tab, the blocks rise in one after another and every bar and
+     ring fills from empty. After that, only what changed moves. */
+
+  let renderedTab = null;
+  /* Bars carry their value as an inline width; rings as a stroke-dashoffset
+     on a circle with a dasharray. Both are matched by shape rather than by
+     a list of class names, so a new card gets the motion without asking. */
+  const BAR_SEL = '.macro-fill, .mc-fill, .gb-fill, .mb-fill, .ms-fill, .ds-bar > div, .hg-bar b';
+  const RING_SEL = 'circle[stroke-dasharray][stroke-dashoffset]';
+  const progressLast = new Map();
+  function animateProgress(root, entering) {
+    const bars = $$(BAR_SEL, root).filter((el) => el.style.width);
+    const rings = $$(RING_SEL, root);
+    const fills = $$('.hs-fill, .hc-fill', root).filter((el) => el.style.height);
+    const plan = [];
+    const remember = (kind, list, read, empty) => list.forEach((el, i) => {
+      const key = currentTab + kind + i;
+      const to = read(el);
+      const from = progressLast.has(key) && !entering ? progressLast.get(key) : entering ? empty(el) : null;
+      progressLast.set(key, to);
+      if (from != null && from !== to) plan.push([el, kind, from, to]);
+    });
+    remember('b', bars, (el) => el.style.width, () => '0%');
+    remember('f', fills, (el) => el.style.height, () => '0%');
+    remember('r', rings, (el) => el.getAttribute('stroke-dashoffset'), (el) => el.getAttribute('stroke-dasharray'));
+    if (!plan.length || reducedMotion()) return;
+    const prop = { b: 'width', f: 'height', r: 'strokeDashoffset' };
+    // everything to its starting point, one layout, then everything goes
+    plan.forEach(([el, k, from]) => { el.style.transition = 'none'; el.style[prop[k]] = k === 'r' ? from + 'px' : from; });
+    void document.body.offsetWidth;
+    plan.forEach(([el, k, , to], n) => {
+      const delay = entering ? 120 + Math.min(n, 10) * 30 : 0;
+      const css = k === 'r' ? 'stroke-dashoffset' : prop[k];
+      el.style.transition = css + ' 0.75s var(--ease-out) ' + delay + 'ms';
+      el.style[prop[k]] = k === 'r' ? to + 'px' : to;
+      // hand the value back to the markup once it has arrived
+      el.addEventListener('transitionend', () => { el.style.transition = ''; if (k === 'r') el.style.strokeDashoffset = ''; }, { once: true });
+    });
+  }
+
+  /* Something you just finished — a habit ticked, a cell filled — gets a
+     moment of its own: the tick draws itself in. Found by comparing what is
+     done now with what was done in the last render of the same tab. */
+  const doneLast = new Map();
+  function markJustDone(root, entering) {
+    [['.hb-row[data-habit]', 'habit', 'is-done'], ['.hs-cell[data-h]', 'h', 'is-full']].forEach(([sel, attr, cls]) => {
+      const key = currentTab + sel;
+      const prev = doneLast.get(key);
+      const now = new Set();
+      $$(sel, root).forEach((el) => {
+        if (!el.classList.contains(cls)) return;
+        const id = el.dataset[attr];
+        now.add(id);
+        if (prev && !entering && !prev.has(id) && !reducedMotion()) el.classList.add('just-done');
+      });
+      doneLast.set(key, now);
+    });
+  }
+
+  /* Arriving on a tab: the blocks come up one after the other. Only on
+     arrival — a page that rose up again on every tick of a habit would read
+     as slow, not alive. The index is a custom property so the CSS keeps the
+     timing in one place. */
+  function staggerIn(v) {
+    if (reducedMotion()) return;
+    [...v.children].forEach((el, i) => el.style.setProperty('--i', Math.min(i, 8)));
+    v.classList.remove('view-enter');
+    void v.offsetWidth;
+    v.classList.add('view-enter');
+    clearTimeout(staggerIn.t);
+    staggerIn.t = setTimeout(() => v.classList.remove('view-enter'), 900);
+  }
+
+  /* The tab bar's marker is one pill that slides to the tab you picked, so
+     the eye follows the move instead of seeing one dot vanish and another
+     appear. */
+  function moveTabIndicator(instant) {
+    const bar = $('.tab-bar');
+    if (!bar) return;
+    const on = $('.tab.active', bar);
+    let ind = $('.tab-ind', bar);
+    if (!ind) {
+      ind = document.createElement('span');
+      ind.className = 'tab-ind';
+      ind.setAttribute('aria-hidden', 'true');
+      bar.prepend(ind);
+      instant = true;
+    }
+    // profile has no tab of its own: the marker steps aside rather than lie
+    ind.classList.toggle('is-off', !on);
+    if (!on) return;
+    const svg = $('svg', on);
+    const b = bar.getBoundingClientRect(), r = (svg || on).getBoundingClientRect();
+    if (!r.width) return;
+    const w = 56, h = 32;
+    const x = r.left - b.left + r.width / 2 - w / 2;
+    const y = r.top - b.top + r.height / 2 - h / 2;
+    if (instant || reducedMotion()) ind.style.transition = 'none';
+    ind.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
+    if (instant) { void ind.offsetWidth; ind.style.transition = ''; }
+  }
+  addEventListener('resize', () => moveTabIndicator(true));
+
+  /* A burst of confetti from an element — for the moments that earn it: a day
+     of habits closed, a session with a record in it. Monochrome with the one
+     green, like everything else. Drawn on a canvas so it costs nothing once
+     it has fallen. */
+  function burst(fromEl, { count = 34, spread = 1 } = {}) {
+    if (reducedMotion() || !fromEl) return;
+    const r = fromEl.getBoundingClientRect();
+    const cv = document.createElement('canvas');
+    cv.className = 'burst';
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+    document.body.appendChild(cv);
+    const cx = cv.getContext('2d');
+    cx.scale(dpr, dpr);
+    const css = getComputedStyle(document.documentElement);
+    const colors = [css.getPropertyValue('--done').trim(), css.getPropertyValue('--ink-1').trim(), css.getPropertyValue('--ink-2').trim()];
+    const ox = r.left + r.width / 2, oy = r.top + r.height / 2;
+    const bits = Array.from({ length: count }, (_, i) => {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.25 * spread;
+      const sp = 5 + Math.random() * 7;
+      return {
+        x: ox + (Math.random() - 0.5) * r.width * 0.4, y: oy,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.4,
+        w: 4 + Math.random() * 5, h: 2.5 + Math.random() * 3,
+        c: colors[i % 3] || '#fff', round: Math.random() < 0.35,
+      };
+    });
+    const t0 = performance.now();
+    const frame = (now) => {
+      const t = (now - t0) / 1000;
+      cx.clearRect(0, 0, innerWidth, innerHeight);
+      bits.forEach((p) => {
+        p.vy += 0.32; p.vx *= 0.985; p.vy *= 0.985;
+        p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+        cx.save();
+        cx.globalAlpha = Math.max(0, 1 - Math.max(0, t - 0.7) / 0.6);
+        cx.translate(p.x, p.y); cx.rotate(p.rot);
+        cx.fillStyle = p.c;
+        if (p.round) { cx.beginPath(); cx.arc(0, 0, p.h, 0, Math.PI * 2); cx.fill(); }
+        else cx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        cx.restore();
+      });
+      if (t < 1.35) requestAnimationFrame(frame); else cv.remove();
+    };
+    requestAnimationFrame(frame);
+  }
+
   /* ---------------- bottom sheet ---------------- */
 
   function openSheet(title, bodyHtml, onMount) {
@@ -1201,8 +1358,36 @@
   }
 
   function closeSheetNow() { $('#sheetRoot').innerHTML = ''; }
+  /* Closing a sheet should look like the opening, played backwards. The
+     sheet's node leaves #sheetRoot at once — so to everything else in the app
+     it is closed, exactly as before — and finishes its exit in a layer of its
+     own that nothing can touch: no ids, inert, gone a quarter-second later. */
+  function sheetOut() {
+    const root = $('#sheetRoot');
+    const bd = root.firstElementChild;
+    if (!bd || reducedMotion()) { closeSheetNow(); return; }
+    let ghosts = $('#sheetGhost');
+    if (!ghosts) {
+      ghosts = document.createElement('div');
+      ghosts.id = 'sheetGhost';
+      ghosts.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(ghosts);
+    }
+    $$('[id]', bd).forEach((el) => el.removeAttribute('id'));
+    bd.inert = true;
+    ghosts.appendChild(bd);
+    root.replaceChildren();
+    const sheet = $('.sheet', bd);
+    void bd.offsetWidth;
+    bd.classList.add('is-leaving');
+    if (sheet) {
+      sheet.style.transition = 'transform 0.26s var(--ease-emph), opacity 0.26s ease';
+      sheet.style.transform = sheet.style.transform && sheet.style.transform !== 'none' ? sheet.style.transform : 'translateY(100%)';
+    }
+    setTimeout(() => bd.remove(), 280);
+  }
   function closeSheet() {
-    closeSheetNow();
+    sheetOut();
     /* history.back() lands asynchronously. If a caller closes one sheet and
        opens another in the same tick — a confirmation that reopens settings,
        say — the pushState would be swallowed by the pending back(), leaving
@@ -3840,6 +4025,8 @@
       // Hevy-style persistent mini bar while the logger is minimized
       const current = w.exercises.find((ex) => ex.sets.some((s) => !s.done));
       const currentName = current ? (exerciseById(current.exerciseId)?.name ?? '') : 'All sets done 💪';
+      // rebuilt on every render too: it rises in only when it first appears
+      const hadMini = !!$('.mini-bar', root);
       root.innerHTML = `
         <div class="mini-bar" role="button" tabindex="0" aria-label="Resume workout">
           <button class="mini-btn" id="miniExpand" aria-label="Expand workout">
@@ -3854,6 +4041,7 @@
           </button>
         </div>`;
       const expand = () => { workoutOpen = true; openWkEntry(); render(); };
+      if (!hadMini) $('.mini-bar', root).classList.add('mini-enter');
       $('.mini-bar', root).addEventListener('click', (e) => {
         if (e.target.closest('#miniDiscard')) {
           confirmDiscard(false);
@@ -4586,8 +4774,9 @@
         <label for="wkNote">Workout notes (optional)</label>
         <textarea id="wkNote" rows="2">${esc(w.note ?? '')}</textarea>
       </div>
-      <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:0.9rem">
-        <input type="checkbox" id="saveTpl" style="width:18px;height:18px"> Save as routine
+      <label class="switch-row" style="margin-bottom:16px">
+        <span><b>Save as routine</b><i>Start it again from Workouts next time.</i></span>
+        <input type="checkbox" id="saveTpl">
       </label>
       <button class="btn btn-primary" id="confirmFinish">${w.editingId ? 'Save changes' : 'Save workout'}</button>
     `, (body) => {
@@ -4643,6 +4832,8 @@
         toast(w.editingId ? 'Changes saved'
           : prs.length ? prIcon('pr-mark toast-pr') + ` Workout saved — ${prs.length} record${prs.length === 1 ? '' : 's'}`
           : 'Workout saved', prs.length > 0);
+        // a finished session is the moment the app exists for
+        if (!w.editingId) setTimeout(() => burst($('#toastRoot .toast'), { count: prs.length ? 56 : 36 }), 60);
       });
     });
   }
@@ -7514,10 +7705,13 @@
      the card that carries them and a finishing buzz. Once a day, not once a
      render, and never for a day with nothing due. */
   let celebratedDay = null;
+  let celebrateArmed = false;
   function celebrateIfDue() {
     const key = dateKey();
     const { done, total } = habitsDone(key);
-    if (!total || done < total) { if (celebratedDay === key) celebratedDay = null; return; }
+    // confetti only for closing the day here and now, not for opening the
+    // app on a day that was already closed
+    if (!total || done < total) { if (celebratedDay === key) celebratedDay = null; celebrateArmed = true; return; }
     if (celebratedDay === key) return;
     celebratedDay = key;
     const card = $('.hb-home') || $('.hb-today-card');
@@ -7525,6 +7719,7 @@
       card.classList.remove('celebrate');
       void card.offsetWidth;
       card.classList.add('celebrate');
+      if (celebrateArmed) burst(card);
     }
     haptic('done');
   }
@@ -7619,9 +7814,12 @@
     if (kids.length > 1) {
       // scrollHeight can't report less than the box, so measure the real gap
       // between the last block and the bottom of the content area
+      // measured in layout offsets, not on-screen boxes: the blocks may be
+      // mid-way through rising in, and a transform must not read as slack
       const cs = getComputedStyle(v);
-      const floor = v.getBoundingClientRect().bottom - parseFloat(cs.paddingBottom);
-      const slack = floor - kids[kids.length - 1].getBoundingClientRect().bottom;
+      const floor = v.clientHeight - parseFloat(cs.paddingBottom);
+      const last = kids[kids.length - 1];
+      const slack = floor - (last.offsetTop + last.offsetHeight);
       if (slack > 6) {
         const base = parseFloat(cs.gap) || 12;
         v.style.gap = (base + Math.min(18, slack / (kids.length - 1))) + 'px';
@@ -7672,14 +7870,21 @@
     renderWorkoutOverlay();
     fitHome();
     if (pageY) window.scrollTo(0, pageY);
+    const entering = renderedTab !== currentTab;
+    // the first render happens behind the launch screen; nothing to see rise
+    const firstRender = renderedTab === null;
+    renderedTab = currentTab;
     if (slideDir) {
       const v = $('#view');
       v.classList.remove('slide-left', 'slide-right');
       void v.offsetWidth; // restart the animation
       v.classList.add(slideDir);
       slideDir = null;
-    }
+    } else if (entering && !firstRender) staggerIn($('#view'));
+    animateProgress($('#view'), entering);
+    markJustDone($('#view'), entering);
     $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === currentTab));
+    moveTabIndicator();
     /* Leaving Info is what marks it read: while you are on it, what is new
        stays bright, and the badge on the tab waits until you have gone. */
     if (feedLastTab === 'bela' && currentTab !== 'bela' && feed) { feedLastTab = currentTab; feed.markAllRead(); }

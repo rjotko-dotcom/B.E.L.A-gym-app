@@ -10,7 +10,7 @@ const { build } = require('./lib/seed');
 function copyApp(to) {
   fs.mkdirSync(to, { recursive: true });
   for (const f of ['index.html', 'sw.js', 'manifest.webmanifest']) fs.copyFileSync(path.join(ROOT, f), path.join(to, f));
-  for (const dir of ['js', 'css', 'icons']) {
+  for (const dir of ['js', 'css', 'icons', 'fonts']) {
     fs.mkdirSync(path.join(to, dir), { recursive: true });
     for (const f of fs.readdirSync(path.join(ROOT, dir))) {
       const src = path.join(ROOT, dir, f);

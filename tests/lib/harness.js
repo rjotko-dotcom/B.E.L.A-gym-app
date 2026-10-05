@@ -8,7 +8,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const MIME = {
   '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json',
-  '.webmanifest': 'application/manifest+json',
+  '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2',
 };
 
 /* GitHub Pages serves everything with a ten minute max-age; the update tests

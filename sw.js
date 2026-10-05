@@ -11,6 +11,9 @@ const ASSETS = [
   'js/exercises.js?v=' + VERSION,
   'js/foods.js?v=' + VERSION,
   'manifest.webmanifest',
+  /* the typeface never changes between versions, so it carries no ?v= */
+  'fonts/inter-latin.woff2',
+  'fonts/inter-latin-ext.woff2',
   /* Icons are versioned like everything else. Without the ?v= the cache-first
      rule below would keep serving whatever art was cached the first time, and
      the notification would show last month's icon for good. */
