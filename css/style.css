@@ -2264,7 +2264,7 @@ body.has-mini .view.home-screen {
 .lib-item, .tpl-item { border-radius: 18px; }
 .menu-item { border-radius: 16px; }
 /* a card that is a button reads like a card, not like a button */
-button.card { text-align: left; color: inherit; }
+:where(button.card) { text-align: left; color: inherit; }
 .kcal-dash { display: block; width: 100%; }
 
 /* ---------- buttons ---------- */
@@ -2528,3 +2528,35 @@ button.card { text-align: left; color: inherit; }
   .hs-cell.just-done, .hs-cell.just-done svg, .wk-overlay.wk-enter { animation: none; }
   .tab-ind, .hs-fill, .seg button { transition: none; }
 }
+
+/* ---------- charts draw themselves ---------- */
+@keyframes line-draw { from { stroke-dasharray: 1; stroke-dashoffset: 1; } to { stroke-dasharray: 1; stroke-dashoffset: 0; } }
+@keyframes area-in { from { opacity: 0; } }
+@keyframes pt-in { from { opacity: 0; transform: scale(0); } }
+@keyframes bar-up { from { transform: scaleY(0); } }
+.chart-line { animation: line-draw 0.9s var(--ease-out) both; }
+.chart-area { animation: area-in 0.9s 0.25s ease both; }
+.chart-pt { transform-box: fill-box; transform-origin: center; animation: pt-in 0.4s var(--ease-spring) both; animation-delay: var(--d, 0ms); }
+.chart-bar { transform-box: fill-box; transform-origin: bottom; animation: bar-up 0.7s var(--ease-out) both; animation-delay: var(--d, 0ms); }
+.chart-card { border-radius: var(--r-card); }
+@media (prefers-reduced-motion: reduce) {
+  .chart-line, .chart-area, .chart-pt, .chart-bar { animation: none; }
+}
+
+/* ---------- segmented controls: a thumb that slides ---------- */
+.seg { position: relative; }
+.seg > button { position: relative; z-index: 1; }
+.seg-thumb {
+  position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none;
+  border-radius: 11px; background: var(--surface-1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), 0 2px 8px -2px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: transform 0.38s cubic-bezier(0.3, 1.2, 0.5, 1), width 0.38s var(--ease-out), opacity var(--t-fast) ease;
+}
+:root[data-theme="dark"] .seg-thumb { background: var(--surface-3); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .seg-thumb { background: var(--surface-3); } }
+/* the thumb is the highlight now; the option only changes its ink */
+.seg.has-thumb > button.on, .seg.has-thumb > button.is-on { background: transparent; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { .seg-thumb { transition: none; } }
+
+/* the nudge's title sits inside its muted line and took its grey */
+.backup-nudge b { color: var(--ink-1); }
