@@ -36,7 +36,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # its default also installs the legacy 'tools' package, which the
+      # current sdkmanager no longer has — asking for it fails the whole step
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install dependencies
         env:
