@@ -1,6 +1,6 @@
 {
   "name": "bela-gym",
-  "version": "16.2.0",
+  "version": "16.3.0",
   "private": true,
   "description": "B.E.L.A Gym — workouts, nutrition and habits in one offline app.",
   "scripts": {
@@ -13,7 +13,9 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.0",
-    "playwright": "^1.47.0"
+    "esbuild": "^0.24.0",
+    "playwright": "^1.47.0",
+    "three": "^0.170.0"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

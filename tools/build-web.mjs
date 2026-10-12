@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 const ROOT = new URL('..', import.meta.url);
 const dist = new URL('dist/', ROOT);
 const FILES = ['index.html', 'manifest.webmanifest', 'sw.js'];
-const DIRS = ['css', 'js', 'icons', 'fonts'];
+const DIRS = ['css', 'js', 'icons', 'fonts', 'models'];
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });

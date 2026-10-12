@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.2';
+  const APP_VERSION = '16.3';
 
   /* ---------------- state ---------------- */
 
@@ -47,6 +47,8 @@
   const { reducedMotion, rollNumbers, animateProgress, markJustDone, staggerIn, moveTabIndicator, burst } =
     window.BelaMotion.create({ scope: () => currentTab });
   let renderedTab = null;
+  // the 3D body fetches its library and model with the app's version
+  if (window.BelaBody3D) BelaBody3D.setVersion(APP_VERSION);
 
   let currentTab = 'home';
   /* Pull-to-refresh reloads the page, and the app used to come back on Home.
@@ -897,24 +899,79 @@
   const weekLevel = (n) => (n >= 10 ? 'l4' : n >= 6 ? 'l3' : n >= 3 ? 'l2' : n > 0 ? 'l1' : 'l0');
   const sessionLevel = (n) => (n >= 4 ? 'l3' : n >= 2 ? 'l2' : n > 0 ? 'l1' : 'l0');
   const fmtSets = (n) => (Math.round(n * 2) / 2).toLocaleString();
-  function muscleMapHTML(load, level, caption) {
+  /* The figure: the 3D hologram (js/body3d.js) where the device can draw
+     it, the flat map until then and wherever it cannot. The flat one is in
+     the markup so there is never an empty card; the 3D one replaces it in
+     the same frame once the model has loaded. */
+  function muscleMapHTML(load, level, caption, key = 'week') {
     if (!window.BelaMuscleMap) return '';
-    return '<div class="mm-wrap" data-caption="' + esc(caption) + '">' +
-      BelaMuscleMap.svg((m) => level(load[m] || 0), { label: 'Muscles worked' }) +
-      '<div class="mm-cap">' + esc(caption) + '</div></div>';
+    return '<div class="mm-wrap" data-caption="' + esc(caption) + '" data-key="' + esc(key) + '">' +
+      '<div class="mm-stage">' + BelaMuscleMap.svg((m) => level(load[m] || 0), { label: 'Muscles worked' }) + '</div>' +
+      '<div class="seg mm-face" id="mmFace-' + esc(key) + '" hidden>' +
+        '<button class="on" data-face="front">Front</button><button data-face="back">Back</button></div>' +
+      '<div class="mm-cap">' + esc(caption) + '</div>' +
+      '<div class="mm-credit" hidden>' + (window.BelaBody3D ? esc(BelaBody3D.CREDIT) : '') + '</div>' +
+    '</div>';
+  }
+  function muscleCaption(wrap, m, load, suffix) {
+    const cap = $('.mm-cap', wrap);
+    if (!m) { cap.textContent = wrap.dataset.caption; return; }
+    cap.textContent = MUSCLE_NAMES[m] + ' · ' + fmtSets(load[m] || 0) + ' set' + ((load[m] || 0) === 1 ? '' : 's') + suffix;
   }
   /* tap a muscle and the line under the map names it and its sets */
-  function wireMuscleMap(root, load, suffix) {
-    $$('.mm-wrap', root).forEach((wrap) => wrap.addEventListener('click', (e) => {
-      const part = e.target.closest('[data-m]');
-      const cap = $('.mm-cap', wrap);
-      $$('.mm-m.is-picked', wrap).forEach((x) => x.classList.remove('is-picked'));
-      if (!part) { cap.textContent = wrap.dataset.caption; return; }
-      const m = part.dataset.m;
-      $$('[data-m="' + m + '"]', wrap).forEach((x) => x.classList.add('is-picked'));
-      cap.textContent = MUSCLE_NAMES[m] + ' · ' + fmtSets(load[m] || 0) + ' set' + ((load[m] || 0) === 1 ? '' : 's') + suffix;
-      haptic('tap');
-    }));
+  function wireMuscleMap(root, load, suffix, level) {
+    $$('.mm-wrap', root).forEach((wrap) => {
+      wrap.addEventListener('click', (e) => {
+        if (wrap.classList.contains('is-3d')) return;
+        const part = e.target.closest('[data-m]');
+        $$('.mm-m.is-picked', wrap).forEach((x) => x.classList.remove('is-picked'));
+        if (!part) { muscleCaption(wrap, null); return; }
+        const m = part.dataset.m;
+        $$('[data-m="' + m + '"]', wrap).forEach((x) => x.classList.add('is-picked'));
+        muscleCaption(wrap, m, load, suffix);
+        haptic('tap');
+      });
+      mountBody(wrap, load, suffix, level);
+    });
+  }
+  function mountBody(wrap, load, suffix, level) {
+    if (!window.BelaBody3D || !BelaBody3D.supported()) return;
+    const stage = $('.mm-stage', wrap);
+    const faceSeg = $('.mm-face', wrap);
+    const levels = {};
+    Object.keys(MUSCLE_NAMES).forEach((m) => { levels[m] = level(load[m] || 0); });
+    let tip = null;
+    BelaBody3D.mount(stage, {
+      key: wrap.dataset.key,
+      levels,
+      onPick: (m) => { muscleCaption(wrap, m, load, suffix); if (m) haptic('tap'); },
+      onHover: (label, m, e) => {
+        if (!label) { tip && tip.remove(); tip = null; return; }
+        if (!tip) { tip = document.createElement('div'); tip.className = 'mm-tip'; stage.appendChild(tip); }
+        const r = stage.getBoundingClientRect();
+        tip.textContent = label;
+        tip.style.left = (e.clientX - r.left) + 'px';
+        tip.style.top = (e.clientY - r.top) + 'px';
+      },
+      // turned by hand: neither face is the one showing any more
+      onTurn: () => $$('button', faceSeg).forEach((b) => b.classList.remove('on')),
+    }).then((body) => {
+      if (!wrap.isConnected) return;
+      $('svg', stage)?.remove();
+      wrap.classList.add('is-3d');
+      faceSeg.hidden = false;
+      $('.mm-credit', wrap).hidden = false;
+      $$('button', faceSeg).forEach((b) => {
+        b.addEventListener('click', () => {
+          $$('button', faceSeg).forEach((x) => x.classList.toggle('on', x === b));
+          body.face(b.dataset.face);
+          haptic('tap');
+        });
+      });
+      // the thumb measures the buttons, which were hidden until now
+      const on = $('button.on', faceSeg);
+      if (on) { on.classList.remove('on'); on.classList.add('on'); }
+    }).catch(() => { /* this device keeps the flat map */ });
   }
 
   /* Where the week's work went. The app has always counted this and never
@@ -3876,7 +3933,7 @@
 
     if (active) $('#resumeWorkout').addEventListener('click', () => { workoutOpen = true; openWkEntry(); render(); });
     $('#startEmpty').addEventListener('click', () => startWorkout());
-    wireMuscleMap(v, muscleLoad(state.workouts.filter((w) => w.startedAt >= Date.now() - 7 * 86400000)), ' this week');
+    wireMuscleMap(v, muscleLoad(state.workouts.filter((w) => w.startedAt >= Date.now() - 7 * 86400000)), ' this week', weekLevel);
     wireInsights(v);
     $('#progOpen', v)?.addEventListener('click', openProgramsSheet);
     $('#newRoutine').addEventListener('click', () => openRoutineBuilder());
@@ -4881,7 +4938,7 @@
         '<div><span class="micro">Sets</span><b>' + sets.length + '</b></div>' +
         '<div><span class="micro">Records</span><b>' + prs.length + '</b></div>' +
       '</div>' +
-      '<div class="sm-map">' + muscleMapHTML(muscleLoad([w]), sessionLevel, 'What this session worked — tap a muscle') + '</div>' +
+      '<div class="sm-map">' + muscleMapHTML(muscleLoad([w]), sessionLevel, 'What this session worked — tap a muscle', 'session') + '</div>' +
       '<div class="sm-list">' + rows + '</div>' +
       '<div class="btn-row" style="margin-top:18px">' +
         '<button class="btn btn-quiet" id="smShare"><svg class="btn-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3.5M7.5 8 12 3.5 16.5 8M5 12.5v6A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-6"/></svg>Share</button>' +
@@ -4890,7 +4947,7 @@
     (body) => {
       $('#smDone', body).addEventListener('click', () => closeSheet());
       $('#smShare', body).addEventListener('click', () => shareWorkout(w));
-      wireMuscleMap(body, muscleLoad([w]), ' this session');
+      wireMuscleMap(body, muscleLoad([w]), ' this session', sessionLevel);
       setTimeout(() => burst($('.sm-badge', body), { count: prs.length ? 60 : 40 }), 260);
     });
   }
@@ -8973,7 +9030,7 @@
      is made in the capture phase — before anything else sees the touch — so it
      cannot depend on which listener happens to run first. */
   const OWN_GESTURE = 'input, textarea, select, .chart-wrap, .cal-grid, .pad-keys,' +
-    ' .hbh-row, .wk-plan, .slot-card, .snap-row, .sheet, [data-swipe-own]';
+    ' .hbh-row, .wk-plan, .slot-card, .snap-row, .sheet, .mm-stage, [data-swipe-own]';
 
   addEventListener('touchstart', (e) => {
     swipeStart = null;

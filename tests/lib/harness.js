@@ -8,7 +8,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const MIME = {
   '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json',
-  '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2',
+  '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2', '.glb': 'model/gltf-binary',
 };
 
 /* GitHub Pages serves everything with a ten minute max-age; the update tests
@@ -49,7 +49,7 @@ function playwright() {
 // a Galaxy S24+ in CSS pixels — the device this is actually used on
 const PHONE = { width: 384, height: 832 };
 
-async function openApp(browser, { url, seed, viewport = PHONE, theme = 'dark', touch = true, splash = false } = {}) {
+async function openApp(browser, { url, seed, viewport = PHONE, theme = 'dark', touch = true, splash = false, init = null } = {}) {
   const page = await browser.newPage({
     viewport, colorScheme: theme, hasTouch: touch, deviceScaleFactor: 2,
   });
@@ -62,6 +62,8 @@ async function openApp(browser, { url, seed, viewport = PHONE, theme = 'dark', t
     // the service worker is deliberately absent in most suites
     if (!/ServiceWorker/.test(String(e))) page.errors.push(String(e));
   });
+  // a suite can change the page before the app runs (e.g. take WebGL away)
+  if (init) await page.addInitScript(init);
   if (seed) {
     await page.addInitScript((s) => {
       if (!localStorage.getItem('bela-gym-v1')) localStorage.setItem('bela-gym-v1', JSON.stringify(s));

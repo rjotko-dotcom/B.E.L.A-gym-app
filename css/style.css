@@ -2819,6 +2819,34 @@ body:has(.rest-panel) .toast-root { bottom: calc(var(--safe-bot, env(safe-area-i
 .sm-map .mm-svg { max-width: 270px; }
 @media (prefers-reduced-motion: reduce) { .mm-sweep { animation: none; opacity: 0; } .mm-m { transition: none; } }
 
+/* ---------- the 3D body (js/body3d.js) ----------
+   An additive hologram is light added to what is behind it, so it is drawn
+   on black in both themes — a screen set into the card. */
+.mm-stage { position: relative; }
+.mm-wrap.is-3d .mm-stage {
+  height: 380px; border-radius: 16px; overflow: hidden; touch-action: pan-y;
+  background: radial-gradient(55% 22% at 50% 96%, rgba(200, 205, 212, 0.10), transparent 70%), #000;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  animation: mm3d-in 0.6s var(--ease-out) both;
+}
+.sm-map .mm-wrap.is-3d .mm-stage { height: 330px; }
+.mm3d-canvas { display: block; width: 100%; height: 100%; cursor: grab; -webkit-tap-highlight-color: transparent; }
+.mm3d-canvas:active { cursor: grabbing; }
+@keyframes mm3d-in { from { opacity: 0; } to { opacity: 1; } }
+.mm-face { width: 168px; margin: 10px auto 0; }
+.mm-face[hidden] { display: none; }
+.mm-credit {
+  text-align: right; color: var(--ink-muted); font-size: 0.6rem; letter-spacing: 0.02em;
+  margin: 4px 4px 0; opacity: 0.8;
+}
+.mm-credit[hidden] { display: none; }
+.mm-tip {
+  position: absolute; transform: translate(-50%, calc(-100% - 12px)); pointer-events: none; white-space: nowrap;
+  padding: 4px 9px; border-radius: 8px; font-size: 0.72rem; font-weight: 600; color: #fff;
+  background: rgba(20, 20, 20, 0.86); border: 1px solid rgba(255, 255, 255, 0.14);
+}
+@media (prefers-reduced-motion: reduce) { .mm-wrap.is-3d .mm-stage { animation: none; } }
+
 /* ---------- an exercise's guide ---------- */
 .ex-guide { display: flex; align-items: center; gap: 14px; padding: 12px 14px; margin-bottom: 14px; border-radius: 18px; background: var(--surface-1); border: 1px solid var(--card-edge); }
 .ex-guide { --holo: var(--ink-1); }

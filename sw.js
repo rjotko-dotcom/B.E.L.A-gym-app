@@ -1,5 +1,5 @@
 /* B.E.L.A Gym — service worker */
-const VERSION = '16.2';
+const VERSION = '16.3';
 const CACHE = 'bela-gym-' + VERSION;
 const ASSETS = [
   '.',
@@ -14,6 +14,9 @@ const ASSETS = [
   'js/exercises.js?v=' + VERSION,
   'js/exercise-guide.js?v=' + VERSION,
   'js/muscle-map.js?v=' + VERSION,
+  'js/body3d.js?v=' + VERSION,
+  'js/vendor/three-body.js?v=' + VERSION,
+  'models/anatomy.glb?v=' + VERSION,
   'js/programs.js?v=' + VERSION,
   'js/foods.js?v=' + VERSION,
   'manifest.webmanifest',
