@@ -2764,3 +2764,7 @@ body:has(.rest-panel) .toast-root { bottom: calc(var(--safe-bot, env(safe-area-i
 .menu-item.danger .mi-ico { stroke: var(--critical); }
 .rest-grid.rest-five { grid-template-columns: repeat(5, 1fr); gap: 7px; }
 .rest-five .rest-opt { min-height: 50px; font-size: 0.95rem; border-radius: 14px; }
+
+/* the muscle names' column grows with the text size, so "Shoulders" never
+   runs into its bar on a phone set to large text */
+.mb-row { grid-template-columns: minmax(68px, 5.4em) 1fr 26px; }
