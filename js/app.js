@@ -2932,6 +2932,23 @@
       '</div>';
   }
 
+  /* Protein spreads best over the day: a quarter of the target per main meal
+     (about 40 g on 160 g), never under 20 g. */
+  const mealProteinGoal = () => {
+    const t = Number(state.nutrition.targets.protein) || 0;
+    return t ? Math.max(20, Math.round(t / 4 / 5) * 5) : 0;
+  };
+  /* When you ate, first to last — the eating window, said in one line */
+  function eatingWindowHTML(meals) {
+    const times = meals.map((m) => m.time).filter((x) => /^\d\d:\d\d$/.test(x || '')).sort();
+    if (times.length < 2) return '';
+    const mins = (x) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3));
+    const span = mins(times[times.length - 1]) - mins(times[0]);
+    if (span <= 0) return '';
+    return '<div class="nh-window"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>' +
+      'Eating window ' + times[0] + ' – ' + times[times.length - 1] + ' · ' + Math.floor(span / 60) + ' h' + (span % 60 ? ' ' + (span % 60) + ' min' : '') + '</div>';
+  }
+
   function renderMeals() {
     const v = $('#view');
     const day = dayWithOffset(mealDayOffset);
@@ -2970,6 +2987,7 @@
             '<div class="nh-sub">' + (over ? 'over your goal' : 'left for today') + '</div>') +
         '<div class="macro-track nh-track"><div class="macro-fill ' + kSt + '" style="width:' + Math.min(100, frac * 100) + '%"></div></div>' +
         '<div class="nh-foot"><span>' + Math.round(totals.kcal).toLocaleString() + ' eaten</span><span>' + targets.kcal.toLocaleString() + ' kcal goal</span></div>' +
+        eatingWindowHTML(meals) +
       '</div>' +
 
       '<div class="nut-macros">' +
@@ -2988,10 +3006,18 @@
           ? Math.round(kcal) + ' kcal <i>· P ' + Math.round(sum('protein')) +
             ' · C ' + Math.round(sum('carbs')) + ' · F ' + Math.round(sum('fat')) + '</i>'
           : 'Nothing logged';
+        /* a main meal under a quarter of the day's protein gets a quiet
+           nudge; one that makes it gets the green tick */
+        const pGoal = mealProteinGoal();
+        const pNote = items.length && slot !== 'snacks' && pGoal
+          ? (sum('protein') >= pGoal
+            ? '<span class="slot-pro is-hit" title="Protein for this meal">' + Math.round(sum('protein')) + ' g protein ✓</span>'
+            : '<span class="slot-pro">' + Math.round(sum('protein')) + ' / ' + pGoal + ' g protein</span>')
+          : '';
         return '<div class="card slot-card">' +
           '<div class="slot-head">' +
             '<span class="slot-ico"><svg viewBox="0 0 24 24" aria-hidden="true">' + icon + '</svg></span>' +
-            '<div class="slot-title"><b>' + title + '</b><span>' + line + '</span></div>' +
+            '<div class="slot-title"><b>' + title + pNote + '</b><span>' + line + '</span></div>' +
             (items.length > 1 ? '<button class="slot-save" data-save="' + slot + '" aria-label="Save ' + title + ' as a meal">' +
               '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 4.5h13v15l-6.5-4-6.5 4Z"/></svg></button>' : '') +
             '<button class="slot-add" data-slot="' + slot + '" aria-label="Add to ' + title + '">' +
@@ -3090,7 +3116,18 @@
     const proteinHit = logged.filter((d) => t.protein && d.protein >= t.protein).length;
     const peak = Math.max(t.kcal || 0, ...days.map((d) => d.kcal));
 
+    /* A day over is not a week over: the average against the goal is the
+       number that decides whether the plan is working. */
+    const avgK = avg((d) => d.kcal);
+    const wkSt = goalState(avgK, t.kcal, 'kcal');
+    const verdict = !t.kcal ? '' : wkSt === 'over' ? 'Over on average — ' + (avgK - t.kcal).toLocaleString() + ' kcal a day'
+      : avgK >= t.kcal * 0.9 ? 'On track on average' + (logged.some((d) => goalState(d.kcal, t.kcal, 'kcal') === 'over') ? ', even with a big day' : '')
+      : 'Under on average — ' + (t.kcal - avgK).toLocaleString() + ' kcal a day';
     return '<div class="card nut-week">' +
+      (t.kcal ? '<div class="nw-avg"><span class="micro">Week average</span>' +
+        '<div class="nw-avg-row"><b class="' + wkSt + '">' + avgK.toLocaleString() + '<i> / ' + t.kcal.toLocaleString() + ' kcal</i></b></div>' +
+        '<div class="macro-track"><div class="macro-fill ' + wkSt + '" style="width:' + Math.min(100, (avgK / t.kcal) * 100) + '%"></div></div>' +
+        '<p class="nw-verdict">' + esc(verdict) + '</p></div>' : '') +
       '<div class="nw-head"><span class="micro">Last 7 days</span>' +
         '<span class="nw-note">' + logged.length + (logged.length === 1 ? ' day logged' : ' days logged') + '</span></div>' +
       '<div class="nw-bars">' +
@@ -3585,6 +3622,99 @@
     });
   }
 
+  /* -------- recipes --------
+     Cook once, log it all week: the ingredients and their amounts, how many
+     servings the pot makes, and the app works out one serving. It is saved
+     as one of your own foods counted in servings, so logging it is the same
+     tap as any food — "Chili · 2 servings" — and it syncs like one. */
+  function openRecipeBuilder(after) {
+    const draft = { name: '', servings: 4, items: [] };
+    const pool = () => [...FOOD_LIBRARY, ...myFoods().filter((f) => !f.recipe)];
+    const totals = () => draft.items.reduce((t, it) => {
+      const m = scaleFood(it.food, it.amount);
+      return { kcal: t.kcal + m.kcal, protein: t.protein + m.protein, carbs: t.carbs + m.carbs, fat: t.fat + m.fat };
+    }, { kcal: 0, protein: 0, carbs: 0, fat: 0 });
+    openSheet('Build a recipe', '' +
+      '<div class="field"><label for="rcName">Name</label><input id="rcName" type="text" placeholder="e.g. Chicken chili" autocomplete="off"></div>' +
+      '<div class="field"><label>Servings it makes</label>' +
+        '<div class="portion-step"><button class="chip-btn" id="rcLess" aria-label="Fewer servings">−</button>' +
+        '<div class="ps-mid"><span class="ps-n" id="rcServ">4</span> <i class="ps-lbl">servings</i></div>' +
+        '<button class="chip-btn" id="rcMore" aria-label="More servings">+</button></div></div>' +
+      '<div class="section-title" style="margin-top:4px">Ingredients</div>' +
+      '<div id="rcItems"></div>' +
+      '<input class="search-field" id="rcSearch" type="search" placeholder="Add an ingredient…" autocomplete="off">' +
+      '<div id="rcFound"></div>' +
+      '<div class="rc-sum" id="rcSum"></div>' +
+      '<button class="btn btn-primary" id="rcSave" disabled>Save recipe</button>',
+    (body) => {
+      const paint = () => {
+        $('#rcServ', body).textContent = draft.servings;
+        $('#rcItems', body).innerHTML = draft.items.length ? draft.items.map((it, i) => {
+          const m = scaleFood(it.food, it.amount);
+          return '<div class="rc-item"><div><b>' + esc(it.food.name) + '</b><i>' + esc(amountLabel(it.food, it.amount)) + ' · ' + m.kcal + ' kcal · P ' + Math.round(m.protein) + '</i></div>' +
+            '<input class="rc-amt" data-i="' + i + '" type="number" inputmode="decimal" min="0" value="' + it.amount + '" aria-label="Amount of ' + esc(it.food.name) + '">' +
+            '<button class="saved-del" data-rm="' + i + '" aria-label="Remove ' + esc(it.food.name) + '">×</button></div>';
+        }).join('') : '<p class="portion-per">Search below and tap a food to add it.</p>';
+        const t = totals(), n = draft.servings;
+        $('#rcSum', body).innerHTML = draft.items.length
+          ? '<span class="micro">One serving</span><b>' + Math.round(t.kcal / n) + ' kcal</b><i>P ' + round1(t.protein / n) + ' · C ' + round1(t.carbs / n) + ' · F ' + round1(t.fat / n) + '</i>'
+          : '';
+        $('#rcSave', body).disabled = !(draft.items.length && $('#rcName', body).value.trim());
+      };
+      const found = (q) => {
+        q = q.trim().toLowerCase();
+        $('#rcFound', body).innerHTML = q ? pool().filter((f) => f.name.toLowerCase().includes(q)).slice(0, 8).map((f, i) =>
+          '<button class="lib-item rc-hit" data-name="' + esc(f.name) + '"><div><div class="li-name">' + esc(f.name) + '</div>' +
+          '<div class="li-sub">' + Math.round(f.kcal) + ' kcal per ' + (foodUnit(f) === 'piece' ? 'piece' : foodBase(f) + ' ' + foodUnit(f)) + '</div></div>' +
+          '<span class="li-add">+ ' + esc(amountLabel(f, foodServing(f))) + '</span></button>').join('') : '';
+      };
+      $('#rcSearch', body).addEventListener('input', (e) => found(e.target.value));
+      $('#rcFound', body).addEventListener('click', (e) => {
+        const b = e.target.closest('[data-name]');
+        if (!b) return;
+        const f = pool().find((x) => x.name === b.dataset.name);
+        if (!f) return;
+        draft.items.push({ food: f, amount: foodServing(f) });
+        $('#rcSearch', body).value = ''; found('');
+        haptic('tap');
+        paint();
+      });
+      $('#rcItems', body).addEventListener('input', (e) => {
+        const i = e.target.dataset.i;
+        if (i == null) return;
+        draft.items[Number(i)].amount = Math.max(0, Number(e.target.value) || 0);
+        const keep = e.target.selectionStart;
+        paint();
+        const again = $('.rc-amt[data-i="' + i + '"]', body);
+        if (again) { again.focus(); try { again.setSelectionRange(keep, keep); } catch (x) { /* number boxes refuse */ } }
+      });
+      $('#rcItems', body).addEventListener('click', (e) => {
+        const b = e.target.closest('[data-rm]');
+        if (!b) return;
+        draft.items.splice(Number(b.dataset.rm), 1);
+        paint();
+      });
+      $('#rcLess', body).addEventListener('click', () => { draft.servings = Math.max(1, draft.servings - 1); paint(); });
+      $('#rcMore', body).addEventListener('click', () => { draft.servings = Math.min(40, draft.servings + 1); paint(); });
+      $('#rcName', body).addEventListener('input', paint);
+      $('#rcSave', body).addEventListener('click', () => {
+        const t = totals(), n = draft.servings;
+        const name = $('#rcName', body).value.trim();
+        rememberFood({
+          name, unit: 'piece', per: 1, serving: 1, sname: 'serving',
+          kcal: Math.round(t.kcal / n), protein: round1(t.protein / n), carbs: round1(t.carbs / n), fat: round1(t.fat / n),
+          recipe: { servings: n, items: draft.items.map((it) => ({ name: it.food.name, amount: it.amount, unit: foodUnit(it.food) })) },
+        });
+        save();
+        haptic('done');
+        toast(name + ' saved — ' + Math.round(t.kcal / n) + ' kcal a serving');
+        closeSheetNow();
+        if (after) after(); else render();
+      });
+      paint();
+    });
+  }
+
   function openMealSheet(key = dateKey(), slot = null) {
     if (!slot) slot = slotFromTime(new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' }));
     // one-off entries logged before, newest first — anything already in a food
@@ -3662,6 +3792,7 @@
       <p class="portion-per">Tap a food to set the grams, or + to log the usual portion.</p>
       <div id="savedList">${savedHtml()}</div>
       <div id="foodList">${listHtml('')}</div>
+      <button class="btn btn-quiet rc-open" id="recipeOpen"><svg class="btn-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 11h15a7.5 7.5 0 0 1-15 0ZM3.5 11h17M9 7.5c0-1.2 1-1.7 1-3M13 7.5c0-1.2 1-1.7 1-3"/></svg>Build a recipe</button>
       <div class="section-title">Custom entry</div>
       <div class="field"><label for="cmName">Name</label><input id="cmName" type="text" placeholder="e.g. Chicken bowl"></div>
       <div class="field" id="cmUnitWrap">
@@ -3714,6 +3845,7 @@
       const search = $('#foodSearch', body);
       const list = $('#foodList', body);
       search.addEventListener('input', () => { list.innerHTML = listHtml(search.value); });
+      $('#recipeOpen', body)?.addEventListener('click', () => { closeSheetNow(); openRecipeBuilder(() => openMealSheet(key, slot)); });
       list.addEventListener('click', (e) => {
         const edit = e.target.closest('[data-editfood]');
         if (edit) {
