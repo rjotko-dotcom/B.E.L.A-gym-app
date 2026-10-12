@@ -75,7 +75,7 @@ module.exports = async (t) => {
   t.check('a logged set is marked', await page.evaluate(() =>
     !!document.querySelector('.set-row.logged, .set-done.logged')));
   t.check('and nothing is left counting down', await page.evaluate(() =>
-    !document.querySelector('#restBar, .rest-bar')));
+    !document.querySelector('#restBar, .rest-bar, #restPanel')));
 
   // progressive overload hint
   const hint = await page.evaluate(() => document.querySelector('.ex-hint')?.textContent || '');

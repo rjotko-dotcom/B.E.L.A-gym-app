@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.0';
+  const APP_VERSION = '16.1';
 
   /* ---------------- state ---------------- */
 
@@ -1905,6 +1905,12 @@
         description: 'Shows the exercise and set while a session is running',
         importance: 2, visibility: 1, sound: '', vibration: false,
       });
+      // the end of a rest is the opposite: it should reach you
+      await LN.createChannel({
+        id: 'rest', name: 'Rest timer',
+        description: 'Tells you when the rest between sets is over',
+        importance: 4, visibility: 1, vibration: true,
+      });
     } catch (e) { /* channels are Android-only */ }
   }
   if (native()) nativeChannel();
@@ -3154,11 +3160,11 @@
     const today = dateKey();
     openSheet(meal.name, '' +
       '<div class="menu-list">' +
-        '<button class="menu-item" data-act="edit">✎ &nbsp;Edit</button>' +
-        '<button class="menu-item" data-act="again">＋ &nbsp;Log it again</button>' +
-        (meal.date !== today ? '<button class="menu-item" data-act="today">→ &nbsp;Copy to today</button>' : '') +
-        '<button class="menu-item" data-act="save">☆ &nbsp;Save as a meal</button>' +
-        '<button class="menu-item danger" data-act="del">🗑 &nbsp;Delete</button>' +
+        '<button class="menu-item" data-act="edit">' + MI.edit + 'Edit</button>' +
+        '<button class="menu-item" data-act="again">' + MI.plus + 'Log it again</button>' +
+        (meal.date !== today ? '<button class="menu-item" data-act="today">' + MI.right + 'Copy to today</button>' : '') +
+        '<button class="menu-item" data-act="save">' + MI.star + 'Save as a meal</button>' +
+        '<button class="menu-item danger" data-act="del">' + MI.bin + 'Delete</button>' +
       '</div>',
     (body) => {
       body.addEventListener('click', (e) => {
@@ -3979,10 +3985,10 @@
     haptic('tap');
     openSheet(tpl.name, `
       <div class="menu-list">
-        <button class="menu-item" data-act="up" ${at <= 0 ? 'disabled' : ''}>↑ &nbsp;Move up</button>
-        <button class="menu-item" data-act="down" ${at >= list.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
-        <button class="menu-item" data-act="copy">⧉ &nbsp;Duplicate</button>
-        <button class="menu-item" data-act="edit">✎ &nbsp;Edit</button>
+        <button class="menu-item" data-act="up" ${at <= 0 ? 'disabled' : ''}>${MI.up}Move up</button>
+        <button class="menu-item" data-act="down" ${at >= list.length - 1 ? 'disabled' : ''}>${MI.down}Move down</button>
+        <button class="menu-item" data-act="copy">${MI.copy}Duplicate</button>
+        <button class="menu-item" data-act="edit">${MI.edit}Edit</button>
       </div>`, (body) => {
       body.addEventListener('click', (e) => {
         const b = e.target.closest('button[data-act]');
@@ -4060,11 +4066,273 @@
     });
   }
 
+  /* -------- rest timer --------
+     Hevy's model: each exercise carries its own rest, off until you give it
+     one, and logging a set starts it. A panel counts down over the bottom of
+     the logger with −15 / +15 / Skip; the mini bar carries it when the logger
+     is folded away. The end is due at a fixed time (w.rest.endAt), so a
+     locked phone or a reload loses nothing — and on the installed app a
+     notification is booked for that moment, because a timer in the page
+     stops when the screen goes off. */
+
+  const REST_NOTE_ID = 8802;
+  const REST_CHOICES = [0, 30, 45, 60, 90, 120, 150, 180, 240, 300];
+  const restFor = (ex) => Number(exPref(ex.exerciseId).rest) || 0;
+  const restLeft = (w = state.activeWorkout) => (w && w.rest ? Math.max(0, w.rest.endAt - Date.now()) : 0);
+  function fmtRest(sec) {
+    if (!sec) return 'Off';
+    const m = Math.floor(sec / 60), r = sec % 60;
+    return m ? m + ' min' + (r ? ' ' + r + ' s' : '') : r + ' s';
+  }
+
+  function startRest(seconds) {
+    const w = state.activeWorkout;
+    if (!w || !seconds) return;
+    w.rest = { endAt: Date.now() + seconds * 1000, total: seconds * 1000 };
+    bookRestNote();
+  }
+  function adjustRest(delta) {
+    const w = state.activeWorkout;
+    if (!w || !w.rest) return;
+    w.rest.endAt += delta * 1000;
+    w.rest.total = Math.max(1000, w.rest.total + delta * 1000);
+    if (w.rest.endAt <= Date.now()) { endRest(false); return; }
+    haptic('tap');
+    bookRestNote();
+    save(); paintRest();
+  }
+  function endRest(finished) {
+    const w = state.activeWorkout;
+    if (w) w.rest = null;
+    dropRestNote();
+    if (finished) {
+      haptic('alert');
+      toast('Rest over — next set');
+      // the page may be in the background on the website, where nothing was
+      // booked ahead: say so through the service worker if we are allowed
+      if (document.hidden && !native() && 'Notification' in window && Notification.permission === 'granted') {
+        navigator.serviceWorker?.ready.then((r) => r.showNotification('Rest over', {
+          body: 'Time for the next set', tag: 'bela-rest', icon: 'icons/notify-192.png', badge: 'icons/badge-96.png',
+        })).catch(() => {});
+      }
+    }
+    save(); render();
+  }
+
+  let restTimer = null;
+  function ensureRestTimer() {
+    const want = !!(state.activeWorkout && state.activeWorkout.rest);
+    if (want && !restTimer) restTimer = setInterval(paintRest, 250);
+    if (!want && restTimer) { clearInterval(restTimer); restTimer = null; }
+    if (!want && restNoteBooked) dropRestNote();
+    if (want) paintRest();
+  }
+  /* Only the figures move between rebuilds: the clock, the bar and the line
+     in the mini bar. */
+  function paintRest() {
+    const w = state.activeWorkout;
+    if (!w || !w.rest) { ensureRestTimer(); return; }
+    const left = restLeft(w);
+    if (left <= 0) { endRest(true); return; }
+    const txt = fmtClock(Math.ceil(left / 1000));
+    const el = $('#restLeft');
+    if (el && el.textContent !== txt) el.textContent = txt;
+    const fill = $('#restFill');
+    if (fill) fill.style.transform = 'scaleX(' + Math.min(1, left / w.rest.total).toFixed(4) + ')';
+    const sub = $('#miniSub');
+    if (sub) sub.textContent = 'Rest ' + txt;
+  }
+  function restPanelHTML(w, fresh) {
+    const left = restLeft(w);
+    // what comes after the rest, so the panel says where you are going
+    let next = '';
+    if (nextSetKey) {
+      const [ei, si] = nextSetKey.split(':').map(Number);
+      const ex = w.exercises[ei];
+      const name = exerciseById(ex.exerciseId)?.name ?? '';
+      // the set first: it is the part that matters, and the name can be cut
+      next = 'Set ' + esc(numbersFor(ex)[si]) + ' · ' + esc(name);
+    }
+    return `
+        <div class="rest-panel${fresh ? ' rest-enter' : ''}" id="restPanel" role="timer" aria-label="Rest timer">
+          <div class="rp-row">
+            <div class="rp-text">
+              <span class="micro">Rest</span>
+              <b id="restLeft">${fmtClock(Math.ceil(left / 1000))}</b>
+              ${next ? `<span class="rp-next">Next: ${next}</span>` : ''}
+            </div>
+            <div class="rp-acts">
+              <button class="rp-btn" data-rest="-15" aria-label="Fifteen seconds less">−15</button>
+              <button class="rp-btn" data-rest="15" aria-label="Fifteen seconds more">+15</button>
+              <button class="rp-btn rp-skip" data-rest="skip">Skip</button>
+            </div>
+          </div>
+          <div class="rp-track"><i id="restFill" style="transform:scaleX(${Math.min(1, left / w.rest.total).toFixed(4)})"></i></div>
+        </div>`;
+  }
+  function wireRestPanel(root) {
+    const panel = $('#restPanel', root);
+    if (!panel) return;
+    panel.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-rest]');
+      if (!b) return;
+      if (b.dataset.rest === 'skip') { haptic('tap'); endRest(false); return; }
+      adjustRest(Number(b.dataset.rest));
+    });
+  }
+
+  /* the end of a rest, booked on the phone itself so it arrives with the
+     screen off — on its own channel, because this one should buzz */
+  let restNoteBooked = false;
+  async function bookRestNote() {
+    const LN = nativePlugin('LocalNotifications');
+    const w = state.activeWorkout;
+    if (!LN || !native() || !w || !w.rest) return;
+    try {
+      const perm = await LN.checkPermissions();
+      if (perm.display !== 'granted') return;
+      await LN.cancel({ notifications: [{ id: REST_NOTE_ID }] }).catch(() => {});
+      await LN.schedule({
+        notifications: [{
+          id: REST_NOTE_ID, title: 'Rest over', body: 'Time for the next set',
+          schedule: { at: new Date(w.rest.endAt), allowWhileIdle: true },
+          smallIcon: 'ic_stat_bela', channelId: 'rest', autoCancel: true,
+        }],
+      });
+      restNoteBooked = true;
+    } catch (e) { /* an older shell: the in-app buzz still happens */ }
+  }
+  async function dropRestNote() {
+    restNoteBooked = false;
+    const LN = nativePlugin('LocalNotifications');
+    if (!LN || !native()) return;
+    try { await LN.cancel({ notifications: [{ id: REST_NOTE_ID }] }); } catch (e) { /* none booked */ }
+  }
+
+  /* Rest for one exercise, chosen from its card. Giving it one is also the
+     moment to ask for notifications, rather than mid-set. */
+  function openRestPicker(ex) {
+    const cur = restFor(ex);
+    const name = exerciseById(ex.exerciseId)?.name ?? 'this exercise';
+    openSheet('Rest timer', '' +
+      '<p class="portion-per">Starts when you log a set of ' + esc(name) + '. Kept for next time.</p>' +
+      '<div class="rest-grid rest-five">' + REST_CHOICES.map((v) =>
+        '<button class="rest-opt' + (v === cur ? ' is-on' : '') + '" data-v="' + v + '">' + (v ? fmtClock(v) : 'Off') + '</button>').join('') +
+      '</div>',
+    (body) => {
+      body.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-v]');
+        if (!b) return;
+        const v = Number(b.dataset.v);
+        setExPref(ex.exerciseId, { rest: v || null });
+        haptic('tap');
+        if (v && native()) nativeNotifyAllowed();
+        save(); closeSheet(); render();
+      });
+    });
+  }
+
+  /* The clock in the logger's bar: a rest started by hand, for the times the
+     set you just did is not in the app. */
+  function openTimerSheet() {
+    const w = state.activeWorkout;
+    openSheet('Timer', '' +
+      (w && w.rest ? '<p class="portion-per">Resting — ' + fmtClock(Math.ceil(restLeft(w) / 1000)) + ' left.</p>' : '') +
+      '<div class="rest-grid">' + REST_CHOICES.filter(Boolean).map((v) =>
+        '<button class="rest-opt" data-v="' + v + '">' + fmtClock(v) + '</button>').join('') + '</div>' +
+      (w && w.rest ? '<button class="btn btn-quiet" id="timerStop" style="margin-top:14px">Stop the timer</button>' : ''),
+    (body) => {
+      body.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-v]');
+        if (!b) return;
+        haptic('tap');
+        startRest(Number(b.dataset.v));
+        save(); closeSheet(); render();
+      });
+      $('#timerStop', body)?.addEventListener('click', () => { closeSheet(); endRest(false); });
+    });
+  }
+
+  /* -------- reordering the session -------- */
+  function openReorderSheet() {
+    const w = state.activeWorkout;
+    if (!w) return;
+    const paint = (body) => {
+      body.innerHTML = '<div class="ro-list">' + w.exercises.map((ex, i) =>
+        '<div class="ro-row">' +
+          '<span class="ro-n">' + (i + 1) + '</span>' +
+          '<span class="ro-name">' + esc(exerciseById(ex.exerciseId)?.name ?? '?') +
+            '<i>' + ex.sets.filter((st) => st.done).length + ' / ' + ex.sets.length + ' sets</i></span>' +
+          '<button class="hb-move" data-mv="-1" data-i="' + i + '" aria-label="Move up"' + (i === 0 ? ' disabled' : '') + '><svg viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></svg></button>' +
+          '<button class="hb-move" data-mv="1" data-i="' + i + '" aria-label="Move down"' + (i === w.exercises.length - 1 ? ' disabled' : '') + '><svg viewBox="0 0 24 24"><path d="m6 10 6 6 6-6"/></svg></button>' +
+        '</div>').join('') + '</div>' +
+        '<button class="btn btn-primary" id="roDone" style="margin-top:16px">Done</button>';
+    };
+    openSheet('Reorder exercises', '', (body) => {
+      paint(body);
+      body.addEventListener('click', (e) => {
+        if (e.target.closest('#roDone')) { closeSheet(); render(); return; }
+        const b = e.target.closest('[data-mv]');
+        if (!b || b.disabled) return;
+        const i = Number(b.dataset.i), j = i + Number(b.dataset.mv);
+        [w.exercises[i], w.exercises[j]] = [w.exercises[j], w.exercises[i]];
+        // a superset only holds while its members stay side by side
+        w.exercises.forEach((ex, k) => {
+          if (!ex.ss) return;
+          const near = (w.exercises[k - 1] && w.exercises[k - 1].ss === ex.ss) || (w.exercises[k + 1] && w.exercises[k + 1].ss === ex.ss);
+          if (!near) delete ex.ss;
+        });
+        haptic('tap');
+        save(); paint(body);
+      });
+    });
+  }
+
+  /* -------- after the save: what you just did --------
+     Hevy's closing screen: the session in four figures, the records in it,
+     and each exercise's best set — the thing you will want to remember. */
+  function openWorkoutSummary(w, prs) {
+    const nth = state.workouts.length;
+    const ord = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
+    const sets = loggedSets(w);
+    const rows = w.exercises.map((ex) => {
+      const info = exerciseById(ex.exerciseId);
+      const work = ex.sets.filter((st) => st.done && (st.type || 'N') !== 'W');
+      const best = work.reduce((b, st) => (!b || setMass(st) > setMass(b) ? st : b), null);
+      const bestTxt = !best ? '' : isCardio(ex.exerciseId) ? cardioText(best)
+        : best.weight ? fmtNum(best.weight) + ' ' + esc(unit()) + ' × ' + best.reps : best.reps + ' reps';
+      return '<div class="sm-row">' +
+        '<span class="sm-name">' + esc(info?.name ?? '?') + (ex.sets.some((st) => st.pr) ? ' ' + prIcon('pr-mark pr-inline') : '') + '</span>' +
+        '<span class="sm-best">' + work.length + ' × <b>' + bestTxt + '</b></span></div>';
+    }).join('');
+    openSheet('Workout complete', '' +
+      '<div class="sm-hero">' +
+        // the crown only when there is a record to crown; otherwise a tick
+        '<div class="sm-badge">' + (prs.length ? prIcon('pr-mark')
+          : '<svg class="sm-tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.6 10 17.6 19 6.8"/></svg>') + '</div>' +
+        '<div class="sm-title">' + esc(w.name) + '</div>' +
+        '<div class="sm-sub">Your ' + ord(nth) + ' workout · ' + esc(fmtShortDate(w.startedAt)) + '</div>' +
+      '</div>' +
+      '<div class="sm-stats">' +
+        '<div><span class="micro">Duration</span><b>' + esc(fmtDuration(w.finishedAt - w.startedAt)) + '</b></div>' +
+        '<div><span class="micro">Volume</span><b>' + Math.round(workoutVolume(w)).toLocaleString() + '<i> ' + esc(unit()) + '</i></b></div>' +
+        '<div><span class="micro">Sets</span><b>' + sets.length + '</b></div>' +
+        '<div><span class="micro">Records</span><b>' + prs.length + '</b></div>' +
+      '</div>' +
+      '<div class="sm-list">' + rows + '</div>' +
+      '<button class="btn btn-primary" id="smDone" style="margin-top:18px">Done</button>',
+    (body) => {
+      $('#smDone', body).addEventListener('click', () => closeSheet());
+      setTimeout(() => burst($('.sm-badge', body), { count: prs.length ? 60 : 40 }), 260);
+    });
+  }
+
   /* -------- full-screen workout logger (Hevy-style) -------- */
 
   let wkScrollTo = null;   // index of an exercise to bring into view after a rebuild
   let flashSet = null;
-  let wkProgLast = null;   // the logger's progress line, as it was last drawn     // 'exIdx:setIdx' of a set just logged, so its row can light up
+  let wkProgLast = null;   // the logger's progress line, as it was last drawn
+  let nextSetKey = null;   // 'exIdx:setIdx' of the first set not yet logged     // 'exIdx:setIdx' of a set just logged, so its row can light up
 
   function renderWorkoutOverlay() {
     const root = $('#workoutRoot');
@@ -4080,7 +4348,7 @@
     // first time — replaying it on each logged set is what made the screen jump
     const wasShowing = !!openBody;
     syncWakeLock();
-    if (!w) { root.innerHTML = ''; return; }
+    if (!w) { root.innerHTML = ''; ensureRestTimer(); return; }
     if (!workoutOpen) {
       // Hevy-style persistent mini bar while the logger is minimized
       const current = w.exercises.find((ex) => ex.sets.some((s) => !s.done));
@@ -4094,7 +4362,7 @@
           </button>
           <div class="mini-info">
             <div class="mini-title"><span class="mini-dot"></span><b>Workout</b> <span id="miniDur">${fmtElapsed(Date.now() - w.startedAt)}</span></div>
-            <div class="mini-sub">${esc(currentName)}</div>
+            <div class="mini-sub" id="miniSub" data-name="${esc(currentName)}">${w.rest ? 'Rest ' + fmtClock(Math.ceil(restLeft(w) / 1000)) : esc(currentName)}</div>
           </div>
           <button class="mini-btn mini-danger" id="miniDiscard" aria-label="Discard workout">
             <svg viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13M10 11v6M14 11v6"/></svg>
@@ -4102,6 +4370,7 @@
         </div>`;
       const expand = () => { workoutOpen = true; openWkEntry(); render(); };
       if (!hadMini) $('.mini-bar', root).classList.add('mini-enter');
+      ensureRestTimer();
       $('.mini-bar', root).addEventListener('click', (e) => {
         if (e.target.closest('#miniDiscard')) {
           confirmDiscard(false);
@@ -4114,6 +4383,17 @@
     }
     const done = loggedSets(w);
     const vol = workoutVolume(w);
+    // the rest panel rises in when a rest starts, not on every rebuild
+    const hadRest = !!$('#restPanel', root);
+    // the set you are on: the first one not yet logged, marked so the eye
+    // lands there without hunting
+    nextSetKey = null;
+    if (!w.editingId) {
+      for (let i = 0; i < w.exercises.length && !nextSetKey; i++) {
+        const j = w.exercises[i].sets.findIndex((st) => !st.done);
+        if (j >= 0) nextSetKey = i + ':' + j;
+      }
+    }
     // how much of the session is behind you: done sets over every set laid out
     const allSets = w.exercises.reduce((n, ex) => n + ex.sets.length, 0);
     const setPct = allSets ? Math.round((done.length / allSets) * 1000) / 10 : 0;
@@ -4124,19 +4404,24 @@
             <svg viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></svg>
           </button>
           <b class="wk-title">${w.editingId ? 'Editing · ' : ''}${esc(w.name)}</b>
+          ${w.editingId ? '' : `<button class="icon-btn wk-timer-btn${w.rest ? ' is-on' : ''}" id="wkTimer" aria-label="Rest timer">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.6 1.6M9.5 3h5"/></svg>
+          </button>`}
           <button class="chip-btn chip-strong" id="wkFinishTop">${w.editingId ? 'Save' : 'Finish'}</button>
         </div>
         <div class="wk-stats">
           <div><span class="micro">Duration</span><b id="wkDur">${w.editingId ? fmtDuration((w.finishedAt || w.startedAt) - w.startedAt) : fmtElapsed(Date.now() - w.startedAt)}</b></div>
-          <div class="wk-vol-cell"><span class="micro">Volume</span><b>${fmtNum(Math.round(vol))} ${esc(unit())}</b></div>
-          <div><span class="micro">Sets</span><b>${done.length}</b></div>
+          <div class="wk-vol-cell"><span class="micro">Volume</span><b data-roll="wk-vol" data-roll-to="${Math.round(vol)}">${Math.round(vol).toLocaleString()}<i> ${esc(unit())}</i></b></div>
+          <div><span class="micro">Sets</span><b data-roll="wk-sets" data-roll-to="${done.length}">${done.length}<i>${allSets ? ' / ' + allSets : ''}</i></b></div>
         </div>
         <div class="wk-progress${allSets && done.length >= allSets ? ' is-done' : ''}" role="progressbar" aria-label="Sets done" aria-valuemin="0" aria-valuemax="${allSets}" aria-valuenow="${done.length}"><i style="width:${setPct}%"></i></div>
         <div class="wk-body">
           ${w.exercises.map((ex, exIdx) => renderExerciseBlock(ex, exIdx, ssPos(w.exercises, exIdx))).join('')}
-          <button class="btn btn-ghost" id="addExercise" style="margin-bottom:12px">+ Add exercise</button>
+          <button class="btn btn-primary wk-add-ex" id="addExercise">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>Add exercise</button>
           <button class="btn btn-danger" id="cancelWorkout" style="margin-bottom:8px">Discard workout</button>
         </div>
+        ${w.rest && !w.editingId ? restPanelHTML(w, !hadRest) : ''}
       </div>`;
 
     ensureElapsedTimer();
@@ -4149,6 +4434,10 @@
       prog.style.transition = ''; prog.style.width = setPct + '%';
     }
     wkProgLast = setPct;
+    rollNumbers(root);
+    ensureRestTimer();
+    wireRestPanel(root);
+    $('#wkTimer', root)?.addEventListener('click', openTimerSheet);
 
     const wkBody = $('.wk-body', root);
     if (keptScroll != null && wkBody) wkBody.scrollTop = keptScroll;
@@ -4185,6 +4474,7 @@
       $('.ex-name', block).addEventListener('click', () => openExerciseDetail(ex.exerciseId));
       $('.ex-menu', block).addEventListener('click', () => openExerciseMenu(exIdx));
       $('.ex-note-line', block).addEventListener('click', () => openNoteSheet(ex));
+      $('.ex-rest-line', block)?.addEventListener('click', () => openRestPicker(ex));
       const hintBtn = $('.ex-hint', block);
       if (hintBtn) hintBtn.addEventListener('click', () => {
         const h = overloadHint(ex);
@@ -4206,6 +4496,21 @@
         const setIdx = Number(row.dataset.set);
         const set = ex.sets[setIdx];
         $('.set-num', row).addEventListener('click', () => openSetSheet(ex, setIdx));
+        /* Hevy: tap last time's numbers to take them — the faint figures in
+           the boxes become the real ones without typing */
+        $('.set-prev.can-copy', row)?.addEventListener('click', () => {
+          const p = prev[setIdx] || prev[prev.length - 1];
+          if (!p || set.done) return;
+          if (p.weight != null && showsWeight(ex)) set.weight = p.weight;
+          if (p.reps != null) set.reps = p.reps;
+          haptic('tap');
+          save(); render();
+        });
+        // swipe a set away, with the same undo as everything else
+        swipeToDelete(row, () => {
+          if (ex.sets.length <= 1) { toast('An exercise needs at least one set'); render(); return; }
+          undoable('Set removed', () => { ex.sets.splice(setIdx, 1); });
+        });
         const rpeBtn = $('.set-rpe', row);
         if (rpeBtn) rpeBtn.addEventListener('click', () => openRpeSheet(set));
         /* On a machine you set two of the three and the third follows: give it
@@ -4268,6 +4573,10 @@
             set.done = true;
             set.at = Date.now();          // so a forgotten session can end where it really did
             haptic('tick');
+            /* the exercise's rest starts — except inside a superset, where you
+               go straight on to its partner and rest after the round */
+            const partner = ex.ss && w.exercises[exIdx + 1] && w.exercises[exIdx + 1].ss === ex.ss;
+            if (!w.editingId && restFor(ex) && !partner) startRest(restFor(ex));
             flashSet = exIdx + ':' + setIdx;
             /* Most sets repeat the one before them, so once a set is logged
                the ones under it can be filled from it in a tap rather than
@@ -4393,6 +4702,31 @@
     });
   }
 
+  /* Line icons for the exercise menu — drawn, like everything else, rather
+     than a row of mismatched emoji. */
+  const mi = (d) => '<svg class="mi-ico" viewBox="0 0 24 24" aria-hidden="true">' + d + '</svg>';
+  const MI = {
+    reorder: mi('<path d="M8 4v16M4.5 7.5 8 4l3.5 3.5M16 20V4M12.5 16.5 16 20l3.5-3.5"/>'),
+    rest: mi('<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.6 1.6M9.5 3h5"/>'),
+    up: mi('<path d="M12 19V5M6 11l6-6 6 6"/>'),
+    down: mi('<path d="M12 5v14M6 13l6 6 6-6"/>'),
+    note: mi('<path d="M14.5 4.5h-8a1.5 1.5 0 0 0-1.5 1.5v12a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5v-8"/><path d="m17.5 3.5 3 3-7.5 7.5H10v-3Z"/>'),
+    weight: mi('<path d="M6.5 7.5v9M3.5 9.5v5M17.5 7.5v9M20.5 9.5v5M6.5 12h11"/>'),
+    unit: mi('<path d="M12 4v16M5 20h14M6 8h12M6 8l-3 6a3 3 0 0 0 6 0ZM18 8l-3 6a3 3 0 0 0 6 0Z"/>'),
+    link: mi('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
+    rpe: mi('<path d="M4 20V14M9.3 20V9.5M14.6 20v-7M20 20V4"/>'),
+    swap: mi('<path d="M4 8h14M14 4l4 4-4 4M20 16H6M10 12l-4 4 4 4"/>'),
+    warm: mi('<path d="M12 21c-3.6 0-6-2.4-6-5.6 0-3.9 3.7-5.2 4-9.4 2.5 1.7 3.4 4 3.2 6.2 1-.6 1.6-1.6 1.8-2.8 1.7 1.5 3 3.6 3 6 0 3.2-2.4 5.6-6 5.6Z"/>'),
+    chart: mi('<path d="M4 4v16h16"/><path d="m7.5 14.5 3.5-4 3 3 5-6"/>'),
+    range: mi('<path d="M3.5 12h17M7 8.5 3.5 12 7 15.5M17 8.5l3.5 3.5-3.5 3.5"/>'),
+    edit: mi('<path d="m15.5 4.5 4 4L9 19H5v-4Z"/>'),
+    plus: mi('<path d="M12 5.5v13M5.5 12h13"/>'),
+    right: mi('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+    star: mi('<path d="m12 3.8 2.5 5.2 5.6.7-4.1 3.9 1 5.6-5-2.7-5 2.7 1-5.6-4.1-3.9 5.6-.7Z"/>'),
+    copy: mi('<rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/>'),
+    bin: mi('<path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/>'),
+  };
+
   function openExerciseMenu(exIdx) {
     const w = state.activeWorkout;
     const ex = w.exercises[exIdx];
@@ -4400,19 +4734,21 @@
     const cardioEx = isCardio(ex.exerciseId);
     openSheet(info?.name ?? 'Exercise', `
       <div class="menu-list">
-        <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>↑ &nbsp;Move up</button>
-        <button class="menu-item" data-act="down" ${exIdx === w.exercises.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
-        <button class="menu-item" data-act="note">📝 &nbsp;${ex.note ? 'Edit note' : 'Add note'}</button>
-        ${isBodyweight(ex.exerciseId) ? `<button class="menu-item" data-act="wt">🏋️ &nbsp;${showsWeight(ex) ? 'No added weight' : 'I add weight to this'}</button>` : ''}
-        ${showsWeight(ex) && !cardioEx ? `<button class="menu-item" data-act="unit">⚖ &nbsp;${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>` : ''}
-        ${ex.ss ? `<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>`
-          : exIdx < w.exercises.length - 1 ? `<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>` : ''}
-        ${!cardioEx ? `<button class="menu-item" data-act="rpe">📊 &nbsp;${(exPref(ex.exerciseId).rpe !== undefined ? !!exPref(ex.exerciseId).rpe : (ex.sets.some((st) => st.rpe) || state.settings.trackRpe === true)) ? 'Hide the RPE column here' : 'Track RPE here'}</button>` : ''}
-        <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
-        ${showsWeight(ex) && !cardioEx ? '<button class="menu-item" data-act="warmup">🔥 &nbsp;Add warm-up sets</button>' : ''}
-        ${showsWeight(ex) && !cardioEx ? '<button class="menu-item" data-act="plates">🏋️ &nbsp;Plate calculator</button>' : ''}
-        <button class="menu-item" data-act="detail">📈 &nbsp;Records &amp; history</button>
-        <button class="menu-item danger" data-act="remove">🗑 &nbsp;Remove from workout</button>
+        <button class="menu-item" data-act="reorder" ${w.exercises.length < 2 ? 'disabled' : ''}>${MI.reorder}Reorder exercises</button>
+        <button class="menu-item" data-act="rest">${MI.rest}Rest timer · ${esc(fmtRest(restFor(ex)))}</button>
+        <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>${MI.up}Move up</button>
+        <button class="menu-item" data-act="down" ${exIdx === w.exercises.length - 1 ? 'disabled' : ''}>${MI.down}Move down</button>
+        <button class="menu-item" data-act="note">${MI.note}${ex.note ? 'Edit note' : 'Add note'}</button>
+        ${isBodyweight(ex.exerciseId) ? `<button class="menu-item" data-act="wt">${MI.weight}${showsWeight(ex) ? 'No added weight' : 'I add weight to this'}</button>` : ''}
+        ${showsWeight(ex) && !cardioEx ? `<button class="menu-item" data-act="unit">${MI.unit}${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>` : ''}
+        ${ex.ss ? `<button class="menu-item" data-act="ssbreak">${MI.link}Remove from superset</button>`
+          : exIdx < w.exercises.length - 1 ? `<button class="menu-item" data-act="ss">${MI.link}Superset with next exercise</button>` : ''}
+        ${!cardioEx ? `<button class="menu-item" data-act="rpe">${MI.rpe}${(exPref(ex.exerciseId).rpe !== undefined ? !!exPref(ex.exerciseId).rpe : (ex.sets.some((st) => st.rpe) || state.settings.trackRpe === true)) ? 'Hide the RPE column here' : 'Track RPE here'}</button>` : ''}
+        <button class="menu-item" data-act="replace">${MI.swap}Replace exercise</button>
+        ${showsWeight(ex) && !cardioEx ? '<button class="menu-item" data-act="warmup">' + MI.warm + 'Add warm-up sets</button>' : ''}
+        ${showsWeight(ex) && !cardioEx ? '<button class="menu-item" data-act="plates">' + MI.weight + 'Plate calculator</button>' : ''}
+        <button class="menu-item" data-act="detail">${MI.chart}Records &amp; history</button>
+        <button class="menu-item danger" data-act="remove">${MI.bin}Remove from workout</button>
       </div>
     `, (body) => {
       body.addEventListener('click', (e) => {
@@ -4469,6 +4805,12 @@
             }
             save(); render();
           });
+        } else if (act === 'reorder') {
+          closeSheetNow();
+          openReorderSheet();
+        } else if (act === 'rest') {
+          closeSheetNow();
+          openRestPicker(ex);
         } else if (act === 'note') {
           closeSheetNow();
           openNoteSheet(ex);
@@ -4719,6 +5061,8 @@
           </button>
         </div>
         <button class="ex-line ex-note-line ${ex.note ? 'has' : ''}">${ex.note ? esc(ex.note) : 'Add notes here…'}</button>
+        ${state.activeWorkout && !state.activeWorkout.editingId ? `<button class="ex-line ex-rest-line ${restFor(ex) ? 'has' : ''}" aria-label="Rest timer for this exercise">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.6 1.6M9.5 3h5"/></svg>Rest timer: <b>${fmtRest(restFor(ex))}</b></button>` : ''}
         ${(() => {
           const h = overloadHint(ex);
           if (!h) return '';
@@ -4744,7 +5088,7 @@
                 `<input class="set-input ${cls}" type="number" inputmode="decimal" min="0" step="${step}"
                         value="${val ?? ''}" placeholder="${ph ?? ''}" aria-label="${label}, set ${i + 1}">`;
               return `
-            <div class="set-row ${s.done ? 'logged' : ''}" data-set="${i}">
+            <div class="set-row ${s.done ? 'logged' : ''}${nextSetKey === exIdx + ':' + i ? ' is-next' : ''}" data-set="${i}">
               ${numBtn}
               ${box('in-reps', s.reps, s.target ?? p?.reps ?? '', '1', 'Minutes')}
               ${box('in-kmh', s.kmh, s.targetKmh ?? p?.kmh ?? '', '0.1', 'Speed km/h')}
@@ -4755,9 +5099,9 @@
             }
             const prevTxt = p ? (p.weight ? `${fmtNum(p.weight)}×${p.reps}` : `${p.reps}`) : '—';
             return `
-            <div class="set-row ${s.done ? 'logged' : ''}" data-set="${i}">
+            <div class="set-row ${s.done ? 'logged' : ''}${nextSetKey === exIdx + ':' + i ? ' is-next' : ''}" data-set="${i}">
               ${numBtn}
-              <span class="set-prev">${s.pr ? prIcon('pr-mark pr-inline') + ' ' : ''}${prevTxt}</span>
+              <span class="set-prev${p && !s.done ? ' can-copy' : ''}"${p && !s.done ? ' role="button" tabindex="0" aria-label="Use last time\'s set"' : ''}>${s.pr ? prIcon('pr-mark pr-inline') + ' ' : ''}${prevTxt}</span>
               ${weighted ? `<div class="w-cell">
                 <input class="set-input in-weight" type="number" inputmode="decimal" min="0" step="0.5"
                        value="${toExUnit(s.weight, ex) ?? ''}"
@@ -4855,6 +5199,7 @@
     `, (body) => {
       $('#confirmFinish', body).addEventListener('click', () => {
         w.name = $('#wkName', body).value.trim() || 'Workout';
+        delete w.rest;   // a rest belongs to the session in progress, not the record of it
         const note = $('#wkNote', body).value.trim();
         if (note) w.note = note;
         w.finishedAt = endAt;
@@ -4902,11 +5247,10 @@
         workoutOpen = false;
         haptic('done');
         save(); closeSheet(); closeWkEntry(); render();
-        toast(w.editingId ? 'Changes saved'
-          : prs.length ? prIcon('pr-mark toast-pr') + ` Workout saved — ${prs.length} record${prs.length === 1 ? '' : 's'}`
-          : 'Workout saved', prs.length > 0);
-        // a finished session is the moment the app exists for
-        if (!w.editingId) setTimeout(() => burst($('#toastRoot .toast'), { count: prs.length ? 56 : 36 }), 60);
+        // a finished session is the moment the app exists for: it gets a page
+        // of its own rather than a toast
+        if (w.editingId) toast('Changes saved');
+        else openWorkoutSummary(w, prs);
       });
     });
   }
@@ -5233,19 +5577,19 @@
     const name = exerciseById(ex.exerciseId)?.name ?? 'Exercise';
     openSheet(name, `
       <div class="menu-list">
-        <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>↑ &nbsp;Move up</button>
-        <button class="menu-item" data-act="down" ${exIdx === d.exercises.length - 1 ? 'disabled' : ''}>↓ &nbsp;Move down</button>
-        <button class="menu-item" data-act="note">📝 &nbsp;${ex.note ? 'Edit note' : 'Add note'}</button>
-        ${isCardio(ex.exerciseId) ? '' : `<button class="menu-item" data-act="range">↔ &nbsp;${ex.range ? 'Just one rep number' : 'Aim for a rep range (6–8)'}</button>`}
-        ${isBodyweight(ex.exerciseId) ? `<button class="menu-item" data-act="wt">🏋️ &nbsp;${showsWeight(ex) ? 'No added weight' : 'I add weight to this'}</button>` : ''}
-        ${showsWeight(ex) && !isCardio(ex.exerciseId) ? `<button class="menu-item" data-act="unit">⚖ &nbsp;${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>` : ''}
-        ${ex.ss ? '<button class="menu-item" data-act="ssbreak">⛓ &nbsp;Remove from superset</button>'
-          : exIdx < d.exercises.length - 1 ? '<button class="menu-item" data-act="ss">⛓ &nbsp;Superset with next exercise</button>' : ''}
-        <button class="menu-item" data-act="replace">⇄ &nbsp;Replace exercise</button>
-        ${showsWeight(ex) && !isCardio(ex.exerciseId) ? '<button class="menu-item" data-act="warmup">🔥 &nbsp;Add warm-up sets</button>' : ''}
-        ${showsWeight(ex) && !isCardio(ex.exerciseId) ? '<button class="menu-item" data-act="plates">🏋️ &nbsp;Plate calculator</button>' : ''}
-        <button class="menu-item" data-act="detail">📈 &nbsp;Records &amp; history</button>
-        <button class="menu-item danger" data-act="remove">🗑 &nbsp;Remove from routine</button>
+        <button class="menu-item" data-act="up" ${exIdx === 0 ? 'disabled' : ''}>${MI.up}Move up</button>
+        <button class="menu-item" data-act="down" ${exIdx === d.exercises.length - 1 ? 'disabled' : ''}>${MI.down}Move down</button>
+        <button class="menu-item" data-act="note">${MI.note}${ex.note ? 'Edit note' : 'Add note'}</button>
+        ${isCardio(ex.exerciseId) ? '' : `<button class="menu-item" data-act="range">${MI.range}${ex.range ? 'Just one rep number' : 'Aim for a rep range (6–8)'}</button>`}
+        ${isBodyweight(ex.exerciseId) ? `<button class="menu-item" data-act="wt">${MI.weight}${showsWeight(ex) ? 'No added weight' : 'I add weight to this'}</button>` : ''}
+        ${showsWeight(ex) && !isCardio(ex.exerciseId) ? `<button class="menu-item" data-act="unit">${MI.unit}${exUnit(ex) === unit() ? 'This machine is in ' + OTHER_UNIT() : 'Back to ' + unit()}</button>` : ''}
+        ${ex.ss ? '<button class="menu-item" data-act="ssbreak">' + MI.link + 'Remove from superset</button>'
+          : exIdx < d.exercises.length - 1 ? '<button class="menu-item" data-act="ss">' + MI.link + 'Superset with next exercise</button>' : ''}
+        <button class="menu-item" data-act="replace">${MI.swap}Replace exercise</button>
+        ${showsWeight(ex) && !isCardio(ex.exerciseId) ? '<button class="menu-item" data-act="warmup">' + MI.warm + 'Add warm-up sets</button>' : ''}
+        ${showsWeight(ex) && !isCardio(ex.exerciseId) ? '<button class="menu-item" data-act="plates">' + MI.weight + 'Plate calculator</button>' : ''}
+        <button class="menu-item" data-act="detail">${MI.chart}Records &amp; history</button>
+        <button class="menu-item danger" data-act="remove">${MI.bin}Remove from routine</button>
       </div>`, (body) => {
       body.addEventListener('click', (evt) => {
         const b = evt.target.closest('button[data-act]');

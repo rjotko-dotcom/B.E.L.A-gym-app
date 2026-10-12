@@ -29,6 +29,7 @@ NODE_PATH=$(npm root -g) node tests/run.js
 | `nutrition` | Editing goals, saving a meal and logging it again, one-tap recents |
 | `data` | kg↔lb converting the stored values rather than relabelling them, old backups migrating, destructive actions never using a browser dialog |
 | `design` | Inter loading, equal calendar columns, the sliding tab marker and segment thumbs, sheets leaving through the ghost layer, the logger's progress line, reduced motion turning it all off |
+| `workout` | The rest timer (off by default, per exercise, ±15, skip, survives a reload, ends itself with the long buzz, rests after a superset round, booked as a native notification), tap PREV to copy, swipe a set away with undo, reorder, the closing summary, no emoji in menus |
 | `update` | The service worker actually shipping a new build, and every page still scrolling |
 
 ## Adding one

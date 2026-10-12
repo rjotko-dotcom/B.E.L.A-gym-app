@@ -35,7 +35,7 @@ Target device: Samsung Galaxy S24+, 384×832 CSS px, dark theme.
 ## Tests
 
 ```
-CHROMIUM_PATH=/opt/pw-browsers/chromium npm test            # all (~690 checks)
+CHROMIUM_PATH=/opt/pw-browsers/chromium npm test            # all (~730 checks)
 CHROMIUM_PATH=/opt/pw-browsers/chromium npm test -- logger   # one suite
 ```
 
@@ -84,6 +84,11 @@ check the APK Signing Block certificate fingerprint is
 - `.seg` controls get a `.seg-thumb` appended (last child, so `:first-child` is still the first option) by a MutationObserver; keep an `id` on every `.seg` so a rebuilt one slides from where it was.
 - Confetti (`burst()`) only for a saved workout and for closing the day's habits *here and now* — not for opening the app on a day already closed.
 - The tab bar is glass and its height is fixed at 79px over the inset — the mini workout bar and home's fit are measured against it.
+- **Rest timer (16.1)** is back, Hevy's way and **off by default**: per exercise (`exPrefs[id].rest`, seconds), chosen from the card's "Rest timer" line or the ⋯ menu; logging a set starts it (not between superset partners — after the round). The running rest is a fixed end time in `activeWorkout.rest = { endAt, total }`, so a reload or a locked phone loses nothing; on the installed app the end is booked as notification 8802 on its own `rest` channel (importance 4, vibrates) and cancelled on skip/adjust/finish. Nothing counts down unless he gave that exercise a rest (an earlier timer was removed; why is not recorded — `tests/logger.test.js` still checks nothing counts down by default).
+- The logger's set rows are real rows (`.set-grid > .set-row` is a subgrid), so they tint when logged (`::before`), mark the next set (`.is-next`), and swipe left to delete with undo. Tapping the PREV figure copies last time's set in.
+- Saving a new session opens "Workout complete" (not a toast); editing a saved one still toasts "Changes saved".
+- Menus draw their icons (`MI` in `js/app.js`) — no emoji in menus.
+- Launch logo: `res/drawable/splash_mark.xml` (vector, same placement as the launcher foreground). The old splash stretched a 432px PNG to ~720px and looked soft.
 - Tab swipe stands down inside anything in `OWN_GESTURE` (`.slot-card`, `.wk-plan`, `.hbh-row`, sheets…); add a selector there rather than fighting it.
 
 ## Where things are
@@ -100,6 +105,7 @@ check the APK Signing Block certificate fingerprint is
 
 Add a line when you ship. Say what changed and why, not the diff.
 
+- **16.1** (C) — the workout screen, after he asked for Hevy's functions: per-exercise rest timer with a floating panel (−15 / +15 / Skip, "next: set 2 · Bench"), a clock in the logger's bar for a rest by hand, the countdown in the mini bar, a booked notification for the end of a rest on the installed app; tap PREV to copy last time's set; swipe a set away (undo); the next set marked; reorder the whole session from the ⋯ menu; a "Workout complete" page after saving (Nth workout, four figures, best set per exercise, confetti). Visual: rows tinted green when logged, rounded-square ticks, lighter inputs, "Add exercise" as the primary button, drawn menu icons. Launch logo now a vector — it was pixelated. New suite `tests/workout.test.js`.
 - **16.0** (session C — the design pass, asked for with "full freedom" to make it look and feel professional) — Inter bundled; dark cards lit from above, light cards on soft shadows; glass tab bar with one marker that slides between tabs; sheets on their own surface with a scrim, sprung in and played out; blocks rise in on arriving at a tab; every bar and ring fills from its last value; segmented controls get a sliding thumb; charts draw themselves (line traces, points pop, bars grow; past weeks a step quieter); ticks draw in; confetti for a saved workout and for closing the day; empty states with a mark; the logger's ⋯ is a real button and a hairline under its figures fills as sets are logged ("Save as routine" is a switch). Fixed: the calories card centred its text (it is a button), the habits calendar's first three columns were wider, the backup nudge's title was grey. Monochrome + one green kept; the green is still only for "reached" (the logger's line turns green only when every set is in). Rest timer deliberately not brought back. New suite `tests/design.test.js`.
 - **15.5** (session A) — the one-tap food strip under each meal scrolls sideways only (`touch-action: pan-x`, `overscroll-behavior-x: contain`), bleeds to the card edge with snap and an edge fade while there is more, shows full names with CSS ellipsis, and holds six recents. A vertical drag on it used to scroll the page.
 - **15.2–15.4** (session B) — the **Info** tab (`bela` in `TAB_ORDER`): the PC's feed inside the app via a relay (`js/bela-feed.js`), the app's own notifications, filter chips and kind labels; `privacy.html`, `terms.html`, `enablebanking.html`; WebView scrollbars disabled in `MainActivity`. He reviewed it on the phone and cut it back: **no Home card, no page heading** — Info is the chips and the feed, nothing else, and the connection status lives in the feed sheet under Settings. New reads bright with the left mark, seen has the ink turned down, and leaving the tab is what marks it read, so the distinction survives while you are looking at it. The tab carries an unread count, hidden while you are on it.
