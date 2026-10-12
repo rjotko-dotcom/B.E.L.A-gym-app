@@ -14,7 +14,7 @@ A gym + nutrition + habits app, one codebase, three places it runs:
 | Android | signed APK on the repo's Releases page | built by `.github/workflows/android.yml` on every push to this branch |
 | PC | `pc/bela-sync.js` (run with `node`) | LAN sync of the whole document; see `pc/README.md` |
 
-Plain HTML/CSS/JS, no build step. One IIFE in `js/app.js`; state is one
+Plain HTML/CSS/JS, no build step. One IIFE in `js/app.js`, with its pure parts in `js/format.js`, `js/motion.js`, `js/charts.js` (loaded first, taken from `window` at the top of app.js) and data in `js/exercises.js`, `js/exercise-guide.js`, `js/programs.js`, `js/muscle-map.js`, `js/foods.js`; state is one
 localStorage document under `bela-gym-v1`; `js/sync.js` is the merge and is
 byte-identical to `pc/sync.js` (tests fail if it drifts). The Android shell is
 Capacitor 8 in `android/`, loading `dist/` which `tools/build-web.mjs` assembles.
@@ -35,7 +35,7 @@ Target device: Samsung Galaxy S24+, 384×832 CSS px, dark theme.
 ## Tests
 
 ```
-CHROMIUM_PATH=/opt/pw-browsers/chromium npm test            # all (~740 checks)
+CHROMIUM_PATH=/opt/pw-browsers/chromium npm test            # all (~860 checks)
 CHROMIUM_PATH=/opt/pw-browsers/chromium npm test -- logger   # one suite
 ```
 
@@ -90,6 +90,10 @@ check the APK Signing Block certificate fingerprint is
 - Menus draw their icons (`MI` in `js/app.js`) — no emoji in menus.
 - Launch logo: `res/drawable/splash_mark.xml` (vector, same placement as the launcher foreground). The old splash stretched a 432px PNG to ~720px and looked soft.
 - Tab swipe stands down inside anything in `OWN_GESTURE` (`.slot-card`, `.wk-plan`, `.hbh-row`, sheets…); add a selector there rather than fighting it.
+- **16.2 additions.** New preferences live in `state.settings` or `exPrefs` because unknown top-level keys do not sync: `settings.program {id,startedAt,tm}` (program routines are templates with id `prog:<id>:<day>`), `settings.numPad` (custom number pad, on by default; inputs become `type=text inputmode=none`), `settings.streakFreeze` (one missed day per Mon–Sun week passes), `settings.autoBackup`/`lastAutoBackup` (weekly file in Documents/BELA, newest eight kept; a PC sync also counts as a backup), `settings.health` (Health Connect), `exPrefs[id].deloadUntil`. Habit reminders are notifications 9100–9799 on the `habits` channel, re-booked only when the list changes.
+- **Native (16.2):** minSdk is **26** (Health Connect plugin needs it). Plugins: share, filesystem, `@capgo/capacitor-health` (reads steps/sleep/weight, writes weight; privacy policy anchor `privacy.html#health`), plus our own `BelaWidget` plugin in `android/.../BelaWidgetPlugin.java` for the home-screen widget (`BelaWidget.java`, `res/layout/widget_today.xml`). The page sends the widget its figures only when they change; a widget button sets an intent extra that the page collects with `takeLaunch()` (cold start) or on a `belaGo` window event (running) and routes through `goTo()`, the same path as `?go=` shortcuts. The workout notification has actions (+15 s, Skip, Log next set) handled without opening the app.
+- Wide screens (≥900px): the tab bar becomes a left sidebar and sheets open as centred dialogs.
+- The muscle map is an anatomical "hologram" (`js/muscle-map.js`); it was asked to look like the PC app's body view, which no session here can see — if a screenshot turns up, match it.
 
 ## Where things are
 
@@ -105,6 +109,7 @@ check the APK Signing Block certificate fingerprint is
 
 Add a line when you ship. Say what changed and why, not the diff.
 
+- **16.2** (C) — "add everything" from the suggestions list: programs (PPL, upper/lower, full body, 5/3/1 with a training max) that fill in the weights, stalled lifts spotted with a one-tap deload, an insights card; exercise instructions for all 141 exercises; a muscle map redrawn as a holographic anatomy figure; a custom number pad in the logger; a 1080×1350 share card for a session; meal timing, protein per meal, weekly average, recipe builder; habit reminders and streak protection; wide-screen layout; weekly automatic backup file; notification actions; Health Connect (steps, sleep, weight both ways); a home-screen widget. `app.js` split: format/motion/charts in their own files. New suites programs, pad, share, nutrition2, habits2, backup, notify, health, widget.
 - **16.1** (C) — the workout screen, after he asked for Hevy's functions: per-exercise rest timer with a floating panel (−15 / +15 / Skip, "next: set 2 · Bench"), a clock in the logger's bar for a rest by hand, the countdown in the mini bar, a booked notification for the end of a rest on the installed app; tap PREV to copy last time's set; swipe a set away (undo); the next set marked; reorder the whole session from the ⋯ menu; a "Workout complete" page after saving (Nth workout, four figures, best set per exercise, confetti). Visual: rows tinted green when logged, rounded-square ticks, lighter inputs, "Add exercise" as the primary button, drawn menu icons. Launch logo now a vector — it was pixelated. New suites `tests/workout.test.js` and `tests/layout.test.js` (measures every screen for overlaps, spilled text and content hidden behind the bars — 360/384/412 px and large text; it caught "Shoulders" running into its bar at large text).
 - **16.0** (session C — the design pass, asked for with "full freedom" to make it look and feel professional) — Inter bundled; dark cards lit from above, light cards on soft shadows; glass tab bar with one marker that slides between tabs; sheets on their own surface with a scrim, sprung in and played out; blocks rise in on arriving at a tab; every bar and ring fills from its last value; segmented controls get a sliding thumb; charts draw themselves (line traces, points pop, bars grow; past weeks a step quieter); ticks draw in; confetti for a saved workout and for closing the day; empty states with a mark; the logger's ⋯ is a real button and a hairline under its figures fills as sets are logged ("Save as routine" is a switch). Fixed: the calories card centred its text (it is a button), the habits calendar's first three columns were wider, the backup nudge's title was grey. Monochrome + one green kept; the green is still only for "reached" (the logger's line turns green only when every set is in). Rest timer deliberately not brought back. New suite `tests/design.test.js`.
 - **15.5** (session A) — the one-tap food strip under each meal scrolls sideways only (`touch-action: pan-x`, `overscroll-behavior-x: contain`), bleeds to the card edge with snap and an edge fade while there is more, shows full names with CSS ellipsis, and holds six recents. A vertical drag on it used to scroll the page.
