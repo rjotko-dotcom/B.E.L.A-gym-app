@@ -9314,22 +9314,76 @@
   }
 
   /* Holding the app icon on Android offers these; each one lands here with a
-     ?go= and is taken straight to the thing rather than to home. */
+     ?go= and is taken straight to the thing rather than to home. The
+     home-screen widget's buttons arrive the same way, through goTo(). */
   function checkShortcut() {
     const go = new URLSearchParams(location.search).get('go');
     if (!go) return;
     history.replaceState(history.state, '', location.pathname);
+    goTo(go);
+  }
+  function goTo(go) {
     if (go === 'workout') {
+      if (state.activeWorkout) { workoutOpen = true; openWkEntry(); goTab('workout'); return; }
+      // the day's planned session starts at once, as from home
+      const planned = plannedFor(todayIndex());
+      const trained = state.workouts.some((w) => dateKey(new Date(w.startedAt)) === dateKey());
+      if (planned && !planned.rest && !trained) { startWorkout(planned.id); return; }
       goTab('workout');
-      if (!state.activeWorkout) setTimeout(() => $('#startEmpty')?.click(), 60);
+      setTimeout(() => $('#startEmpty')?.click(), 60);
     } else if (go === 'meal') {
       goTab('meals');
       setTimeout(() => $('#addMeal')?.click(), 60);
     } else if (go === 'weight') {
       goTab('home');
       setTimeout(() => openWeightSheet(), 60);
+    } else if (go === 'habits') {
+      goTab('habits');
+    } else if (go === 'nutrition') {
+      goTab('meals');
     }
   }
+
+  /* The home-screen widget: today's calories and habits, and the button
+     says what starting would start. Handed to the native side whenever it
+     comes out different, never more than once a second. */
+  let widgetSig = null, widgetTimer = null;
+  function widgetData() {
+    const key = dateKey();
+    const kcal = Math.round(dayTotals(key).kcal);
+    const goal = state.nutrition.targets.kcal || 0;
+    const { done, total } = habitsDone(key);
+    const planned = plannedFor(todayIndex());
+    const trained = state.workouts.some((w) => dateKey(new Date(w.startedAt)) === key);
+    return {
+      date: new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }),
+      kcal, kcalGoal: goal, kcalDone: goalState(kcal, goal, 'kcal') === 'done',
+      habitsDone: done, habitsTotal: total,
+      start: state.activeWorkout ? 'Resume workout'
+        : planned && !planned.rest && !trained ? 'Start ' + planned.name
+        : 'Start workout',
+    };
+  }
+  function pushWidget() {
+    const W = nativePlugin('BelaWidget');
+    if (!W || !native()) return;
+    clearTimeout(widgetTimer);
+    widgetTimer = setTimeout(() => {
+      const data = JSON.stringify(widgetData());
+      if (data === widgetSig) return;
+      widgetSig = data;
+      Promise.resolve(W.update({ data })).catch(() => { widgetSig = null; });
+    }, 1000);
+  }
+  /* A widget button that opened the app, or brought it back to the front. */
+  function takeWidgetLaunch() {
+    const W = nativePlugin('BelaWidget');
+    if (!W || !native()) return;
+    Promise.resolve(W.takeLaunch()).then((r) => { if (r && r.go) goTo(r.go); }).catch(() => {});
+  }
+  window.addEventListener('belaGo', takeWidgetLaunch);
+  // the date on it turns over at midnight even if nothing else happens
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) pushWidget(); });
 
   /* ---------------- swipe between tabs ---------------- */
 
@@ -9483,6 +9537,7 @@
     rollNumbers();
     celebrateIfDue();
     syncReminders();
+    pushWidget();
     // a long page: the title is the way back up
     const head = $('#view h2');
     if (head) head.addEventListener('click', () => {
@@ -9517,6 +9572,8 @@
   if (needsSetup()) setTimeout(openSetup, 350 + splashWait);
   else if (workoutStale(state.activeWorkout)) setTimeout(checkStaleWorkout, 350 + splashWait);
   checkShortcut();
+  // sheets wait for the mark, as above
+  setTimeout(takeWidgetLaunch, 350 + splashWait);
   checkSharedImport();
   checkForUpdateSoon();
   settleLayout();

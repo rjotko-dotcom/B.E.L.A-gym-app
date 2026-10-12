@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Today, on the home screen. Monochrome like the app; the bars turn green
+     when a goal is reached, the only colour, as in the app. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/w_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="16dp">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:text="B.E.L.A" android:textColor="#F5F5F4" android:textSize="13sp" android:textStyle="bold" android:letterSpacing="0.06" />
+        <TextView android:id="@+id/w_date" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="#7C7C77" android:textSize="12sp" />
+    </LinearLayout>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:orientation="horizontal" android:layout_marginTop="10dp">
+
+        <LinearLayout android:id="@+id/w_kcal_box" android:layout_width="0dp" android:layout_weight="1.35" android:layout_height="match_parent"
+            android:orientation="vertical" android:gravity="center_vertical" android:layout_marginEnd="14dp">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="CALORIES"
+                android:textColor="#7C7C77" android:textSize="10sp" android:letterSpacing="0.12" android:textStyle="bold" />
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="bottom">
+                <TextView android:id="@+id/w_kcal" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="0" android:textColor="#F5F5F4" android:textSize="22sp" android:textStyle="bold" />
+                <TextView android:id="@+id/w_kcal_goal" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="#7C7C77" android:textSize="12sp" android:layout_marginBottom="3dp" />
+            </LinearLayout>
+            <ProgressBar android:id="@+id/w_kcal_bar" style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent" android:layout_height="5dp" android:layout_marginTop="6dp"
+                android:max="100" android:progressDrawable="@drawable/widget_bar" />
+            <ProgressBar android:id="@+id/w_kcal_bar_done" style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent" android:layout_height="5dp" android:layout_marginTop="6dp"
+                android:max="100" android:progressDrawable="@drawable/widget_bar_done" android:visibility="gone" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/w_habits_box" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent"
+            android:orientation="vertical" android:gravity="center_vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="HABITS"
+                android:textColor="#7C7C77" android:textSize="10sp" android:letterSpacing="0.12" android:textStyle="bold" />
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="bottom">
+                <TextView android:id="@+id/w_habits" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="0" android:textColor="#F5F5F4" android:textSize="22sp" android:textStyle="bold" />
+                <TextView android:id="@+id/w_habits_total" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textColor="#7C7C77" android:textSize="12sp" android:layout_marginBottom="3dp" />
+            </LinearLayout>
+            <ProgressBar android:id="@+id/w_habits_bar" style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent" android:layout_height="5dp" android:layout_marginTop="6dp"
+                android:max="100" android:progressDrawable="@drawable/widget_bar" />
+            <ProgressBar android:id="@+id/w_habits_bar_done" style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent" android:layout_height="5dp" android:layout_marginTop="6dp"
+                android:max="100" android:progressDrawable="@drawable/widget_bar_done" android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="12dp">
+        <TextView android:id="@+id/w_start" android:layout_width="0dp" android:layout_weight="1.35" android:layout_height="38dp"
+            android:background="@drawable/widget_pill" android:gravity="center" android:text="Start workout"
+            android:textColor="#000000" android:textSize="13sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"
+            android:paddingStart="10dp" android:paddingEnd="10dp" android:layout_marginEnd="8dp" />
+        <TextView android:id="@+id/w_meal" android:layout_width="0dp" android:layout_weight="1" android:layout_height="38dp"
+            android:background="@drawable/widget_pill_outline" android:gravity="center" android:text="Log meal"
+            android:textColor="#F5F5F4" android:textSize="13sp" android:textStyle="bold" android:maxLines="1" />
+    </LinearLayout>
+</LinearLayout>

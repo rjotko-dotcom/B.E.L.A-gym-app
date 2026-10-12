@@ -1,5 +1,6 @@
 package com.rjotko.bela;
 
+import android.content.Intent;
 import android.os.Bundle;
 
 import androidx.core.splashscreen.SplashScreen;
@@ -30,6 +31,8 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(BelaWidgetPlugin.class);
+        takeWidgetIntent(getIntent());
         SplashScreen splash = SplashScreen.installSplashScreen(this);
         startedAt = System.currentTimeMillis();
         splash.setKeepOnScreenCondition(
@@ -41,5 +44,24 @@ public class MainActivity extends BridgeActivity {
         // Same rule as the page: none, anywhere.
         getBridge().getWebView().setVerticalScrollBarEnabled(false);
         getBridge().getWebView().setHorizontalScrollBarEnabled(false);
+    }
+
+    /** A widget button opened (or brought back) the app: remember what it
+     *  asked for, and tell a page that is already running. A cold start asks
+     *  for it itself once it has loaded (BelaWidget.takeLaunch). */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (takeWidgetIntent(intent) && getBridge() != null) {
+            getBridge().triggerWindowJSEvent("belaGo");
+        }
+    }
+
+    private boolean takeWidgetIntent(Intent intent) {
+        String go = intent != null ? intent.getStringExtra(BelaWidget.EXTRA_GO) : null;
+        if (go == null) return false;
+        BelaWidgetPlugin.pendingGo = go;
+        intent.removeExtra(BelaWidget.EXTRA_GO);
+        return true;
     }
 }

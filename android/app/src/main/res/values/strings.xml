@@ -6,4 +6,5 @@
     <string name="custom_url_scheme">com.rjotko.bela</string>
     <!-- shown when Health Connect asks how B.E.L.A uses health data -->
     <string name="health_connect_privacy_policy_url">https://rjotko-dotcom.github.io/B.E.L.A-gym-app/privacy.html#health</string>
+    <string name="widget_today_desc">Calories and habits for today, with a tap to start the planned session or log a meal</string>
 </resources>
