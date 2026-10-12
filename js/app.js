@@ -3011,8 +3011,8 @@
         const pGoal = mealProteinGoal();
         const pNote = items.length && slot !== 'snacks' && pGoal
           ? (sum('protein') >= pGoal
-            ? '<span class="slot-pro is-hit" title="Protein for this meal">' + Math.round(sum('protein')) + ' g protein ✓</span>'
-            : '<span class="slot-pro">' + Math.round(sum('protein')) + ' / ' + pGoal + ' g protein</span>')
+            ? '<em class="slot-pro is-hit" title="Protein for this meal">' + Math.round(sum('protein')) + ' g protein ✓</em>'
+            : '<em class="slot-pro">' + Math.round(sum('protein')) + ' / ' + pGoal + ' g protein</em>')
           : '';
         return '<div class="card slot-card">' +
           '<div class="slot-head">' +
