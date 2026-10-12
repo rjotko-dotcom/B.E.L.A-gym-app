@@ -2769,32 +2769,61 @@ body:has(.rest-panel) .toast-root { bottom: calc(var(--safe-bot, env(safe-area-i
    runs into its bar on a phone set to large text */
 .mb-row { grid-template-columns: minmax(68px, 5.4em) 1fr 26px; }
 
-/* ---------- the muscle map ---------- */
-.mm-wrap { margin: 4px 0 6px; }
-.mm-svg { display: block; width: 100%; max-width: 340px; height: auto; margin: 0 auto; }
-.mm-n { fill: var(--surface-2); }
-.mm-m { stroke: var(--card-edge-solid, var(--page)); stroke-width: 0.7; cursor: pointer; transition: fill var(--t-slow) var(--ease-out), opacity var(--t-fast) ease; }
-.mm-m.l0 { fill: var(--surface-3); }
-.mm-m.l1 { fill: color-mix(in srgb, var(--ink-1) 28%, var(--surface-3)); }
-.mm-m.l2 { fill: color-mix(in srgb, var(--ink-1) 52%, var(--surface-3)); }
-.mm-m.l3 { fill: color-mix(in srgb, var(--ink-1) 82%, var(--surface-3)); }
-.mm-m.l4 { fill: var(--done); }
-.mm-m.is-picked { stroke: var(--ink-1); stroke-width: 1.4; }
-.mm-lbl { fill: var(--ink-muted); font: 600 6.6px Inter, system-ui, sans-serif; letter-spacing: 0.12em; text-anchor: middle; text-transform: uppercase; }
-.mm-cap { text-align: center; color: var(--ink-2); font-size: 0.78rem; font-weight: 550; margin-top: 6px; min-height: 1.2em; }
+/* ---------- the muscle map: a hologram ----------
+   Lines that glow, a faint fill, scanlines and a slow sweep of light inside
+   the body, a ring of light under the feet. --holo is the light it is made
+   of: the ink, so it is white on black and graphite on paper. Trained
+   muscles take more of it; ten sets in a week turns one green. */
+.mm-wrap { margin: 2px 0 6px; --holo: var(--ink-1); }
+.mm-svg { display: block; width: 100%; max-width: 330px; height: auto; margin: 0 auto; overflow: visible; }
+.mm-n { fill: color-mix(in srgb, var(--holo) 4%, transparent); stroke: color-mix(in srgb, var(--holo) 22%, transparent); stroke-width: 0.9; }
+.mm-m {
+  stroke: color-mix(in srgb, var(--holo) 34%, transparent); stroke-width: 0.9; stroke-linejoin: round; cursor: pointer;
+  transition: fill var(--t-slow) var(--ease-out), stroke var(--t-slow) var(--ease-out), filter var(--t-slow) ease;
+}
+.mm-m.l0 { fill: color-mix(in srgb, var(--holo) 5%, transparent); }
+.mm-m.l1 { fill: color-mix(in srgb, var(--holo) 20%, transparent); stroke: color-mix(in srgb, var(--holo) 50%, transparent); }
+.mm-m.l2 { fill: color-mix(in srgb, var(--holo) 38%, transparent); stroke: color-mix(in srgb, var(--holo) 66%, transparent);
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--holo) 35%, transparent)); }
+.mm-m.l3 { fill: color-mix(in srgb, var(--holo) 66%, transparent); stroke: var(--holo);
+  filter: drop-shadow(0 0 3.5px color-mix(in srgb, var(--holo) 55%, transparent)); }
+.mm-m.l4 { fill: color-mix(in srgb, var(--done) 72%, transparent); stroke: var(--done);
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--done) 70%, transparent)); }
+.mm-m.is-picked { stroke: var(--holo); stroke-width: 2; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--holo) 70%, transparent)); }
+.mm-detail path { fill: none; stroke: color-mix(in srgb, var(--holo) 16%, transparent); stroke-width: 0.7; stroke-linecap: round; pointer-events: none; }
+.mm-holo { pointer-events: none; }
+.mm-scanline { fill: color-mix(in srgb, var(--holo) 7%, transparent); }
+.mm-sweep-a { stop-color: var(--holo); stop-opacity: 0; }
+.mm-sweep-b { stop-color: var(--holo); stop-opacity: 0.16; }
+.mm-sweep { animation: mm-sweep 4.8s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+@keyframes mm-sweep { 0% { transform: translateY(0); } 70%, 100% { transform: translateY(480px); } }
+.mm-floor { fill: color-mix(in srgb, var(--holo) 7%, transparent); }
+.mm-floor-ring { fill: none; stroke: color-mix(in srgb, var(--holo) 30%, transparent); stroke-width: 0.9;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--holo) 45%, transparent)); }
+.mm-body { filter: drop-shadow(0 0 1.2px color-mix(in srgb, var(--holo) 25%, transparent)); }
+.mm-lbl { fill: var(--ink-muted); font: 600 11px Inter, system-ui, sans-serif; letter-spacing: 0.16em; text-anchor: middle; text-transform: uppercase; }
+.mm-cap { text-align: center; color: var(--ink-2); font-size: 0.78rem; font-weight: 550; margin-top: 8px; min-height: 1.2em; }
 .mm-legend { display: flex; justify-content: center; gap: 12px; margin: 8px 0 14px; color: var(--ink-muted); font-size: 0.66rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .mm-legend span { display: inline-flex; align-items: center; gap: 5px; }
-.mm-legend i { width: 9px; height: 9px; border-radius: 3px; display: block; }
-.mm-legend i.l1 { background: color-mix(in srgb, var(--ink-1) 28%, var(--surface-3)); }
-.mm-legend i.l2 { background: color-mix(in srgb, var(--ink-1) 52%, var(--surface-3)); }
-.mm-legend i.l3 { background: color-mix(in srgb, var(--ink-1) 82%, var(--surface-3)); }
-.mm-legend i.l4 { background: var(--done); }
-.sm-map { margin: 16px 0 4px; padding: 14px 10px 10px; border-radius: 18px; background: var(--surface-1); border: 1px solid var(--card-edge); }
-.sm-map .mm-svg { max-width: 280px; }
+.mm-legend i { width: 9px; height: 9px; border-radius: 3px; display: block; border: 1px solid color-mix(in srgb, var(--ink-1) 40%, transparent); }
+.mm-legend i.l1 { background: color-mix(in srgb, var(--ink-1) 20%, transparent); }
+.mm-legend i.l2 { background: color-mix(in srgb, var(--ink-1) 38%, transparent); }
+.mm-legend i.l3 { background: color-mix(in srgb, var(--ink-1) 66%, transparent); }
+.mm-legend i.l4 { background: var(--done); border-color: var(--done); box-shadow: 0 0 6px color-mix(in srgb, var(--done) 60%, transparent); }
+/* the card it sits in gets a little depth: a glow rising from the floor */
+.mb-card .mm-wrap, .sm-map .mm-wrap {
+  background: radial-gradient(60% 40% at 50% 92%, color-mix(in srgb, var(--ink-1) 7%, transparent), transparent 70%);
+  border-radius: 18px; padding-top: 6px;
+}
+.sm-map { margin: 16px 0 4px; padding: 10px 8px 8px; border-radius: 18px; background: var(--surface-1); border: 1px solid var(--card-edge); }
+.sm-map .mm-svg { max-width: 270px; }
+@media (prefers-reduced-motion: reduce) { .mm-sweep { animation: none; opacity: 0; } .mm-m { transition: none; } }
 
 /* ---------- an exercise's guide ---------- */
 .ex-guide { display: flex; align-items: center; gap: 14px; padding: 12px 14px; margin-bottom: 14px; border-radius: 18px; background: var(--surface-1); border: 1px solid var(--card-edge); }
-.ex-guide .mm-small { width: 116px; max-width: 116px; flex-shrink: 0; margin: 0; cursor: default; }
+.ex-guide { --holo: var(--ink-1); }
+.ex-guide .mm-small { width: 120px; max-width: 120px; flex-shrink: 0; margin: 0; cursor: default; }
+.ex-guide .mm-floor, .ex-guide .mm-floor-ring { display: none; }
 .ex-guide .mm-m { cursor: default; }
 .exg-works { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .exg-works b { font-size: 0.92rem; font-weight: 650; margin-bottom: 8px; }
