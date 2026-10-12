@@ -4578,6 +4578,158 @@
     });
   }
 
+  /* -------- the number pad --------
+     Hevy's keypad, B.E.L.A's look: the boxes in a set row take their
+     numbers from a pad that knows what they are — ± a plate's step for a
+     weight, one for reps — can copy the set above, and moves on to the next
+     box by itself. The input stays a real input: the pad writes into it and
+     fires the same 'input' event typing would, so saving works unchanged.
+     It opens on a tap, so a value filled in any other way never summons it. */
+  const PAD_FIELDS = ['weight', 'reps', 'kmh', 'incl'];
+  let pad = null;            // { ex, set, field, fresh }
+  const padOn = () => state.settings.numPad !== false;
+  const padInput = (t = pad) => t && $('#workoutRoot .ex-block[data-ex="' + t.ex + '"] .set-row[data-set="' + t.set + '"] .in-' + t.field);
+  function padStep(t) {
+    const ex = state.activeWorkout?.exercises[t.ex];
+    if (!ex) return 1;
+    if (isCardio(ex.exerciseId)) return { reps: 1, kmh: 0.5, incl: 0.5, weight: 0.1 }[t.field] || 1;
+    if (t.field !== 'weight') return 1;
+    return exUnit(ex) === 'lb' ? 5 : 2.5;
+  }
+  function padLabel(t) {
+    const ex = state.activeWorkout?.exercises[t.ex];
+    if (!ex) return '';
+    const cardio = isCardio(ex.exerciseId);
+    const what = cardio ? { reps: 'Minutes', kmh: 'Speed', incl: 'Incline', weight: 'Distance' }[t.field]
+      : t.field === 'weight' ? 'Weight · ' + exUnit(ex) : 'Reps';
+    return what + ' · set ' + numbersFor(ex)[t.set];
+  }
+  function openPad(t) {
+    pad = { ...t, fresh: true };
+    let el = $('#numPad');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'numPad';
+      el.className = 'num-pad';
+      el.setAttribute('role', 'group');
+      el.setAttribute('aria-label', 'Number pad');
+      el.innerHTML =
+        '<div class="np-head"><span id="npLabel"></span><button class="np-done" data-k="done">Done</button></div>' +
+        '<div class="np-keys">' +
+          ['1', '2', '3', 'minus', '4', '5', '6', 'plus', '7', '8', '9', 'same', '.', '0', 'back', 'next'].map((k) =>
+            '<button class="np-key np-' + (/^\d$|^\.$/.test(k) ? 'digit' : k) + '" data-k="' + k + '"' +
+              (k === 'back' ? ' aria-label="Delete"' : k === 'minus' ? ' aria-label="Step down"' : k === 'plus' ? ' aria-label="Step up"' : '') + '>' +
+              ({ minus: '−', plus: '+', same: 'Same', next: 'Next', back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h10a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 18H9l-5.5-6Z"/><path d="m11.5 9.5 5 5M16.5 9.5l-5 5"/></svg>' }[k] || k) +
+            '</button>').join('') +
+        '</div>';
+      // pointerdown, not click: the input must keep its focus while a key is pressed
+      el.addEventListener('pointerdown', (e) => {
+        const b = e.target.closest('[data-k]');
+        e.preventDefault();
+        if (b) padKey(b.dataset.k, b);
+      });
+      document.body.appendChild(el);
+      void el.offsetWidth;
+    }
+    document.body.classList.add('pad-open');
+    el.classList.add('is-open');
+    paintPad();
+    haptic('tap');
+  }
+  function closePad() {
+    pad = null;
+    document.body.classList.remove('pad-open');
+    $('#numPad')?.classList.remove('is-open');
+    $$('#workoutRoot .is-padded').forEach((x) => x.classList.remove('is-padded'));
+  }
+  /* mark the box being typed into, and keep it above the pad */
+  function paintPad() {
+    if (!pad) return;
+    const input = padInput();
+    if (!input) { closePad(); return; }
+    $$('#workoutRoot .is-padded').forEach((x) => x.classList.remove('is-padded'));
+    input.classList.add('is-padded');
+    $('#npLabel').textContent = padLabel(pad);
+    const body = $('#workoutRoot .wk-body');
+    const padTop = $('#numPad').getBoundingClientRect().top || innerHeight * 0.6;
+    const r = input.getBoundingClientRect();
+    if (body && (r.bottom > padTop - 16 || r.top < 120)) body.scrollTop += r.bottom - (padTop - 90);
+  }
+  function padWrite(input, value) {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  function padKey(k, btn) {
+    const input = padInput();
+    if (!input || !pad) { closePad(); return; }
+    btn.classList.remove('is-hit'); void btn.offsetWidth; btn.classList.add('is-hit');
+    haptic('tap');
+    const cur = input.value;
+    if (/^\d$/.test(k) || k === '.') {
+      let next = pad.fresh ? '' : cur;
+      if (k === '.' && (next.includes('.') || pad.field === 'reps' && !isCardio(state.activeWorkout.exercises[pad.ex].exerciseId))) return;
+      next = (next === '0' && k !== '.' ? '' : next) + k;
+      if (next.replace('.', '').length > 6) return;
+      pad.fresh = false;
+      padWrite(input, next);
+    } else if (k === 'back') {
+      pad.fresh = false;
+      padWrite(input, cur.slice(0, -1));
+    } else if (k === 'minus' || k === 'plus') {
+      const base = cur !== '' ? Number(cur) : Number(input.placeholder.split('-')[0].replace('+', '')) || 0;
+      const step = padStep(pad);
+      const v = Math.max(0, Math.round((base + (k === 'plus' ? step : -step)) * 100) / 100);
+      pad.fresh = false;
+      padWrite(input, String(v));
+    } else if (k === 'same') {
+      // the set above, or what was there last time
+      const above = pad.set > 0 && padInput({ ...pad, set: pad.set - 1 });
+      const v = (above && (above.value || above.placeholder)) || input.placeholder;
+      const n = parseFloat(String(v).split('-')[0]);
+      if (Number.isFinite(n)) { padWrite(input, String(n)); pad.fresh = false; }
+    } else if (k === 'next') {
+      padNext();
+    } else if (k === 'done') {
+      closePad();
+      input.blur();
+    }
+  }
+  /* weight → reps → the next set's weight; past the last set, the pad goes */
+  function padNext() {
+    const ex = state.activeWorkout?.exercises[pad.ex];
+    const row = padInput()?.closest('.set-row');
+    const order = PAD_FIELDS.filter((f) => row && $('.in-' + f, row));
+    const at = order.indexOf(pad.field);
+    if (at < order.length - 1) pad = { ...pad, field: order[at + 1], fresh: true };
+    else if (ex && pad.set < ex.sets.length - 1) pad = { ...pad, set: pad.set + 1, field: order[0], fresh: true };
+    else { closePad(); return; }
+    padInput()?.focus({ preventScroll: true });
+    paintPad();
+  }
+  function wirePad(root) {
+    if (!padOn()) { closePad(); return; }
+    $$('.set-row .set-input', root).forEach((input) => {
+      input.setAttribute('inputmode', 'none');
+      // a number box throws away a half-typed "97." — the pad only ever
+      // writes digits and one point, so a plain text box is safe here
+      input.type = 'text';
+      input.addEventListener('click', () => {
+        const row = input.closest('.set-row'), block = input.closest('.ex-block');
+        const field = PAD_FIELDS.find((f) => input.classList.contains('in-' + f));
+        if (!row || !block || !field) return;
+        openPad({ ex: Number(block.dataset.ex), set: Number(row.dataset.set), field });
+      });
+    });
+    // the logger was rebuilt under an open pad: find its box again
+    if (pad) paintPad();
+  }
+  // a tap anywhere but the pad or a box puts it away
+  document.addEventListener('pointerdown', (e) => {
+    if (!pad) return;
+    if (e.target.closest('#numPad, .set-input, .set-done')) return;
+    closePad();
+  }, true);
+
   /* -------- reordering the session -------- */
   function openReorderSheet() {
     const w = state.activeWorkout;
@@ -4675,7 +4827,7 @@
     // first time — replaying it on each logged set is what made the screen jump
     const wasShowing = !!openBody;
     syncWakeLock();
-    if (!w) { root.innerHTML = ''; ensureRestTimer(); return; }
+    if (!w) { root.innerHTML = ''; ensureRestTimer(); closePad(); return; }
     if (!workoutOpen) {
       // Hevy-style persistent mini bar while the logger is minimized
       const current = w.exercises.find((ex) => ex.sets.some((s) => !s.done));
@@ -4697,6 +4849,7 @@
         </div>`;
       const expand = () => { workoutOpen = true; openWkEntry(); render(); };
       if (!hadMini) $('.mini-bar', root).classList.add('mini-enter');
+      closePad();
       ensureRestTimer();
       $('.mini-bar', root).addEventListener('click', (e) => {
         if (e.target.closest('#miniDiscard')) {
@@ -4765,6 +4918,7 @@
     ensureRestTimer();
     wireRestPanel(root);
     $('#wkTimer', root)?.addEventListener('click', openTimerSheet);
+    wirePad(root);
 
     const wkBody = $('.wk-body', root);
     if (keptScroll != null && wkBody) wkBody.scrollTop = keptScroll;
@@ -8092,6 +8246,10 @@
         <span><b>Track effort (RPE)</b><i>A column on every exercise. One exercise alone can have it from its ⋯ menu</i></span>
         <input type="checkbox" id="trackRpe" ${s.trackRpe === true ? 'checked' : ''}>
       </label>
+      <label class="switch-row">
+        <span><b>B.E.L.A number pad</b><i>Weights and reps typed on a pad with ± steps and "same as last", instead of the phone keyboard</i></span>
+        <input type="checkbox" id="numPadSw" ${s.numPad === false ? '' : 'checked'}>
+      </label>
       <div class="section-title" style="margin-top:8px">Nutrition targets</div>
       <div class="field">
         <label for="tKcal">Calories (kcal / day)</label>
@@ -8273,6 +8431,10 @@
       });
       $('#trackRpe', body).addEventListener('change', (e) => {
         state.settings.trackRpe = e.target.checked;
+        save(); render();
+      });
+      $('#numPadSw', body).addEventListener('change', (e) => {
+        state.settings.numPad = e.target.checked;
         save(); render();
       });
       $('#shareBtn', body).addEventListener('click', async () => {
