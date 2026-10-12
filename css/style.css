@@ -2936,3 +2936,10 @@ body.pad-open .rest-panel { opacity: 0; pointer-events: none; transform: transla
 .rc-sum:empty { display: none; }
 .rc-sum b { font-size: 1.3rem; font-weight: 750; letter-spacing: -0.02em; }
 .rc-sum i { font-style: normal; color: var(--ink-2); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+
+/* ---------- habits: the saved miss, reminders ---------- */
+.hd-cell.is-saved { background: transparent; color: var(--ink-1); box-shadow: inset 0 0 0 1.5px var(--done); }
+.hd-saved { text-align: center; color: var(--done); font-size: 0.78rem; font-weight: 600; margin-top: 6px; }
+.rm-row { display: flex; gap: 10px; align-items: center; }
+.rm-row input { flex: 1; }
+.rm-row .chip-btn { flex-shrink: 0; }

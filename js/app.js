@@ -1967,6 +1967,11 @@
         description: 'Shows the exercise and set while a session is running',
         importance: 2, visibility: 1, sound: '', vibration: false,
       });
+      await LN.createChannel({
+        id: 'habits', name: 'Habit reminders',
+        description: 'A nudge at the time you chose, on the days a habit is due',
+        importance: 3, visibility: 1, vibration: true,
+      });
       // the end of a rest is the opposite: it should reach you
       await LN.createChannel({
         id: 'rest', name: 'Rest timer',
@@ -6604,22 +6609,84 @@
     return true;
   }
   const habitsDueOn = (key = dateKey()) => habitsList().filter((h) => habitDueOn(h, key));
+  /* -------- habit reminders --------
+     A repeating alarm cannot skip a day you already did, so each reminder is
+     booked one at a time for the next seven days it is due — and today's is
+     left out once the habit is done. Re-booked whenever that list changes
+     (a tick, an edit, a new day), which is cheap: nothing is touched if it
+     came out the same as last time. Ids 9100–9799, on their own channel. */
+  const REMIND_BASE = 9100;
+  let remindSig = null, remindTimer = null;
+  function plannedReminders() {
+    const out = [];
+    habitsList().forEach((h, hi) => {
+      if (!h.remind || hi >= 100) return;
+      const [hh, mm] = h.remind.split(':').map(Number);
+      for (let d = 0; d < 7; d++) {
+        const day = new Date(); day.setDate(day.getDate() + d); day.setHours(hh, mm, 0, 0);
+        const key = dateKey(day);
+        if (!habitDueOn(h, key)) continue;
+        if (d === 0 && (habitDone(h, key) || day.getTime() <= Date.now())) continue;
+        out.push({ id: REMIND_BASE + hi * 7 + d, at: day.getTime(), title: h.name,
+          body: habitType(h) === 'count' ? 'Today: ' + fmtNum(habitTarget(h)) + ' ' + (habitUnit(h) || '') : 'Not ticked yet today' });
+      }
+    });
+    return out;
+  }
+  function syncReminders() {
+    clearTimeout(remindTimer);
+    remindTimer = setTimeout(async () => {
+      const LN = nativePlugin('LocalNotifications');
+      if (!LN || !native()) return;
+      const list = plannedReminders();
+      const sig = JSON.stringify(list.map((x) => [x.id, x.at, x.title]));
+      if (sig === remindSig) return;
+      remindSig = sig;
+      try {
+        const perm = await LN.checkPermissions();
+        await LN.cancel({ notifications: Array.from({ length: 700 }, (_, i) => ({ id: REMIND_BASE + i })) }).catch(() => {});
+        if (perm.display !== 'granted' || !list.length) return;
+        await LN.schedule({ notifications: list.map((x) => ({
+          id: x.id, title: x.title, body: x.body, schedule: { at: new Date(x.at), allowWhileIdle: true },
+          smallIcon: 'ic_stat_bela', channelId: 'habits', autoCancel: true,
+        })) });
+      } catch (e) { remindSig = null; /* try again next time */ }
+    }, 600);
+  }
 
-  function habitStreak(h) {
+
+  /* Streak protection: one missed day in a week (Monday to Sunday) does not
+     break a streak — it is passed over, not counted. A second miss in the same
+     week does. Life happens once a week; twice is a pattern. Settings can
+     turn it off. */
+  const weekOf = (d) => dateKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)));
+  function habitStreakInfo(h) {
     const d = new Date();
+    const protect = state.settings.streakFreeze !== false;
     // today only ends the streak once it is actually due and still undone
     if (habitDueOn(h, dateKey(d)) && !habitDone(h, dateKey(d))) d.setDate(d.getDate() - 1);
     let count = 0;
+    const saved = [];
+    const usedWeeks = new Set();
+    let pending = null;                    // a miss waiting to see if the streak goes on past it
     for (let i = 0; i < 400; i++) {
       const key = dateKey(d);
       if (habitDueOn(h, key)) {
-        if (!habitDone(h, key)) break;
-        count++;
+        if (habitDone(h, key)) {
+          if (pending) { saved.push(pending); pending = null; }
+          count++;
+        } else {
+          const wk = weekOf(d);
+          if (!protect || pending || usedWeeks.has(wk) || !count) break;
+          usedWeeks.add(wk);
+          pending = key;
+        }
       }
       d.setDate(d.getDate() - 1);
     }
-    return count;
+    return { count, saved };
   }
+  const habitStreak = (h) => habitStreakInfo(h).count;
   function habitsDone(key = dateKey()) {
     const due = habitsDueOn(key);
     return { done: due.filter((h) => habitDone(h, key)).length, total: due.length };
@@ -7078,7 +7145,9 @@
     const h = habitById(id);
     if (!h) return;
     const today = new Date();
-    const streak = habitStreak(h);
+    const info = habitStreakInfo(h);
+    const streak = info.count;
+    const savedDays = new Set(info.saved);
 
     // the last 28 days, oldest first, in rows of seven
     const days = Array.from({ length: 28 }, (_, i) => {
@@ -7113,10 +7182,13 @@
         '<div><span class="micro">Done</span><b>' + doneCount + '<i>/' + due.length + '</i></b></div>' +
       '</div>' +
       '<div class="hd-grid">' +
-        days.map((d) => '<span class="hd-cell' + (d.done ? ' is-done' : d.due ? '' : ' is-off') + '"' +
+        days.map((d) => '<span class="hd-cell' + (d.done ? ' is-done' : savedDays.has(d.key) ? ' is-saved' : d.due ? '' : ' is-off') + '"' +
           ' title="' + d.key + '">' + d.n + '</span>').join('') +
       '</div>' +
-      '<p class="hd-legend">Green is done · faint is a day it was not due</p>' +
+      '<p class="hd-legend">Green is done · faint is a day it was not due' + (savedDays.size ? ' · ringed is a miss the streak survived' : '') + '</p>' +
+      (info.saved.length ? '<p class="hd-saved">Streak protection kept it going on ' +
+        info.saved.slice(0, 3).map((k) => new Date(k + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })).join(', ') + '.</p>' : '') +
+      (h.remind ? '<p class="hd-target">Reminder at ' + esc(h.remind) + ' on the days it is due</p>' : '') +
       (habitType(h) === 'count'
         ? '<p class="hd-target">Target ' + habitShort(habitTarget(h)) + esc(unitTxt) + ' a day</p>'
         : '') +
@@ -7150,6 +7222,10 @@
         ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((l, i) =>
           '<button data-day="' + i + '" class="' + (draft.days && draft.days[i] === false ? '' : 'is-on') + '">' + l + '</button>').join('') +
       '</div>' +
+      '<div class="field" style="margin-top:14px"><label for="hbRemind">Reminder <span class="lbl-opt">optional</span></label>' +
+        '<div class="rm-row"><input id="hbRemind" type="time" value="' + esc(draft.remind || '') + '">' +
+        '<button class="chip-btn" id="hbRemindOff"' + (draft.remind ? '' : ' hidden') + '>No reminder</button></div>' +
+        '<i class="field-hint">On the days it is due, at this time — skipped once it is done. Arrives on the installed app.</i></div>' +
       '<span class="micro" style="margin:14px 0 8px">Fills in</span>' +
       '<div class="src-pick" id="hbSource">' +
         '<button data-src="" class="' + (!draft.source ? 'is-on' : '') + '">By hand</button>' +
@@ -7216,11 +7292,21 @@
       const imp = $('#hbImport', body);
       if (imp) imp.addEventListener('click', () => { closeSheetNow(); openHabitImport(h); });
 
+      $('#hbRemindOff', body)?.addEventListener('click', () => {
+        $('#hbRemind', body).value = '';
+        $('#hbRemindOff', body).hidden = true;
+      });
+      $('#hbRemind', body).addEventListener('input', (e) => { $('#hbRemindOff', body).hidden = !e.target.value; });
       $('#hbSave', body).addEventListener('click', () => {
         const name = $('#hbName', body).value.trim();
         if (!name) { toast('Give the habit a name'); return; }
         draft.name = name;
         if (draft.due !== 'days') delete draft.days;
+        const rm = $('#hbRemind', body).value;
+        if (/^\d\d:\d\d$/.test(rm)) {
+          draft.remind = rm;
+          if (native()) nativeNotifyAllowed();     // the moment to ask: you just asked for one
+        } else delete draft.remind;
         if (draft.source) {
           draft.type = HABIT_SOURCES[draft.source].type;
           draft.unit = HABIT_SOURCES[draft.source].unit;
@@ -8526,6 +8612,10 @@
         <input type="checkbox" id="trackRpe" ${s.trackRpe === true ? 'checked' : ''}>
       </label>
       <label class="switch-row">
+        <span><b>Streak protection</b><i>One missed day a week does not break a habit's streak; a second one does</i></span>
+        <input type="checkbox" id="freezeSw" ${s.streakFreeze === false ? '' : 'checked'}>
+      </label>
+      <label class="switch-row">
         <span><b>B.E.L.A number pad</b><i>Weights and reps typed on a pad with ± steps and "same as last", instead of the phone keyboard</i></span>
         <input type="checkbox" id="numPadSw" ${s.numPad === false ? '' : 'checked'}>
       </label>
@@ -8710,6 +8800,10 @@
       });
       $('#trackRpe', body).addEventListener('change', (e) => {
         state.settings.trackRpe = e.target.checked;
+        save(); render();
+      });
+      $('#freezeSw', body).addEventListener('change', (e) => {
+        state.settings.streakFreeze = e.target.checked;
         save(); render();
       });
       $('#numPadSw', body).addEventListener('change', (e) => {
@@ -9109,6 +9203,7 @@
     planBadge();
     rollNumbers();
     celebrateIfDue();
+    syncReminders();
     // a long page: the title is the way back up
     const head = $('#view h2');
     if (head) head.addEventListener('click', () => {
