@@ -2862,6 +2862,7 @@
         }
         state.nutrition.weights = state.nutrition.weights.filter((w) => w.date !== todayKey);
         state.nutrition.weights.push({ date: todayKey, value: roundWeight(val) });
+        healthWriteWeight(roundWeight(val));
         save(); closeSheet(); render();
         toast('Bodyweight logged');
       });
@@ -8730,6 +8731,7 @@
       <button class="btn btn-quiet" id="setupBtn" style="margin-top:10px">Run setup again</button>
       <button class="btn btn-quiet" id="snapBtn" style="margin-top:10px">Snapshots</button>
       <button class="btn btn-quiet" id="pcSyncBtn" style="margin-top:10px">Sync with the PC app</button>
+      <button class="btn btn-quiet" id="healthBtn" style="margin-top:10px">Health Connect</button>
       <button class="btn btn-quiet" id="feedBtn" style="margin-top:10px">B.E.L.A feed</button>
       ${(state.tplHidden || []).length ? '<button class="btn btn-quiet" id="tplRestore" style="margin-top:10px">Bring back ' +
         (state.tplHidden.length === 1 ? 'the removed routine' : 'the ' + state.tplHidden.length + ' removed routines') + '</button>' : ''}
@@ -8926,6 +8928,7 @@
       $('#setupBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openSetup); });
       $('#snapBtn', body).addEventListener('click', () => { closeSheetNow(); openBackups(); });
       $('#pcSyncBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openPcSync); });
+      $('#healthBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openHealthSheet); });
       $('#feedBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openFeedSettings); });
       $('#tplRestore', body)?.addEventListener('click', () => {
         undoable('Routines restored', () => { state.tplHidden = []; });
@@ -9046,6 +9049,149 @@
       if (all.some((s) => s.key === dateKey())) return;
       await takeSnapshot('daily');
     } catch (e) { /* nothing to do */ }
+  }
+
+  /* -------- Health Connect --------
+     Android's shared health store, where Samsung Health and the watch write
+     steps, sleep and weight. With it on, the habit you chose for steps fills
+     with the day's steps, the sleep habit with the night's sleep (ticked at
+     the hours you set, or counted in hours), and a weigh-in from the scale
+     lands in the bodyweight log on a day you did not log one by hand. A
+     weight logged here goes the other way. The last week is read on opening
+     and on coming back to the app, no more than every quarter hour. */
+  const HC = () => (native() ? nativePlugin('Health') : null);
+  const HC_READ = ['steps', 'sleep', 'weight'];
+  const healthCfg = () => state.settings.health || {};
+  const toUnit = (kg) => (unit() === 'lb' ? kg * LB_PER_KG : kg);
+  const fromUnit = (v) => (unit() === 'lb' ? v / LB_PER_KG : v);
+  const localKey = (iso) => dateKey(new Date(iso));
+  let healthBusy = false;
+
+  async function healthSync(force) {
+    const H = HC(), cfg = healthCfg();
+    if (!H || !cfg.on || healthBusy) return null;
+    if (!force && Date.now() - (cfg.lastSync || 0) < 15 * 60 * 1000) return null;
+    healthBusy = true;
+    const tally = { steps: 0, sleep: 0, weight: 0 };
+    try {
+      const now = new Date();
+      const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+      const log = state.habitLog || (state.habitLog = {});
+      const stepsH = cfg.steps && habitById(cfg.steps);
+      if (stepsH) {
+        const r = await H.queryAggregated({ dataType: 'steps', startDate: from.toISOString(), endDate: now.toISOString(), bucket: 'day', aggregation: 'sum' });
+        (r.samples || []).forEach((x) => {
+          const v = Math.round(Number(x.value) || 0);
+          if (!v) return;
+          const k = localKey(x.startDate);
+          (log[k] || (log[k] = {}))[stepsH.id] = habitType(stepsH) === 'check' ? (v >= (cfg.stepsGoal || 10000) ? 1 : 0) : v;
+          tally.steps++;
+        });
+      }
+      const sleepH = cfg.sleep && habitById(cfg.sleep);
+      if (sleepH) {
+        const r = await H.readSamples({ dataType: 'sleep', startDate: new Date(from.getTime() - 864e5).toISOString(), endDate: now.toISOString(), limit: 200 });
+        // a night belongs to the morning you woke up on; awake and in-bed time does not count
+        const byDay = {};
+        (r.samples || []).forEach((x) => {
+          if (x.sleepState === 'awake' || x.sleepState === 'inBed') return;
+          const mins = x.unit === 'minute' ? Number(x.value) : (new Date(x.endDate) - new Date(x.startDate)) / 60000;
+          const k = localKey(x.endDate);
+          byDay[k] = (byDay[k] || 0) + (Number.isFinite(mins) ? mins : 0);
+        });
+        Object.entries(byDay).forEach(([k, mins]) => {
+          if (k < dateKey(from)) return;
+          const hours = Math.round((mins / 60) * 10) / 10;
+          (log[k] || (log[k] = {}))[sleepH.id] = habitType(sleepH) === 'check' ? (hours >= (cfg.sleepHours || 8) ? 1 : 0) : hours;
+          tally.sleep++;
+        });
+      }
+      if (cfg.weight !== false) {
+        const r = await H.readSamples({ dataType: 'weight', startDate: new Date(now.getTime() - 30 * 864e5).toISOString(), endDate: now.toISOString(), limit: 100 });
+        const latest = {};
+        (r.samples || []).forEach((x) => {
+          const k = localKey(x.endDate || x.startDate);
+          if (!latest[k] || new Date(x.endDate) > new Date(latest[k].endDate)) latest[k] = x;
+        });
+        Object.entries(latest).forEach(([k, x]) => {
+          const mine = state.nutrition.weights.find((w) => w.date === k);
+          if (mine && !mine.hc) return;            // a weight you logged by hand wins
+          const v = roundWeight(toUnit(Number(x.value)));
+          if (!v) return;
+          if (mine) mine.value = v;
+          else state.nutrition.weights.push({ date: k, value: v, hc: 1 });
+          tally.weight++;
+        });
+      }
+      state.settings.health = { ...healthCfg(), lastSync: Date.now(), lastNote: tally };
+      save(); render();
+      return tally;
+    } catch (e) {
+      state.settings.health = { ...healthCfg(), lastError: String(e && (e.message || e)).slice(0, 120), lastErrorAt: Date.now() };
+      save();
+      return null;
+    } finally { healthBusy = false; }
+  }
+  async function healthWriteWeight(value) {
+    const H = HC(), cfg = healthCfg();
+    if (!H || !cfg.on || cfg.writeWeight === false) return;
+    try { await H.saveSample({ dataType: 'weight', value: Math.round(fromUnit(value) * 100) / 100, unit: 'kilogram', startDate: new Date().toISOString(), endDate: new Date().toISOString() }); }
+    catch (e) { /* Health Connect may refuse the write; the log here is what counts */ }
+  }
+  if (native()) {
+    setTimeout(() => healthSync(), 2000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) healthSync(); });
+  }
+
+  async function openHealthSheet() {
+    const H = HC();
+    const cfg = healthCfg();
+    let avail = { available: false, reason: 'Health Connect is part of the installed Android app.' };
+    if (H) { try { avail = await H.isAvailable(); } catch (e) { avail = { available: false, reason: String(e && e.message || e) }; } }
+    const habits = habitsList().filter((h) => !h.source);
+    const pick = (id, cur, guess) => '<select class="select-field" id="' + id + '"><option value="">Not linked</option>' +
+      habits.map((h) => '<option value="' + esc(h.id) + '"' + ((cur ?? (guess.test(h.name) ? h.id : '')) === h.id ? ' selected' : '') + '>' + esc(h.name) + '</option>').join('') + '</select>';
+    const last = cfg.lastSync ? 'Last read ' + fmtAgo(cfg.lastSync) + (cfg.lastNote ? ' — ' + cfg.lastNote.steps + ' days of steps, ' + cfg.lastNote.sleep + ' nights, ' + cfg.lastNote.weight + ' weigh-ins' : '') : 'Not read yet';
+    openSheet('Health Connect', '' +
+      '<p class="portion-per">Steps, sleep and weight from Samsung Health, your watch or your scale — read on this phone, kept on this phone. <a href="privacy.html#health" target="_blank" rel="noopener">How it is used</a></p>' +
+      (!avail.available
+        ? '<p class="confirm-msg">' + esc(avail.reason || 'Health Connect is not available on this phone.') + '</p>' +
+          (H ? '<button class="btn btn-quiet" id="hcOpen">Open Health Connect</button>' : '')
+        : '<div class="field"><label for="hcSteps">Steps fill</label>' + pick('hcSteps', cfg.steps, /step/i) + '</div>' +
+          '<div class="field"><label for="hcSleep">Sleep fills</label>' + pick('hcSleep', cfg.sleep, /sleep|miego/i) + '</div>' +
+          '<div class="field"><label for="hcHours">A night counts as done from</label><div class="rm-row"><input id="hcHours" type="number" inputmode="decimal" min="1" max="14" step="0.5" value="' + (cfg.sleepHours || 8) + '"><span class="muted">hours</span></div></div>' +
+          '<label class="switch-row"><span><b>Weight from the scale</b><i>A weigh-in lands in the bodyweight log on days you did not log one</i></span><input type="checkbox" id="hcWeight" ' + (cfg.weight === false ? '' : 'checked') + '></label>' +
+          '<label class="switch-row"><span><b>Send my weigh-ins back</b><i>A weight logged here is written to Health Connect too</i></span><input type="checkbox" id="hcWrite" ' + (cfg.writeWeight === false ? '' : 'checked') + '></label>' +
+          '<p class="note-state" style="border:none">' + esc(cfg.on ? last : 'Not connected') + (cfg.lastError && cfg.lastErrorAt > (cfg.lastSync || 0) ? ' · ' + esc(cfg.lastError) : '') + '</p>' +
+          '<button class="btn btn-primary" id="hcGo">' + (cfg.on ? 'Save and read now' : 'Connect') + '</button>' +
+          (cfg.on ? '<button class="btn btn-danger" id="hcOff" style="margin-top:10px">Disconnect</button>' : '')),
+    (body) => {
+      $('#hcOpen', body)?.addEventListener('click', () => H.openHealthConnectSettings().catch(() => {}));
+      $('#hcGo', body)?.addEventListener('click', async () => {
+        const next = {
+          ...healthCfg(), on: true,
+          steps: $('#hcSteps', body).value || null,
+          sleep: $('#hcSleep', body).value || null,
+          sleepHours: Math.max(1, Number($('#hcHours', body).value) || 8),
+          weight: $('#hcWeight', body).checked,
+          writeWeight: $('#hcWrite', body).checked,
+        };
+        try {
+          const st = await H.requestAuthorization({ read: HC_READ, write: next.writeWeight ? ['weight'] : [] });
+          if (!(st.readAuthorized || []).length) { toast('Health Connect did not allow reading'); return; }
+        } catch (e) { toast('Health Connect said no: ' + String(e && e.message || e).slice(0, 60)); return; }
+        state.settings.health = next;
+        save();
+        closeSheet();
+        const tally = await healthSync(true);
+        toast(tally ? 'Read ' + tally.steps + ' days of steps, ' + tally.sleep + ' nights, ' + tally.weight + ' weigh-ins' : 'Connected');
+      });
+      $('#hcOff', body)?.addEventListener('click', () => {
+        state.settings.health = { ...healthCfg(), on: false };
+        save(); closeSheet();
+        toast('Health Connect disconnected');
+      });
+    });
   }
 
   /* -------- the weekly backup file --------

@@ -4,4 +4,6 @@
     <string name="title_activity_main">B.E.L.A</string>
     <string name="package_name">com.rjotko.bela</string>
     <string name="custom_url_scheme">com.rjotko.bela</string>
+    <!-- shown when Health Connect asks how B.E.L.A uses health data -->
+    <string name="health_connect_privacy_policy_url">https://rjotko-dotcom.github.io/B.E.L.A-gym-app/privacy.html#health</string>
 </resources>
