@@ -888,6 +888,63 @@
     return counts;
   }
 
+  /* ---- the muscle map ----
+     What each exercise works comes from js/exercise-guide.js: a set counts
+     whole for a muscle that does the work and half for one that helps. Your
+     own exercises have no guide entry, so their group stands in for them. */
+  const GROUP_MUSCLES = {
+    Chest: { p: ['chest'], s: ['triceps', 'front-delt'] },
+    Back: { p: ['lats', 'upper-back'], s: ['biceps'] },
+    Legs: { p: ['quads', 'glutes', 'hamstrings'], s: [] },
+    Shoulders: { p: ['front-delt', 'side-delt'], s: ['triceps'] },
+    Arms: { p: ['biceps', 'triceps'], s: ['forearms'] },
+    Core: { p: ['abs'], s: ['obliques'] },
+  };
+  function exerciseMuscles(id) {
+    const g = typeof EXERCISE_GUIDE !== 'undefined' && EXERCISE_GUIDE[id];
+    if (g) return g;
+    const info = exerciseById(id);
+    return (info && GROUP_MUSCLES[info.muscle]) || { p: [], s: [] };
+  }
+  function muscleLoad(workouts) {
+    const load = {};
+    for (const w of workouts) {
+      for (const ex of w.exercises) {
+        if (isCardio(ex.exerciseId)) continue;
+        const n = ex.sets.filter(isWorkingSet).length;
+        if (!n) continue;
+        const m = exerciseMuscles(ex.exerciseId);
+        m.p.forEach((k) => { load[k] = (load[k] || 0) + n; });
+        m.s.forEach((k) => { load[k] = (load[k] || 0) + n / 2; });
+      }
+    }
+    return load;
+  }
+  /* A week's sets on one muscle: ten or more is the usual target for growth,
+     so that is where it turns green — "reached", like everywhere else. */
+  const weekLevel = (n) => (n >= 10 ? 'l4' : n >= 6 ? 'l3' : n >= 3 ? 'l2' : n > 0 ? 'l1' : 'l0');
+  const sessionLevel = (n) => (n >= 4 ? 'l3' : n >= 2 ? 'l2' : n > 0 ? 'l1' : 'l0');
+  const fmtSets = (n) => (Math.round(n * 2) / 2).toLocaleString();
+  function muscleMapHTML(load, level, caption) {
+    if (!window.BelaMuscleMap) return '';
+    return '<div class="mm-wrap" data-caption="' + esc(caption) + '">' +
+      BelaMuscleMap.svg((m) => level(load[m] || 0), { label: 'Muscles worked' }) +
+      '<div class="mm-cap">' + esc(caption) + '</div></div>';
+  }
+  /* tap a muscle and the line under the map names it and its sets */
+  function wireMuscleMap(root, load, suffix) {
+    $$('.mm-wrap', root).forEach((wrap) => wrap.addEventListener('click', (e) => {
+      const part = e.target.closest('[data-m]');
+      const cap = $('.mm-cap', wrap);
+      $$('.mm-m.is-picked', wrap).forEach((x) => x.classList.remove('is-picked'));
+      if (!part) { cap.textContent = wrap.dataset.caption; return; }
+      const m = part.dataset.m;
+      $$('[data-m="' + m + '"]', wrap).forEach((x) => x.classList.add('is-picked'));
+      cap.textContent = MUSCLE_NAMES[m] + ' · ' + fmtSets(load[m] || 0) + ' set' + ((load[m] || 0) === 1 ? '' : 's') + suffix;
+      haptic('tap');
+    }));
+  }
+
   /* Where the week's work went. The app has always counted this and never
      said it: a muscle you have not touched in seven days is worth seeing
      before you plan the next session, not after. */
@@ -897,9 +954,14 @@
     const total = groups.reduce((t, g) => t + (counts[g] || 0), 0);
     if (!total) return '';
     const most = Math.max(...groups.map((g) => counts[g] || 0));
+    const cutoff = Date.now() - 7 * 86400000;
+    const load = muscleLoad(state.workouts.filter((w) => w.startedAt >= cutoff));
+    const untouched = Object.keys(MUSCLE_NAMES).filter((m) => !load[m]).length;
     return '<div class="card mb-card">' +
       '<div class="mb-head"><span class="micro">Sets this week</span>' +
         '<span class="wv-sub">' + total + ' working set' + (total === 1 ? '' : 's') + '</span></div>' +
+      muscleMapHTML(load, weekLevel, untouched ? untouched + ' muscle' + (untouched === 1 ? '' : 's') + ' not trained this week — tap one' : 'Every muscle trained this week') +
+      '<div class="mm-legend"><span><i class="l1"></i>1–2</span><span><i class="l2"></i>3–5</span><span><i class="l3"></i>6–9</span><span><i class="l4"></i>10+ sets</span></div>' +
       '<div class="mb-rows">' + groups.map((g) => {
         const n = counts[g] || 0;
         return '<div class="mb-row' + (n ? '' : ' is-none') + '">' +
@@ -3921,6 +3983,7 @@
 
     if (active) $('#resumeWorkout').addEventListener('click', () => { workoutOpen = true; openWkEntry(); render(); });
     $('#startEmpty').addEventListener('click', () => startWorkout());
+    wireMuscleMap(v, muscleLoad(state.workouts.filter((w) => w.startedAt >= Date.now() - 7 * 86400000)), ' this week');
     $('#newRoutine').addEventListener('click', () => openRoutineBuilder());
     $('#newRoutine2').addEventListener('click', () => openRoutineBuilder());
 
@@ -4319,10 +4382,12 @@
         '<div><span class="micro">Sets</span><b>' + sets.length + '</b></div>' +
         '<div><span class="micro">Records</span><b>' + prs.length + '</b></div>' +
       '</div>' +
+      '<div class="sm-map">' + muscleMapHTML(muscleLoad([w]), sessionLevel, 'What this session worked — tap a muscle') + '</div>' +
       '<div class="sm-list">' + rows + '</div>' +
       '<button class="btn btn-primary" id="smDone" style="margin-top:18px">Done</button>',
     (body) => {
       $('#smDone', body).addEventListener('click', () => closeSheet());
+      wireMuscleMap(body, muscleLoad([w]), ' this session');
       setTimeout(() => burst($('.sm-badge', body), { count: prs.length ? 60 : 40 }), 260);
     });
   }
@@ -4996,8 +5061,26 @@
         </div>`;
     }
     const fmtSet = (s) => cardio ? cardioText(s) : `${fmtNum(s.weight ?? 0)}×${s.reps}${s.pr ? ' ' + prIcon('pr-mark pr-inline') : ''}`;
+    /* how it is done and what it works — from js/exercise-guide.js */
+    const guide = typeof EXERCISE_GUIDE !== 'undefined' && EXERCISE_GUIDE[exerciseId];
+    const worked = exerciseMuscles(exerciseId);
+    const names = (list) => list.map((m) => esc(MUSCLE_NAMES[m] || m)).join(', ');
+    const guideHtml = (worked.p.length || worked.s.length ? `
+      <div class="ex-guide">
+        ${window.BelaMuscleMap ? BelaMuscleMap.svg((m) => (worked.p.includes(m) ? 'l3' : worked.s.includes(m) ? 'l1' : 'l0'), { labels: false, cls: 'mm-small', label: 'Muscles this works' }) : ''}
+        <div class="exg-works">
+          ${worked.p.length ? `<span class="micro">Works</span><b>${names(worked.p)}</b>` : ''}
+          ${worked.s.length ? `<span class="micro">Helps</span><i>${names(worked.s)}</i>` : ''}
+        </div>
+      </div>` : '') +
+      (guide && guide.how ? `
+      <div class="section-title">How to</div>
+      <ol class="exg-steps">${guide.how.map((x) => '<li>' + esc(x) + '</li>').join('')}</ol>
+      ${guide.tip ? `<p class="exg-tip"><b>Watch for</b> ${esc(guide.tip)}</p>` : ''}` : '');
     openSheet(info?.name ?? 'Exercise', `
       <p class="muted" style="margin-bottom:12px">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''} · ${sessions.length} session${sessions.length === 1 ? '' : 's'}</p>
+      ${guideHtml}
+      ${sessions.length ? '<div class="section-title">Records</div>' : ''}
       ${recordsHtml}
       ${sessions.length ? `
       <div class="section-title">Recent sessions</div>
