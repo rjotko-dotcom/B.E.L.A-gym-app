@@ -107,5 +107,19 @@ module.exports = async (t) => {
     return !document.querySelector('#sheetGhost .sheet-backdrop');
   }));
   await calm.close();
+
+  // a wide screen: the bar is a sidebar, the page is centred, a sheet is a dialog
+  const wide = await openApp(t.browser, { url: server.url, seed: build(), viewport: { width: 1366, height: 820 }, touch: false });
+  const bar = await wide.evaluate(() => { const r = document.querySelector('.tab-bar').getBoundingClientRect(); return { w: r.width, h: r.height, left: r.left }; });
+  t.check('wide: the tab bar is a sidebar on the left', bar.left === 0 && bar.h > bar.w && bar.w < 300, JSON.stringify(bar));
+  t.check('wide: the page clears it', await wide.evaluate(() => document.querySelector('#view').getBoundingClientRect().left >= document.querySelector('.tab-bar').getBoundingClientRect().right));
+  await wide.evaluate(() => document.querySelector('.tab[data-tab="meals"]').click());
+  await wide.waitForTimeout(500);
+  await wide.click('#addMeal');
+  await wide.waitForTimeout(600);
+  const sh = await wide.evaluate(() => { const r = document.querySelector('#sheetRoot .sheet').getBoundingClientRect(); return { top: r.top, bottom: innerHeight - r.bottom }; });
+  t.check('wide: a sheet opens as a dialog, off the bottom edge', sh.top > 10 && sh.bottom > 10, JSON.stringify(sh));
+  t.equal('wide: no page errors', wide.errors.length, 0);
+  await wide.close();
   await server.close();
 };

@@ -1226,11 +1226,15 @@
     ind.classList.toggle('is-off', !on);
     if (!on) return;
     const svg = $('svg', on);
-    const b = bar.getBoundingClientRect(), r = (svg || on).getBoundingClientRect();
+    const b = bar.getBoundingClientRect();
+    // a sidebar (wide screens) marks the whole row; a bottom bar, the icon
+    const side = b.height > b.width;
+    const r = (side ? on : svg || on).getBoundingClientRect();
     if (!r.width) return;
-    const w = 56, h = 32;
+    const w = side ? r.width : 56, h = side ? r.height : 32;
     const x = r.left - b.left + r.width / 2 - w / 2;
     const y = r.top - b.top + r.height / 2 - h / 2;
+    ind.style.width = w + 'px'; ind.style.height = h + 'px';
     if (instant || reducedMotion()) ind.style.transition = 'none';
     ind.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
     if (instant) { void ind.offsetWidth; ind.style.transition = ''; }

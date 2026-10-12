@@ -2943,3 +2943,61 @@ body.pad-open .rest-panel { opacity: 0; pointer-events: none; transform: transla
 .rm-row { display: flex; gap: 10px; align-items: center; }
 .rm-row input { flex: 1; }
 .rm-row .chip-btn { flex-shrink: 0; }
+
+/* =====================================================================
+   Wide screens — the website on a PC or a tablet in landscape
+   The phone's bottom bar becomes a sidebar with the name at its top, the
+   page keeps a readable width in the middle, and a sheet opens as a dialog
+   in the centre instead of rising from the bottom edge of a monitor.
+   ===================================================================== */
+@media (min-width: 900px) {
+  :root { --side: 232px; }
+  body { padding-left: var(--side); }
+  .tab-bar {
+    top: 0; bottom: 0; right: auto; width: var(--side);
+    flex-direction: column; justify-content: flex-start; align-items: stretch; gap: 4px;
+    padding: 30px 14px 20px;
+    border-top: none; border-right: 1px solid var(--glass-edge);
+  }
+  .tab-bar::before {
+    content: 'B.E.L.A'; display: block; padding: 0 14px 26px;
+    font-size: 1.15rem; font-weight: 750; letter-spacing: 0.04em; color: var(--ink-1);
+  }
+  .tab { flex-direction: row; justify-content: flex-start; gap: 14px; padding: 11px 14px; min-width: 0; border-radius: 14px; }
+  .tab svg { margin: 0; width: 22px; height: 22px; }
+  .tab-label { font-size: 0.92rem; font-weight: 550; }
+  .tab:hover:not(.active) { background: color-mix(in srgb, var(--ink-1) 5%, transparent); }
+  .tab-ind { border-radius: 14px; }
+  .tab-badge { position: static; transform: none; margin-left: auto; }
+  .view { max-width: 760px; padding: 44px 32px 60px; }
+  .view.home-screen { max-width: 760px; padding-top: 44px; padding-bottom: 32px; }
+  body.has-mini .view, body.has-mini .view.home-screen { padding-bottom: 130px; }
+  .mini-bar { left: calc(var(--side) + 24px); right: 24px; bottom: 24px; max-width: 712px; }
+  .toast-root { left: var(--side); bottom: 32px; }
+  body:has(.rest-panel) .toast-root { bottom: 150px; }
+  /* sheets as dialogs */
+  .sheet-backdrop { align-items: center; padding: 32px 32px 32px calc(var(--side) + 32px); }
+  .sheet {
+    max-width: 560px; max-height: min(86vh, 860px); border-radius: 24px;
+    border: 1px solid var(--glass-edge); padding-bottom: 6px;
+    animation: dialog-in 0.36s cubic-bezier(0.05, 0.7, 0.1, 1) both;
+  }
+  @keyframes dialog-in { from { transform: translateY(22px) scale(0.97); opacity: 0; } to { transform: none; opacity: 1; } }
+  #sheetGhost .is-leaving .sheet { transform: translateY(16px) scale(0.98) !important; opacity: 0 !important; }
+  .sheet-grab { display: none; }
+  .sheet-head { padding-top: 18px; }
+  /* the logger beside the sidebar, centred */
+  .wk-overlay { left: var(--side); }
+  .wk-overlay > * { width: 100%; max-width: 760px; margin-left: auto; margin-right: auto; }
+  .wk-progress { max-width: none; }
+  .rest-panel { left: calc(var(--side) + 24px); right: 24px; max-width: 712px; }
+  .num-pad { left: var(--side); max-width: 520px; border-radius: 22px; bottom: 16px; border: 1px solid var(--glass-edge); }
+  /* a mouse can hover */
+  .card:not(.home-screen *):hover, .lib-item:hover, .tpl-item:hover, .menu-item:hover { border-color: color-mix(in srgb, var(--ink-1) 16%, transparent); }
+  .btn:hover { filter: brightness(1.08); }
+  .icon-btn:hover { background: var(--surface-3); }
+}
+@media (min-width: 1400px) {
+  :root { --side: 260px; }
+  .view, .view.home-screen { max-width: 860px; }
+}
