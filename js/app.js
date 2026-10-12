@@ -1935,6 +1935,7 @@
           body: lines.body,
           ongoing: true,          // Android will not let it be swiped away
           autoCancel: false,
+          ...(lines.actions ? { actionTypeId: lines.actions } : {}),
           smallIcon: 'ic_stat_bela',
           channelId: 'workout',
         }],
@@ -2412,6 +2413,14 @@
   function wkNoteLines() {
     const w = state.activeWorkout;
     if (!w) return null;
+    /* Resting: when it ends and what comes next, with buttons to nudge it,
+       skip it or log the next set without opening the app. A notification
+       cannot count down by itself, so it names the minute it ends. */
+    if (w.rest && restLeft(w) > 0) {
+      const end = new Date(w.rest.endAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const nx = nextSetText(w);
+      return { title: 'Resting · ends ' + end, body: nx ? 'Next: ' + nx : 'Last set done', actions: 'bela-rest' };
+    }
     const current = w.exercises.find((ex) => ex.sets.some((s) => !s.done));
     if (!current) {
       const done = loggedSets(w).length;
@@ -2430,7 +2439,22 @@
     return {
       title: exerciseById(current.exerciseId)?.name ?? w.name,
       body: bits.join('  ·  '),
+      actions: 'bela-set',
     };
+  }
+  /* "Set 2 · Bench Press 80 kg × 8" — the next set as it would be logged */
+  function nextSetText(w) {
+    for (const ex of w.exercises) {
+      const i = ex.sets.findIndex((st) => !st.done);
+      if (i < 0) continue;
+      const st = ex.sets[i];
+      const p = previousSets(ex.exerciseId)[i] || previousSets(ex.exerciseId).slice(-1)[0];
+      const wt = st.weight ?? st.targetW ?? p?.weight;
+      const reps = st.reps ?? st.target ?? p?.reps;
+      return 'Set ' + numbersFor(ex)[i] + ' · ' + (exerciseById(ex.exerciseId)?.name ?? '') +
+        (wt ? ' ' + fmtNum(wt) + ' ' + unit() + (reps ? ' × ' + reps : '') : reps ? ' × ' + reps : '');
+    }
+    return '';
   }
   function showWorkoutNote(force = false) {
     if (!wkNoteReady() || !state.activeWorkout) return;
@@ -4566,6 +4590,7 @@
     haptic('tap');
     bookRestNote();
     save(); paintRest();
+    showWorkoutNote();
   }
   function endRest(finished) {
     const w = state.activeWorkout;
@@ -4662,7 +4687,7 @@
         notifications: [{
           id: REST_NOTE_ID, title: 'Rest over', body: 'Time for the next set',
           schedule: { at: new Date(w.rest.endAt), allowWhileIdle: true },
-          smallIcon: 'ic_stat_bela', channelId: 'rest', autoCancel: true,
+          smallIcon: 'ic_stat_bela', channelId: 'rest', autoCancel: true, actionTypeId: 'bela-set',
         }],
       });
       restNoteBooked = true;
@@ -4870,6 +4895,63 @@
     if (e.target.closest('#numPad, .set-input, .set-done')) return;
     closePad();
   }, true);
+
+  /* -------- from the notification --------
+     The buttons on the workout and rest notifications: +15 s, Skip, and Log
+     next set — which logs the first set not yet done with the numbers it
+     would show (typed, planned, or last time's), exactly as its tick would. */
+  function logNextSet() {
+    const w = state.activeWorkout;
+    if (!w) return false;
+    for (let ei = 0; ei < w.exercises.length; ei++) {
+      const ex = w.exercises[ei];
+      const si = ex.sets.findIndex((st) => !st.done);
+      if (si < 0) continue;
+      const set = ex.sets[si];
+      const prev = previousSets(ex.exerciseId);
+      const p = prev[si] || prev[prev.length - 1];
+      if (set.weight == null && showsWeight(ex)) set.weight = set.targetW ?? p?.weight ?? null;
+      if (set.reps == null) set.reps = set.target ?? p?.reps ?? null;
+      if (set.reps == null) {
+        // nothing to log it with — open the logger on it instead
+        workoutOpen = true; openWkEntry(); render();
+        toast('Enter the reps for ' + (exerciseById(ex.exerciseId)?.name ?? 'this set'));
+        return false;
+      }
+      set.done = true;
+      set.at = Date.now();
+      haptic('tick');
+      const partner = ex.ss && w.exercises[ei + 1] && w.exercises[ei + 1].ss === ex.ss;
+      if (restFor(ex) && !partner) startRest(restFor(ex)); else if (w.rest) { w.rest = null; dropRestNote(); }
+      save(); render();
+      toast('Set logged · ' + (exerciseById(ex.exerciseId)?.name ?? ''));
+      return true;
+    }
+    return false;
+  }
+  function onNoteAction(actionId) {
+    const w = state.activeWorkout;
+    if (!w) return;
+    if (actionId === 'plus15') adjustRest(15);
+    else if (actionId === 'skip') endRest(false);
+    else if (actionId === 'log') logNextSet();
+    else { workoutOpen = true; openWkEntry(); render(); }      // the notification itself: back to the logger
+  }
+  window.__belaNoteAction = onNoteAction;       // the tests press the buttons through this
+  (function wireNoteActions() {
+    const LN = nativePlugin('LocalNotifications');
+    if (!native() || !LN) return;
+    try {
+      LN.registerActionTypes && LN.registerActionTypes({ types: [
+        { id: 'bela-rest', actions: [{ id: 'plus15', title: '+15 s' }, { id: 'skip', title: 'Skip' }, { id: 'log', title: 'Log next set' }] },
+        { id: 'bela-set', actions: [{ id: 'log', title: 'Log set' }] },
+      ] });
+      LN.addListener && LN.addListener('localNotificationActionPerformed', (e) => {
+        const id = e && e.notification && Number(e.notification.id);
+        if (id === WK_NOTE_ID || id === REST_NOTE_ID) onNoteAction(e.actionId);
+      });
+    } catch (e) { /* an older shell: the notification still shows */ }
+  })();
 
   /* -------- reordering the session -------- */
   function openReorderSheet() {
