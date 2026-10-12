@@ -2884,10 +2884,6 @@ body:has(.rest-panel) .toast-root { bottom: calc(var(--safe-bot, env(safe-area-i
 .dl-chip { background: var(--surface-3); color: var(--ink-1); }
 
 /* ---------- programs ---------- */
-.prog-card { display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px 16px; margin-bottom: 10px; cursor: pointer; }
-.prog-card > span:last-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.prog-card b { font-size: 0.98rem; font-weight: 700; letter-spacing: -0.015em; }
-.prog-card i { font-style: normal; color: var(--ink-muted); font-size: 0.78rem; line-height: 1.35; }
 .prog-ico { width: 44px; height: 44px; border-radius: 14px; flex-shrink: 0; display: grid; place-items: center; background: var(--surface-2); }
 .prog-ico.is-on { background: var(--ink-1); }
 .prog-ico svg { width: 22px; height: 22px; fill: none; stroke: var(--ink-1); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
@@ -3029,3 +3025,14 @@ body.pad-open .rest-panel { opacity: 0; pointer-events: none; transform: transla
   :root { --side: 260px; }
   .view, .view.home-screen { max-width: 860px; }
 }
+
+/* the Training program entry in Settings */
+.prog-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; margin: 4px 0 6px;
+  padding: 12px 14px; border-radius: 16px; background: var(--card-bg); border: 1px solid var(--card-edge);
+  color: var(--ink-1); font: inherit; cursor: pointer;
+}
+.prog-row > span:last-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.prog-row b { font-size: 0.92rem; font-weight: 650; }
+.prog-row i { font-style: normal; color: var(--ink-2); font-size: 0.8rem; line-height: 1.35; }
+.prog-row .prog-ico { flex-shrink: 0; }

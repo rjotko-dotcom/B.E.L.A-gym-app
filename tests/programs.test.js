@@ -9,6 +9,15 @@ module.exports = async (t) => {
   const server = await t.serve({ serviceWorker: false });
   const page = await openApp(t.browser, { url: server.url, seed: build() });
   const tab = (x) => page.evaluate((k) => document.querySelector('.tab[data-tab="' + k + '"]').click(), x);
+  // programs live in Settings, not on the Workouts page
+  const openSettings = async () => {
+    await tab('home');
+    await page.waitForTimeout(300);
+    await page.click('#homeAvatar');
+    await page.waitForTimeout(400);
+    await page.click('.icon-btn[aria-label*="ettings"]');
+    await page.waitForTimeout(450);
+  };
   await tab('workout');
   await page.waitForTimeout(900);
 
@@ -40,8 +49,10 @@ module.exports = async (t) => {
   // ---- a double-progression program ----
   await tab('workout');
   await page.waitForTimeout(700);
-  t.check('there is a way into programs', /Follow a program/.test(await page.textContent('#progOpen')));
-  await page.click('#progOpen');
+  t.check('the Workouts page has no program card', await page.evaluate(() => !document.querySelector('#view #progOpen, #view .prog-card')));
+  await openSettings();
+  t.check('Settings has the way into programs', /Training program/.test(await page.textContent('#sheetRoot #progOpen')) && /Off/.test(await page.textContent('#sheetRoot #progOpen')));
+  await page.click('#sheetRoot #progOpen');
   await page.waitForTimeout(500);
   t.equal('four programs are offered', await page.evaluate(() => document.querySelectorAll('#sheetRoot .prog-item').length), 4);
   await page.click('[data-prog="ppl6"]');
@@ -52,7 +63,13 @@ module.exports = async (t) => {
   t.equal('starting it remembers the program', st.settings.program.id, 'ppl6');
   t.check('and writes its routines in', ['push', 'pull', 'legs'].every((k) => st.templates.some((x) => x.id === 'prog:ppl6:' + k)));
   t.equal('and lays out the week', st.schedule.join(','), 'prog:ppl6:push,prog:ppl6:pull,prog:ppl6:legs,prog:ppl6:push,prog:ppl6:pull,prog:ppl6:legs,rest');
-  t.check('the card shows the week', /Push · Pull · Legs/.test(await page.textContent('#progOpen')) && /Week 1/.test(await page.textContent('#progOpen')));
+  await openSettings();
+  const row = await page.textContent('#sheetRoot #progOpen');
+  t.check('Settings shows the program and its week', /Push · Pull · Legs/.test(row) && /week 1/.test(row), row);
+  await page.evaluate(() => document.querySelector('#sheetRoot [data-close]').click());
+  await page.waitForTimeout(400);
+  await tab('workout');
+  await page.waitForTimeout(500);
 
   await page.evaluate(() => document.querySelector('[data-tpl="prog:ppl6:push"]').click());
   await page.waitForTimeout(800);
@@ -70,9 +87,8 @@ module.exports = async (t) => {
   });
   await page.reload();
   await page.waitForTimeout(700);
-  await tab('workout');
-  await page.waitForTimeout(600);
-  await page.click('#progOpen');
+  await openSettings();
+  await page.click('#sheetRoot #progOpen');
   await page.waitForTimeout(500);
   await page.click('[data-prog="w531"]');
   await page.waitForTimeout(400);
@@ -82,6 +98,8 @@ module.exports = async (t) => {
   // best bench e1RM 80×8 → 101.3; 90% → 91.2 → 90 on the bar
   t.equal('the training max is 90% of the best, on the bar', st.settings.program.tm['bench-press'], 90);
   t.check('the old program\'s routines are gone', !st.templates.some((x) => String(x.id).startsWith('prog:ppl6')));
+  await tab('workout');
+  await page.waitForTimeout(500);
   await page.evaluate(() => document.querySelector('[data-tpl="prog:w531:bench"]').click());
   await page.waitForTimeout(800);
   w = (await readState(page)).activeWorkout;
@@ -99,9 +117,8 @@ module.exports = async (t) => {
   });
   await page.reload();
   await page.waitForTimeout(700);
-  await tab('workout');
-  await page.waitForTimeout(600);
-  await page.click('#progOpen');
+  await openSettings();
+  await page.click('#sheetRoot #progOpen');
   await page.waitForTimeout(500);
   await page.click('#progEnd');
   await page.waitForTimeout(400);

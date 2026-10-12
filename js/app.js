@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.3';
+  const APP_VERSION = '16.4';
 
   /* ---------------- state ---------------- */
 
@@ -3880,7 +3880,6 @@
 
       muscleBalanceHTML() +
       insightsHTML() +
-      programCardHTML() +
 
       '<div class="card wk-plan week-wrap">' +
         '<div class="wc-head"><span class="micro">Weekly plan</span><span class="wc-note">' +
@@ -3935,7 +3934,6 @@
     $('#startEmpty').addEventListener('click', () => startWorkout());
     wireMuscleMap(v, muscleLoad(state.workouts.filter((w) => w.startedAt >= Date.now() - 7 * 86400000)), ' this week', weekLevel);
     wireInsights(v);
-    $('#progOpen', v)?.addEventListener('click', openProgramsSheet);
     $('#newRoutine').addEventListener('click', () => openRoutineBuilder());
     $('#newRoutine2').addEventListener('click', () => openRoutineBuilder());
 
@@ -4327,17 +4325,19 @@
       });
     });
   }
-  function programCardHTML() {
+  /* The way into programs lives in Settings (he wanted it off the Workouts
+     page): one row that says which program is running and where in it. */
+  function programSettingHTML() {
     const cur = currentProgram();
-    if (!cur) return '<button class="card prog-card is-empty" id="progOpen">' +
-      '<span class="prog-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.3h14a1.3 1.3 0 0 1 1.3 1.3v11a1.3 1.3 0 0 1-1.3 1.3H5a1.3 1.3 0 0 1-1.3-1.3v-11A1.3 1.3 0 0 1 5 6.3Z"/><path d="M3.7 10.4h16.6M8.2 4.1v4M15.8 4.1v4M8 14.5l2.5 2.2L16 12"/></svg></span>' +
-      '<span><b>Follow a program</b><i>Push · Pull · Legs, Upper · Lower, Full Body or 5/3/1 — the weight goes up for you</i></span></button>';
+    const ico = '<span class="prog-ico' + (cur ? ' is-on' : '') + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.3h14a1.3 1.3 0 0 1 1.3 1.3v11a1.3 1.3 0 0 1-1.3 1.3H5a1.3 1.3 0 0 1-1.3-1.3v-11A1.3 1.3 0 0 1 5 6.3Z"/><path d="M3.7 10.4h16.6M8.2 4.1v4M15.8 4.1v4M8 14.5l2.5 2.2L16 12"/></svg></span>';
+    if (!cur) return '<button class="prog-row" id="progOpen">' + ico +
+      '<span><b>Training program</b><i>Off · Push Pull Legs, Upper Lower, Full Body or 5/3/1 — the weight goes up for you</i></span></button>';
     const wk = programWeek(cur);
     const wave = cur.def.kind === '531' ? ' · ' + WAVE_531[wk % 4].label : '';
-    return '<button class="card prog-card" id="progOpen">' +
-      '<span class="prog-ico is-on"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.3h14a1.3 1.3 0 0 1 1.3 1.3v11a1.3 1.3 0 0 1-1.3 1.3H5a1.3 1.3 0 0 1-1.3-1.3v-11A1.3 1.3 0 0 1 5 6.3Z"/><path d="M3.7 10.4h16.6M8.2 4.1v4M15.8 4.1v4M8 14.5l2.5 2.2L16 12"/></svg></span>' +
-      '<span><span class="micro">Program</span><b>' + esc(cur.def.name) + '</b><i>Week ' + (wk + 1) + wave + ' · ' + cur.def.days + ' days a week</i></span></button>';
+    return '<button class="prog-row" id="progOpen">' + ico +
+      '<span><b>Training program</b><i>' + esc(cur.def.name) + ' · week ' + (wk + 1) + wave + ' · ' + cur.def.days + ' days a week</i></span></button>';
   }
+
 
   /* -------- rest timer --------
      Hevy's model: each exercise carries its own rest, off until you give it
@@ -8337,6 +8337,7 @@
         <span><b>B.E.L.A number pad</b><i>Weights and reps typed on a pad with ± steps and "same as last", instead of the phone keyboard</i></span>
         <input type="checkbox" id="numPadSw" ${s.numPad === false ? '' : 'checked'}>
       </label>
+      ${programSettingHTML()}
       <div class="section-title" style="margin-top:8px">Nutrition targets</div>
       <div class="field">
         <label for="tKcal">Calories (kcal / day)</label>
@@ -8559,6 +8560,7 @@
       $('#snapBtn', body).addEventListener('click', () => { closeSheetNow(); openBackups(); });
       $('#pcSyncBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openPcSync); });
       $('#healthBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openHealthSheet); });
+      $('#progOpen', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openProgramsSheet); });
       $('#feedBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openFeedSettings); });
       $('#tplRestore', body)?.addEventListener('click', () => {
         undoable('Routines restored', () => { state.tplHidden = []; });
