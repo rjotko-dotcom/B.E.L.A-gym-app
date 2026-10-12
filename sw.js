@@ -11,6 +11,7 @@ const ASSETS = [
   'js/exercises.js?v=' + VERSION,
   'js/exercise-guide.js?v=' + VERSION,
   'js/muscle-map.js?v=' + VERSION,
+  'js/programs.js?v=' + VERSION,
   'js/foods.js?v=' + VERSION,
   'manifest.webmanifest',
   /* the typeface never changes between versions, so it carries no ?v= */

@@ -3931,6 +3931,8 @@
       '</div>' +
 
       muscleBalanceHTML() +
+      insightsHTML() +
+      programCardHTML() +
 
       '<div class="card wk-plan week-wrap">' +
         '<div class="wc-head"><span class="micro">Weekly plan</span><span class="wc-note">' +
@@ -3984,6 +3986,8 @@
     if (active) $('#resumeWorkout').addEventListener('click', () => { workoutOpen = true; openWkEntry(); render(); });
     $('#startEmpty').addEventListener('click', () => startWorkout());
     wireMuscleMap(v, muscleLoad(state.workouts.filter((w) => w.startedAt >= Date.now() - 7 * 86400000)), ' this week');
+    wireInsights(v);
+    $('#progOpen', v)?.addEventListener('click', openProgramsSheet);
     $('#newRoutine').addEventListener('click', () => openRoutineBuilder());
     $('#newRoutine2').addEventListener('click', () => openRoutineBuilder());
 
@@ -4127,6 +4131,264 @@
         save(); render();
       });
     });
+  }
+
+  /* -------- progress: what the history says --------
+     A lift's sessions as their best estimated one-rep max, oldest first —
+     the yardstick for "going up", "stalled" and the 5/3/1 training max. */
+  const DAY = 864e5;
+  function liftSessions(exId) {
+    const out = [];
+    for (const w of state.workouts) {
+      const ex = w.exercises.find((e) => e.exerciseId === exId);
+      if (!ex) continue;
+      const work = ex.sets.filter((st) => isWorkingSet(st) && st.weight && st.reps);
+      if (!work.length) continue;
+      out.push({ t: w.startedAt, best: Math.max(...work.map((st) => est1RM(st.weight, st.reps))),
+        top: Math.max(...work.map((st) => st.weight)) });
+    }
+    return out.sort((a, b) => a.t - b.t);
+  }
+  const recentLifts = (days) => [...new Set(state.workouts.filter((w) => w.startedAt >= Date.now() - days * DAY)
+    .flatMap((w) => w.exercises.map((e) => e.exerciseId)))].filter((id) => !isCardio(id));
+  const deloading = (id) => (Number(exPref(id).deloadUntil) || 0) > Date.now();
+
+  /* Stalled: done four times or more, and the last three sessions have not
+     beaten the best one before them. Three is enough to be more than a bad
+     day, and few enough to catch it before it becomes a month. */
+  function stalledLifts() {
+    return recentLifts(42).map((id) => {
+      const ss = liftSessions(id);
+      if (ss.length < 4 || deloading(id)) return null;
+      const last = ss.slice(-3), before = ss.slice(0, -3);
+      const bestBefore = Math.max(...before.map((x) => x.best));
+      if (Math.max(...last.map((x) => x.best)) > bestBefore * 1.005) return null;
+      return { id, best: bestBefore, sessions: last.length };
+    }).filter(Boolean);
+  }
+  /* the lift that has come furthest in four weeks */
+  function biggestGain() {
+    let top = null;
+    recentLifts(28).forEach((id) => {
+      const ss = liftSessions(id);
+      const now = ss.filter((x) => x.t >= Date.now() - 28 * DAY);
+      const then = ss.filter((x) => x.t < Date.now() - 28 * DAY && x.t >= Date.now() - 70 * DAY);
+      if (!now.length || !then.length) return;
+      const gain = Math.max(...now.map((x) => x.best)) - Math.max(...then.map((x) => x.best));
+      if (gain > 0.5 && (!top || gain > top.gain)) top = { id, gain };
+    });
+    return top;
+  }
+  function monthVolumes() {
+    const by = {};
+    state.workouts.forEach((w) => {
+      const d = new Date(w.startedAt);
+      const k = d.getFullYear() * 12 + d.getMonth();
+      by[k] = (by[k] || 0) + workoutVolume(w);
+    });
+    return by;
+  }
+
+  /* What is worth saying about the training, most useful first. Each one is
+     a line you can act on or be glad about — never a chart restated. */
+  function insights() {
+    const out = [];
+    const u = unit();
+    stalledLifts().forEach((x) => {
+      const name = exerciseById(x.id)?.name ?? 'A lift';
+      out.push({ kind: 'stall', id: x.id,
+        title: name + ' has stalled',
+        body: 'No new best in ' + x.sessions + ' sessions (est. 1RM ' + fmtNum(Math.round(x.best * 2) / 2) + ' ' + u + '). A lighter week usually breaks it.',
+        action: 'Deload for a week' });
+    });
+    const g = biggestGain();
+    if (g) out.push({ kind: 'up', title: (exerciseById(g.id)?.name ?? 'A lift') + ' is moving',
+      body: '+' + fmtNum(Math.round(g.gain * 2) / 2) + ' ' + u + ' on your estimated 1RM in four weeks.' });
+    const vols = monthVolumes();
+    const d = new Date(), cur = d.getFullYear() * 12 + d.getMonth();
+    const past = Object.keys(vols).map(Number).filter((k) => k < cur);
+    if (past.length && vols[cur]) {
+      const bestPast = Math.max(...past.map((k) => vols[k]));
+      if (vols[cur] > bestPast) out.push({ kind: 'best', title: 'Best month yet',
+        body: Math.round(vols[cur]).toLocaleString() + ' ' + u + ' lifted so far — more than any month before.' });
+    }
+    const streak = streakWeeks();
+    if (streak >= 2) {
+      const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime();
+      const thisWeek = state.workouts.some((w) => w.startedAt >= monday);
+      out.push({ kind: 'streak', title: streak + '-week streak',
+        body: thisWeek ? 'Trained every week for ' + streak + ' weeks running.' : 'One session this week keeps it going.' });
+    }
+    const monthStart = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    const prs = state.workouts.filter((w) => w.startedAt >= monthStart)
+      .reduce((n, w) => n + w.exercises.reduce((m, e) => m + e.sets.filter((st) => st.pr).length, 0), 0);
+    if (prs) out.push({ kind: 'pr', title: prs + ' record' + (prs === 1 ? '' : 's') + ' this month', body: 'Every one of them is in Records & history.' });
+    return out;
+  }
+  const INSIGHT_ICON = {
+    stall: '<path d="M4 15h5l2-5 3 9 2-4h4"/>',
+    up: '<path d="M4 17 10 11l4 4 6-7M15 8h5v5"/>',
+    best: '<path d="m12 3.8 2.5 5.2 5.6.7-4.1 3.9 1 5.6-5-2.7-5 2.7 1-5.6-4.1-3.9 5.6-.7Z"/>',
+    streak: '<path d="M12 21c-3.6 0-6-2.4-6-5.6 0-3.9 3.7-5.2 4-9.4 2.5 1.7 3.4 4 3.2 6.2 1-.6 1.6-1.6 1.8-2.8 1.7 1.5 3 3.6 3 6 0 3.2-2.4 5.6-6 5.6Z"/>',
+    pr: '<path d="M7 4h10v4a5 5 0 0 1-10 0ZM12 13v4M8.5 20h7M7 6H4.5a2.5 2.5 0 0 0 2.5 3M17 6h2.5a2.5 2.5 0 0 1-2.5 3"/>',
+  };
+  function insightsHTML(limit = 4) {
+    const list = insights().slice(0, limit);
+    if (!list.length) return '';
+    return '<div class="card ins-card"><div class="mb-head"><span class="micro">Insights</span></div>' +
+      list.map((x) => '<div class="ins-row is-' + x.kind + '">' +
+        '<span class="ins-ico"><svg viewBox="0 0 24 24" aria-hidden="true">' + INSIGHT_ICON[x.kind] + '</svg></span>' +
+        '<span class="ins-text"><b>' + esc(x.title) + '</b><i>' + esc(x.body) + '</i>' +
+        (x.action ? '<button class="ins-act" data-deload="' + esc(x.id) + '">' + esc(x.action) + '</button>' : '') + '</span></div>').join('') +
+      '</div>';
+  }
+  function wireInsights(root) {
+    $$('[data-deload]', root).forEach((b) => b.addEventListener('click', () => {
+      const id = b.dataset.deload;
+      setExPref(id, { deloadUntil: Date.now() + 7 * DAY });
+      haptic('tap');
+      save(); render();
+      toast((exerciseById(id)?.name ?? 'It') + ' at 90% for a week');
+    }));
+  }
+
+  /* -------- programs --------
+     A program is routines plus a weekly plan plus a rule for adding weight.
+     Starting one writes its routines in as your own (prog:<program>:<day>),
+     lays out the week, and remembers itself in settings — so it syncs with
+     the PC like everything else in there. */
+  const PROG_PREFIX = 'prog:';
+  const currentProgram = () => {
+    const pr = state.settings.program;
+    return pr && typeof PROGRAMS !== 'undefined' ? PROGRAMS.find((x) => x.id === pr.id) && { ...pr, def: PROGRAMS.find((x) => x.id === pr.id) } : null;
+  };
+  function programWeek(pr) {
+    return Math.max(0, Math.floor((Date.now() - pr.startedAt) / (7 * DAY)));
+  }
+  function startProgram(def) {
+    const now = new Date();
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7)).getTime();
+    state.templates = (state.templates || []).filter((t) => !String(t.id).startsWith(PROG_PREFIX));
+    const ids = {};
+    Object.entries(def.routines).forEach(([key, r]) => {
+      const id = PROG_PREFIX + def.id + ':' + key;
+      ids[key] = id;
+      state.templates.push({
+        id, name: r.name, program: def.id,
+        exercises: r.exercises.map((e) => e.w531
+          ? { exerciseId: e.exerciseId, w531: true, sets: [{ reps: 5 }, { reps: 5 }, { reps: 5 }] }
+          : { exerciseId: e.exerciseId, sets: Array.from({ length: e.sets }, () => ({ reps: e.reps, ...(e.repsMax ? { repsMax: e.repsMax } : {}) })) }),
+      });
+    });
+    state.schedule = def.schedule.map((k) => (k === 'rest' ? 'rest' : ids[k]));
+    state.planWeeks = {};
+    state.tplOrder = Object.values(ids).concat((state.tplOrder || []).filter((x) => !String(x).startsWith(PROG_PREFIX)));
+    // 5/3/1 needs a training max for each main lift: 90% of your best
+    const tm = {};
+    if (def.kind === '531') {
+      Object.values(def.routines).forEach((r) => r.exercises.filter((e) => e.w531).forEach((e) => {
+        const ss = liftSessions(e.exerciseId);
+        if (ss.length) tm[e.exerciseId] = roundBar(Math.max(...ss.map((x) => x.best)) * 0.9);
+      }));
+    }
+    state.settings.program = { id: def.id, startedAt: monday, ...(def.kind === '531' ? { tm } : {}) };
+    save(); render();
+    haptic('done');
+    toast(def.name + ' — week 1 starts now');
+  }
+  function endProgram() {
+    const pr = state.settings.program;
+    if (!pr) return;
+    state.templates = (state.templates || []).filter((t) => !String(t.id).startsWith(PROG_PREFIX));
+    state.schedule = (state.schedule || []).map((x) => (x && String(x).startsWith(PROG_PREFIX) ? null : x));
+    state.tplOrder = (state.tplOrder || []).filter((x) => !String(x).startsWith(PROG_PREFIX));
+    delete state.settings.program;
+    save(); render();
+  }
+  const roundBar = (kg) => {
+    const step = unit() === 'kg' ? 2.5 : 5;
+    return Math.round(kg / step) * step;
+  };
+  const UPPER_531 = new Set(['overhead-press', 'bench-press']);
+  /* the training max this cycle: it climbs each finished four-week wave */
+  function trainingMax(pr, exId) {
+    const base = pr.tm && pr.tm[exId];
+    if (!base) return null;
+    const cycles = Math.floor(programWeek(pr) / 4);
+    return base + cycles * (UPPER_531.has(exId) ? (unit() === 'kg' ? 2.5 : 5) : (unit() === 'kg' ? 5 : 10));
+  }
+
+  /* What starting a routine does with a program or a deload: the sets come
+     out with their weights already in. */
+  function shapeSession(w, tpl) {
+    const pr = currentProgram();
+    const fromProgram = tpl && tpl.program && pr && pr.id === tpl.program;
+    const week = fromProgram ? programWeek(pr) : 0;
+    w.exercises.forEach((ex, i) => {
+      const src = tpl ? tpl.exercises[i] : null;
+      if (fromProgram && src && src.w531) {
+        const wave = WAVE_531[week % 4];
+        const tm = trainingMax(pr, ex.exerciseId);
+        ex.sets = wave.sets.map(([pct, reps, plus]) => ({
+          weight: null, reps: null, done: false, target: reps,
+          ...(tm ? { targetW: roundBar(tm * pct) } : {}),
+          ...(plus ? { plus: true } : {}),
+        }));
+        ex.note = ex.note || (wave.label + (tm ? ' · training max ' + fmtNum(tm) + ' ' + unit() : ' · log a heavy set to set your training max'));
+      } else if (fromProgram) {
+        // double progression: the next weight is the overload hint's
+        const h = overloadHint(ex);
+        if (h) ex.sets.forEach((st) => { if ((st.type || 'N') !== 'W') st.targetW = h.weight; });
+      }
+      if (deloading(ex.exerciseId)) {
+        const ss = liftSessions(ex.exerciseId);
+        const top = ss.length ? ss[ss.length - 1].top : null;
+        if (top) ex.sets.forEach((st) => { if ((st.type || 'N') !== 'W') st.targetW = roundBar(top * 0.9); });
+        ex.deload = true;
+      }
+    });
+    if (fromProgram && pr.def.kind === '531') w.name = tpl.name + ' · ' + WAVE_531[week % 4].label;
+  }
+
+  function openProgramsSheet() {
+    const cur = currentProgram();
+    openSheet('Programs', '' +
+      '<p class="portion-per">A plan for the week and a rule for adding weight, so every session says what to lift. Starting one replaces your weekly plan; your own routines stay.</p>' +
+      PROGRAMS.map((d) => '<div class="prog-item' + (cur && cur.id === d.id ? ' is-on' : '') + '">' +
+        '<div class="prog-top"><b>' + esc(d.name) + '</b><span>' + d.days + ' days · ' + esc(d.level) + '</span></div>' +
+        '<p>' + esc(d.blurb) + '</p>' +
+        '<div class="prog-week">' + d.schedule.map((k, i) => '<i class="' + (k === 'rest' ? 'is-rest' : '') + '"><em>' + 'MTWTFSS'[i] + '</em>' +
+          (k === 'rest' ? '—' : esc(d.routines[k].name.replace(/^5\/3\/1 /, '').split(' ')[0])) + '</i>').join('') + '</div>' +
+        (cur && cur.id === d.id ? '<span class="prog-cur">Running · week ' + (programWeek(cur) + 1) + '</span>'
+          : '<button class="btn btn-primary prog-start" data-prog="' + d.id + '">Start ' + esc(d.name) + '</button>') +
+      '</div>').join('') +
+      (cur ? '<button class="btn btn-danger" id="progEnd" style="margin-top:6px">End ' + esc(cur.def.name) + '</button>' : ''),
+    (body) => {
+      body.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-prog]');
+        if (!b) return;
+        const def = PROGRAMS.find((x) => x.id === b.dataset.prog);
+        closeSheetNow();
+        confirmAction({ title: 'Start ' + def.name + '?', message: 'Your weekly plan becomes the program\'s ' + def.days + ' days. Routines you made stay as they are.',
+          confirm: 'Start', danger: false, onConfirm: () => startProgram(def), onCancel: openProgramsSheet });
+      });
+      $('#progEnd', body)?.addEventListener('click', () => {
+        closeSheetNow();
+        confirmAction({ title: 'End the program?', message: 'Its routines leave your list and its days leave the weekly plan. Your history stays.',
+          confirm: 'End it', onConfirm: () => { endProgram(); toast('Program ended'); }, onCancel: openProgramsSheet });
+      });
+    });
+  }
+  function programCardHTML() {
+    const cur = currentProgram();
+    if (!cur) return '<button class="card prog-card is-empty" id="progOpen">' +
+      '<span class="prog-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.3h14a1.3 1.3 0 0 1 1.3 1.3v11a1.3 1.3 0 0 1-1.3 1.3H5a1.3 1.3 0 0 1-1.3-1.3v-11A1.3 1.3 0 0 1 5 6.3Z"/><path d="M3.7 10.4h16.6M8.2 4.1v4M15.8 4.1v4M8 14.5l2.5 2.2L16 12"/></svg></span>' +
+      '<span><b>Follow a program</b><i>Push · Pull · Legs, Upper · Lower, Full Body or 5/3/1 — the weight goes up for you</i></span></button>';
+    const wk = programWeek(cur);
+    const wave = cur.def.kind === '531' ? ' · ' + WAVE_531[wk % 4].label : '';
+    return '<button class="card prog-card" id="progOpen">' +
+      '<span class="prog-ico is-on"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.3h14a1.3 1.3 0 0 1 1.3 1.3v11a1.3 1.3 0 0 1-1.3 1.3H5a1.3 1.3 0 0 1-1.3-1.3v-11A1.3 1.3 0 0 1 5 6.3Z"/><path d="M3.7 10.4h16.6M8.2 4.1v4M15.8 4.1v4M8 14.5l2.5 2.2L16 12"/></svg></span>' +
+      '<span><span class="micro">Program</span><b>' + esc(cur.def.name) + '</b><i>Week ' + (wk + 1) + wave + ' · ' + cur.def.days + ' days a week</i></span></button>';
   }
 
   /* -------- rest timer --------
@@ -5136,7 +5398,7 @@
     return `
       <div class="card ex-block${ss}" data-ex="${exIdx}">
         <div class="ex-head">
-          <h3 class="ex-name" role="button" tabindex="0">${ex.ss ? `<span class="ss-chip">SS${ex.ss}</span> ` : ''}${esc(info?.name ?? 'Unknown exercise')}
+          <h3 class="ex-name" role="button" tabindex="0">${ex.ss ? `<span class="ss-chip">SS${ex.ss}</span> ` : ''}${ex.deload ? '<span class="ss-chip dl-chip">DELOAD</span> ' : ''}${esc(info?.name ?? 'Unknown exercise')}
             <span class="muscle">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''}</span>
           </h3>
           <button class="ex-remove ex-menu" aria-label="Exercise options">
@@ -5194,7 +5456,7 @@
                   ? `<i class="w-conv">${fmtNum(s.weight)} ${esc(unit())}</i>` : ''}
               </div>` : ''}
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
-                     value="${s.reps ?? ''}" placeholder="${s.targetMax && s.target ? s.target + '-' + s.targetMax : (s.target ?? p?.reps ?? ex.targetReps ?? '')}" aria-label="Reps, set ${i + 1}">
+                     value="${s.reps ?? ''}" placeholder="${s.targetMax && s.target ? s.target + '-' + s.targetMax : s.plus && s.target ? s.target + '+' : (s.target ?? p?.reps ?? ex.targetReps ?? '')}" aria-label="Reps, set ${i + 1}">
               ${rpeOn ? `<button class="set-rpe ${s.rpe ? 'has' : ''}" aria-label="Effort for set ${numbers[i]}">${s.rpe ? fmtNum(s.rpe) : '–'}</button>` : ''}
               ${tick}
             </div>`;
@@ -5236,6 +5498,7 @@
         ...(e.ss ? { ss: e.ss } : {}),
       })) : [],
     };
+    shapeSession(state.activeWorkout, tpl);
     workoutOpen = true;
     openWkEntry();
     save(); render();
@@ -7114,8 +7377,11 @@
             (prs.length > 6 ? '<li class="rv-pr-more">and ' + (prs.length - 6) + ' more</li>' : '') +
             '</ul>' +
           '</div>'
-        : '');
+        : '') +
+      // what the history says, on the week you are living now
+      (reviewOffset === 0 ? insightsHTML(6) : '');
 
+    wireInsights(el);
     $('#rvPrev', el).addEventListener('click', () => { reviewOffset -= 1; render(); });
     $('#rvNext', el).addEventListener('click', () => { if (reviewOffset < 0) { reviewOffset += 1; render(); } });
     $$('.rv-day[data-day]', el).forEach((b) => b.addEventListener('click', () => openDaySummary(b.dataset.day)));
