@@ -4765,6 +4765,142 @@
     });
   }
 
+  /* -------- a picture of a session, to send --------
+     1080 × 1350 (4:5, what a feed shows uncropped), drawn on a canvas in
+     the app's own look: black, Inter, the session's muscles as a hologram,
+     the four figures and each exercise's best set. The figure is the same
+     SVG as the map, its classes turned into paint so it survives being an
+     image, and the canvas gives it its glow. */
+  const CARD_PAINT = {
+    'mm-n': 'fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.26)" stroke-width="0.9"',
+    l0: 'fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.34)" stroke-width="0.9"',
+    l1: 'fill="rgba(255,255,255,0.22)" stroke="rgba(255,255,255,0.55)" stroke-width="0.9"',
+    l2: 'fill="rgba(255,255,255,0.42)" stroke="rgba(255,255,255,0.72)" stroke-width="0.9"',
+    l3: 'fill="rgba(255,255,255,0.72)" stroke="#ffffff" stroke-width="0.9"',
+    l4: 'fill="rgba(134,239,172,0.8)" stroke="#86efac" stroke-width="0.9"',
+  };
+  function cardFigureSVG(load) {
+    let svg = BelaMuscleMap.svg((m) => sessionLevel(load[m] || 0), { labels: false });
+    svg = svg.replace(/class="mm-n"/g, CARD_PAINT['mm-n'])
+      .replace(/class="mm-m (l\d)"/g, (_, l) => CARD_PAINT[l])
+      .replace(/<g class="mm-detail">/g, '<g fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="0.7" stroke-linecap="round">')
+      .replace(/<rect class="mm-sweep"[^>]*\/>/g, '')
+      .replace(/class="mm-scanline"/g, 'fill="rgba(255,255,255,0.07)"')
+      .replace(/class="mm-floor"/g, 'fill="rgba(255,255,255,0.06)"')
+      .replace(/class="mm-floor-ring"/g, 'fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="0.9"')
+      .replace('<svg class="mm-svg"', '<svg xmlns="http://www.w3.org/2000/svg" width="840" height="828"');
+    return svg;
+  }
+  const loadImage = (src) => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
+
+  async function workoutCard(w) {
+    await (document.fonts && document.fonts.ready);
+    const W = 1080, H = 1350;
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d');
+    // black, with a glow rising from where the figure stands
+    g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    const glow = g.createRadialGradient(W / 2, 980, 20, W / 2, 980, 560);
+    glow.addColorStop(0, 'rgba(255,255,255,0.10)'); glow.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = glow; g.fillRect(0, 0, W, H);
+    const font = (wt, px) => wt + ' ' + px + 'px Inter, system-ui, sans-serif';
+    const pad = 84;
+    // the mark and the name
+    const mark = new Path2D('M370 228 H 740 A 185 185 0 0 1 740 598 H 710 A 340 340 0 0 1 370 258 Z M370 610 H 700 C 802 616 874 666 902 740 C 814 700 722 728 662 802 C 576 906 486 980 370 980 Z');
+    g.save(); g.translate(pad, 82); g.scale(0.058, 0.058); g.translate(-370, -228); g.fillStyle = '#fff'; g.fill(mark); g.restore();
+    g.fillStyle = '#fff'; g.font = font(700, 30); g.textBaseline = 'alphabetic';
+    g.fillText('B.E.L.A', pad + 52, 118);
+    g.fillStyle = 'rgba(255,255,255,0.5)'; g.font = font(500, 28); g.textAlign = 'right';
+    g.fillText(new Date(w.startedAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }), W - pad, 118);
+    g.textAlign = 'left';
+    // the session's name, as big as fits
+    let size = 92;
+    g.font = font(750, size);
+    while (g.measureText(w.name).width > W - pad * 2 && size > 48) { size -= 4; g.font = font(750, size); }
+    g.fillStyle = '#fff'; g.fillText(w.name, pad, 250);
+    // four figures
+    const prs = w.exercises.reduce((n, e) => n + e.sets.filter((st) => st.pr).length, 0);
+    const stats = [
+      ['DURATION', fmtDuration((w.finishedAt || Date.now()) - w.startedAt)],
+      ['VOLUME', Math.round(workoutVolume(w)).toLocaleString() + ' ' + unit()],
+      ['SETS', String(loggedSets(w).length)],
+      ['RECORDS', String(prs)],
+    ];
+    const cw = (W - pad * 2 - 3 * 18) / 4;
+    stats.forEach(([k, v], i) => {
+      const x = pad + i * (cw + 18), y = 300;
+      g.fillStyle = 'rgba(255,255,255,0.06)';
+      g.beginPath(); g.roundRect(x, y, cw, 128, 26); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.09)'; g.lineWidth = 2; g.stroke();
+      g.fillStyle = 'rgba(255,255,255,0.5)'; g.font = font(600, 20); g.fillText(k.split('').join(String.fromCharCode(8202)), x + 24, y + 44);
+      g.fillStyle = (k === 'RECORDS' && prs) ? '#86efac' : '#fff';
+      let vs = 42; g.font = font(700, vs);
+      while (g.measureText(v).width > cw - 44 && vs > 22) { vs -= 2; g.font = font(700, vs); }
+      g.fillText(v, x + 24, y + 100);
+    });
+    // the hologram
+    try {
+      const img = await loadImage('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(cardFigureSVG(muscleLoad([w]))));
+      g.save(); g.shadowColor = 'rgba(255,255,255,0.45)'; g.shadowBlur = 18;
+      g.drawImage(img, (W - 640) / 2, 460, 640, 631);
+      g.restore();
+    } catch (e) { /* a card without the figure is still a card */ }
+    // each exercise's best set
+    const rows = w.exercises.map((ex) => {
+      const work = ex.sets.filter((st) => st.done && (st.type || 'N') !== 'W');
+      if (!work.length) return null;
+      const best = work.reduce((b, st) => (!b || setMass(st) > setMass(b) ? st : b), null);
+      const txt = isCardio(ex.exerciseId) ? cardioText(best)
+        : best.weight ? fmtNum(best.weight) + ' ' + unit() + ' × ' + best.reps : best.reps + ' reps';
+      return [exerciseById(ex.exerciseId)?.name ?? '?', work.length + ' × ' + txt, ex.sets.some((st) => st.pr)];
+    }).filter(Boolean).slice(0, 4);
+    let y = 1130;
+    rows.forEach(([name, txt, pr]) => {
+      g.font = font(600, 30); g.fillStyle = '#fff';
+      let n = name; while (g.measureText(n).width > 560 && n.length > 4) n = n.slice(0, -2);
+      g.fillText(n === name ? n : n + '…', pad, y);
+      g.textAlign = 'right'; g.fillStyle = pr ? '#86efac' : 'rgba(255,255,255,0.62)'; g.font = font(600, 28);
+      g.fillText(txt, W - pad, y); g.textAlign = 'left';
+      y += 46;
+    });
+    g.fillStyle = 'rgba(255,255,255,0.32)'; g.font = font(500, 22);
+    g.textAlign = 'center'; g.fillText('Logged with B.E.L.A', W / 2, H - 40); g.textAlign = 'left';
+    return cv;
+  }
+
+  /* Send it: on the phone, through Android's share sheet; in a browser that
+     can share files, through its own; anywhere else, as a download. */
+  async function shareWorkout(w) {
+    haptic('tap');
+    let cv;
+    try { cv = await workoutCard(w); } catch (e) { toast('Could not draw the card'); return; }
+    const name = 'bela-' + dateKey(new Date(w.startedAt)) + '.png';
+    const title = w.name + ' · B.E.L.A';
+    const Share = nativePlugin('Share'), FS = nativePlugin('Filesystem');
+    if (native() && Share && FS) {
+      try {
+        const data = cv.toDataURL('image/png').split(',')[1];
+        const out = await FS.writeFile({ path: name, data, directory: 'CACHE' });
+        await Share.share({ title, files: [out.uri], dialogTitle: 'Share workout' });
+        return;
+      } catch (e) {
+        if (/cancel/i.test(String(e && (e.message || e)))) return;   // you closed the sheet
+      }
+    }
+    const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+    const file = new File([blob], name, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast('Saved ' + name);
+  }
+
+  window.__belaCard = (i = 0) => workoutCard(state.workouts[i]).then((c) => c.toDataURL('image/png'));
+
   /* -------- after the save: what you just did --------
      Hevy's closing screen: the session in four figures, the records in it,
      and each exercise's best set — the thing you will want to remember. */
@@ -4798,9 +4934,13 @@
       '</div>' +
       '<div class="sm-map">' + muscleMapHTML(muscleLoad([w]), sessionLevel, 'What this session worked — tap a muscle') + '</div>' +
       '<div class="sm-list">' + rows + '</div>' +
-      '<button class="btn btn-primary" id="smDone" style="margin-top:18px">Done</button>',
+      '<div class="btn-row" style="margin-top:18px">' +
+        '<button class="btn btn-quiet" id="smShare"><svg class="btn-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3.5M7.5 8 12 3.5 16.5 8M5 12.5v6A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-6"/></svg>Share</button>' +
+        '<button class="btn btn-primary" id="smDone">Done</button>' +
+      '</div>',
     (body) => {
       $('#smDone', body).addEventListener('click', () => closeSheet());
+      $('#smShare', body).addEventListener('click', () => shareWorkout(w));
       wireMuscleMap(body, muscleLoad([w]), ' this session');
       setTimeout(() => burst($('.sm-badge', body), { count: prs.length ? 60 : 40 }), 260);
     });
@@ -8054,6 +8194,7 @@
           <div class="btn-row" style="margin-top:12px">
             <button class="btn btn-quiet" data-edit="${esc(w.id)}">Edit</button>
             <button class="btn btn-quiet" data-repeat="${esc(w.id)}">Repeat</button>
+            <button class="btn btn-quiet" data-share="${esc(w.id)}" aria-label="Share">Share</button>
             <button class="btn btn-danger" data-delete="${esc(w.id)}">Delete</button>
           </div>
         </div>` : ''}
@@ -8112,6 +8253,12 @@
             return;
           }
           open();
+          return;
+        }
+        const shr = e.target.closest('[data-share]');
+        if (shr) {
+          const w = state.workouts.find((x) => x.id === shr.dataset.share);
+          if (w) shareWorkout(w);
           return;
         }
         const rep = e.target.closest('[data-repeat]');
