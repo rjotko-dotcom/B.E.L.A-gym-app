@@ -40,6 +40,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- the weekly backup file in Documents/BELA: Android 11+ lets an app
+         write its own files there freely; 10 and older need this -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+
     <!-- the workout notification -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />

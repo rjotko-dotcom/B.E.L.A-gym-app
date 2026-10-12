@@ -7350,7 +7350,8 @@
 
   // localStorage is the only copy of all this — nudge for a backup now and then
   function backupOverdue() {
-    const last = state.settings.lastExport || 0;
+    // a sync with the PC is a copy off the phone, as good as an export
+    const last = Math.max(state.settings.lastExport || 0, Number(pcCfg().last) || 0);
     const hasData = state.workouts.length > 3 || state.nutrition.meals.length > 10;
     return hasData && Date.now() - last > 30 * 864e5;
   }
@@ -8635,6 +8636,10 @@
       </div>
       <div class="field">
       </div>
+      ${native() ? `<label class="switch-row">
+        <span><b>Weekly backup file</b><i>${s.lastAutoBackup ? 'Last one ' + esc(fmtShortDate(s.lastAutoBackup)) + ', in ' + esc(s.lastAutoBackupWhere || 'Documents/BELA') : 'Once a week, the whole app saved to Documents/BELA — it survives the app being reinstalled'}</i></span>
+        <input type="checkbox" id="autoBackupSw" ${s.autoBackup === false ? '' : 'checked'}>
+      </label>` : ''}
       <div class="btn-row" style="margin-top:8px">
         <button class="btn btn-quiet" id="exportBtn">Save backup</button>
         <button class="btn btn-quiet" id="shareBtn">Share backup</button>
@@ -8732,6 +8737,14 @@
         state.settings.lastExport = Date.now();
         save();
         toast('Backup saved');
+      });
+      $('#autoBackupSw', body)?.addEventListener('change', async (e) => {
+        state.settings.autoBackup = e.target.checked;
+        save();
+        if (e.target.checked) {
+          const made = await weeklyBackup(true);
+          toast(made ? 'Saved ' + made : 'Could not write the file');
+        }
       });
       $('#keepAwake', body).addEventListener('change', (e) => {
         state.settings.keepAwake = e.target.checked;
@@ -8951,6 +8964,40 @@
       if (all.some((s) => s.key === dateKey())) return;
       await takeSnapshot('daily');
     } catch (e) { /* nothing to do */ }
+  }
+
+  /* -------- the weekly backup file --------
+     On the installed app, once a week, the whole document is written to
+     Documents/BELA/bela-backup-<date>.json — a folder that outlives the app
+     being cleared or reinstalled, which is how data usually goes. The newest
+     eight are kept. "Import a backup" reads them back. It is still on the
+     phone, so it does not stand in for a copy elsewhere: the monthly nudge
+     only goes quiet for an export or a PC sync. */
+  const AUTO_DIR = 'BELA';
+  async function weeklyBackup(force) {
+    const FS = nativePlugin('Filesystem');
+    if (!native() || !FS || state.settings.autoBackup === false) return null;
+    if (!force && Date.now() - (state.settings.lastAutoBackup || 0) < 7 * 864e5) return null;
+    const hasData = state.workouts.length || state.nutrition.meals.length || Object.keys(state.habitLog || {}).length;
+    if (!hasData) return null;
+    const name = 'bela-backup-' + dateKey() + '.json';
+    const data = JSON.stringify(state);
+    for (const directory of ['DOCUMENTS', 'DATA']) {
+      try {
+        await FS.writeFile({ path: AUTO_DIR + '/' + name, data, directory, encoding: 'utf8', recursive: true });
+        state.settings.lastAutoBackup = Date.now();
+        state.settings.lastAutoBackupWhere = directory === 'DOCUMENTS' ? 'Documents/' + AUTO_DIR : 'the app\'s own storage';
+        save();
+        try {
+          const list = await FS.readdir({ path: AUTO_DIR, directory });
+          const files = (list.files || []).map((f) => (typeof f === 'string' ? f : f.name))
+            .filter((n) => /^bela-backup-\d{4}-\d\d-\d\d\.json$/.test(n)).sort().reverse();
+          await Promise.all(files.slice(8).map((n) => FS.deleteFile({ path: AUTO_DIR + '/' + n, directory }).catch(() => {})));
+        } catch (e) { /* keeping too many is harmless */ }
+        return name;
+      } catch (e) { /* this folder refused — try the next */ }
+    }
+    return null;
   }
 
   async function openBackups() {
@@ -9237,6 +9284,7 @@
   if (lastTab && lastTab !== 'home' && TAB_ORDER.includes(lastTab)) goTab(lastTab);
   else render();
   snapshotDaily();
+  setTimeout(() => weeklyBackup(), 2500);    // after the opening settles, never in its way
   // sheets wait for the mark to clear, or they open behind it
   if (needsSetup()) setTimeout(openSetup, 350 + splashWait);
   else if (workoutStale(state.activeWorkout)) setTimeout(checkStaleWorkout, 350 + splashWait);
