@@ -1,7 +1,10 @@
 /* The workout logger: set numbering, the type picker, RPE, the rest timer's
    position, and editing a session that was already saved. */
 const { openApp, readState } = require('./lib/harness');
-const { build } = require('./lib/seed');
+const seedLib = require('./lib/seed');
+// these suites check the manual logger (hints, a routine's own weights); the
+// coach that decides weights by itself has tests/coach.test.js
+const build = () => { const s = seedLib.build(); s.settings.autoProgress = false; return s; };
 
 module.exports = async (t) => {
   const server = await t.serve({ serviceWorker: false });

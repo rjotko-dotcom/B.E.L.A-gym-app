@@ -7,7 +7,10 @@ const { build } = require('./lib/seed');
 
 module.exports = async (t) => {
   const server = await t.serve({ serviceWorker: false });
-  const page = await openApp(t.browser, { url: server.url, seed: build() });
+  // the program's own arithmetic, without the coach (tests/coach.test.js has it)
+  const seed = build();
+  seed.settings.autoProgress = false;
+  const page = await openApp(t.browser, { url: server.url, seed });
   const tab = (x) => page.evaluate((k) => document.querySelector('.tab[data-tab="' + k + '"]').click(), x);
   // programs live in Settings, not on the Workouts page
   const openSettings = async () => {

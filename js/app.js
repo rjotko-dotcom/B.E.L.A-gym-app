@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.4';
+  const APP_VERSION = '16.5';
 
   /* ---------------- state ---------------- */
 
@@ -2232,7 +2232,7 @@
       const st = ex.sets[i];
       const p = previousSets(ex.exerciseId)[i] || previousSets(ex.exerciseId).slice(-1)[0];
       const wt = st.weight ?? st.targetW ?? p?.weight;
-      const reps = st.reps ?? st.target ?? p?.reps;
+      const reps = st.reps ?? st.targetR ?? st.target ?? p?.reps;
       return 'Set ' + numbersFor(ex)[i] + ' · ' + (exerciseById(ex.exerciseId)?.name ?? '') +
         (wt ? ' ' + fmtNum(wt) + ' ' + unit() + (reps ? ' × ' + reps : '') : reps ? ' × ' + reps : '');
     }
@@ -4264,14 +4264,62 @@
     return base + cycles * (UPPER_531.has(exId) ? (unit() === 'kg' ? 2.5 : 5) : (unit() === 'kg' ? 5 : 10));
   }
 
-  /* What starting a routine does with a program or a deload: the sets come
-     out with their weights already in. */
+  /* -------- automatic progression: the coach --------
+     He asked for a personal trainer, nearly: every session from a routine
+     comes out with each lift's weight and reps already decided from last
+     time, so there is nothing to work out between sets.
+       · every working set hit its reps  → add weight (legs on a bar or a
+         machine +5 kg, dumbbells +2 kg, the rest +2.5 kg; double in lb) and
+         go back to the bottom of the rep range
+       · not all of them                  → same weight, one more rep
+       · no weight at all (bodyweight)    → one more rep than your best
+       · three sessions without beating the best before them → a lighter
+         week at 90%, then back to climbing (the same deload as Insights)
+     Settings → Automatic progression turns it off; the hint line stays. */
+  const autoProgress = () => state.settings.autoProgress !== false;
+  function progressStep(exId) {
+    const info = exerciseById(exId) || {};
+    const eq = String(info.equipment || '').toLowerCase();
+    const kg = info.muscle === 'Legs' && /barbell|machine|sled|smith/.test(eq) ? 5
+      : /dumbbell|kettlebell/.test(eq) ? 2 : 2.5;
+    return unit() === 'kg' ? kg : kg * 2;
+  }
+  function coachFor(ex) {
+    if (isCardio(ex.exerciseId)) return null;
+    const prev = previousSets(ex.exerciseId).filter((st) => (st.type || 'N') !== 'W' && st.reps);
+    if (!prev.length) return null;
+    const u = unit();
+    if (!prev.some((st) => st.weight)) {
+      const best = Math.max(...prev.map((st) => st.reps || 0));
+      return { reps: best + 1, up: true, text: 'Aim for ' + (best + 1) + ' reps — one more than your best last time' };
+    }
+    const h = overloadHint(ex);
+    if (!h) return null;
+    if (h.allHit) {
+      const step = progressStep(ex.exerciseId);
+      const weight = Math.round((h.prevWeight + step) * 2) / 2;
+      return { weight, reps: h.reps, up: true,
+        text: '+' + fmtNum(step) + ' ' + u + ' → ' + fmtNum(weight) + ' ' + u + ' × ' + h.reps + ' · every set hit its reps last time' };
+    }
+    return { weight: h.prevWeight, reps: h.reps, up: false,
+      text: 'Same ' + fmtNum(h.prevWeight) + ' ' + u + ', aim for ' + h.reps + ' reps · last time ' + h.prevReps };
+  }
+
+  /* What starting a routine does with a program, a deload or the coach: the
+     sets come out with their weights already in. */
   function shapeSession(w, tpl) {
     const pr = currentProgram();
     const fromProgram = tpl && tpl.program && pr && pr.id === tpl.program;
     const week = fromProgram ? programWeek(pr) : 0;
+    const auto = !!tpl && autoProgress();
+    // a stalled lift gets its lighter week without being asked
+    const stalled = auto ? new Set(stalledLifts().map((x) => x.id)) : new Set();
     w.exercises.forEach((ex, i) => {
       const src = tpl ? tpl.exercises[i] : null;
+      if (stalled.has(ex.exerciseId) && !(fromProgram && src && src.w531)) {
+        setExPref(ex.exerciseId, { deloadUntil: Date.now() + 7 * DAY });
+        ex.coach = { text: 'Lighter week at 90% — three sessions without beating your best', up: false };
+      }
       if (fromProgram && src && src.w531) {
         const wave = WAVE_531[week % 4];
         const tm = trainingMax(pr, ex.exerciseId);
@@ -4291,6 +4339,16 @@
         const top = ss.length ? ss[ss.length - 1].top : null;
         if (top) ex.sets.forEach((st) => { if ((st.type || 'N') !== 'W') st.targetW = roundBar(top * 0.9); });
         ex.deload = true;
+      } else if (auto && !(fromProgram && src && src.w531)) {
+        const c = coachFor(ex);
+        if (c) {
+          ex.sets.forEach((st) => {
+            if ((st.type || 'N') === 'W') return;
+            if (c.weight != null) st.targetW = c.weight;
+            st.targetR = c.reps;
+          });
+          ex.coach = { text: c.text, up: c.up, weight: c.weight ?? null, reps: c.reps };
+        }
       }
     });
     if (fromProgram && pr.def.kind === '531') w.name = tpl.name + ' · ' + WAVE_531[week % 4].label;
@@ -4694,7 +4752,7 @@
       const prev = previousSets(ex.exerciseId);
       const p = prev[si] || prev[prev.length - 1];
       if (set.weight == null && showsWeight(ex)) set.weight = set.targetW ?? p?.weight ?? null;
-      if (set.reps == null) set.reps = set.target ?? p?.reps ?? null;
+      if (set.reps == null) set.reps = set.targetR ?? set.target ?? p?.reps ?? null;
       if (set.reps == null) {
         // nothing to log it with — open the logger on it instead
         workoutOpen = true; openWkEntry(); render();
@@ -5104,16 +5162,17 @@
       $('.ex-rest-line', block)?.addEventListener('click', () => openRestPicker(ex));
       const hintBtn = $('.ex-hint', block);
       if (hintBtn) hintBtn.addEventListener('click', () => {
-        const h = overloadHint(ex);
+        const h = ex.coach && ex.coach.reps ? { weight: ex.coach.weight, reps: ex.coach.reps } : overloadHint(ex);
         if (!h) return;
         let filled = 0;
         ex.sets.forEach((st) => {
           if (st.done || (st.type || 'N') === 'W') return;
-          st.weight = h.weight; st.reps = h.reps; filled++;
+          if (h.weight != null) st.weight = h.weight;
+          st.reps = h.reps; filled++;
         });
         if (!filled) { toast('Every set is already logged'); return; }
         save(); render();
-        toast('Filled in ' + fmtNum(h.weight) + ' ' + unit() + ' × ' + h.reps);
+        toast('Filled in ' + (h.weight != null ? fmtNum(h.weight) + ' ' + unit() + ' × ' : '') + h.reps);
       });
       $('.add-set', block).addEventListener('click', () => {
         ex.sets.push({ weight: null, reps: null, done: false });
@@ -5708,7 +5767,10 @@
         <button class="ex-line ex-note-line ${ex.note ? 'has' : ''}">${ex.note ? esc(ex.note) : 'Add notes here…'}</button>
         ${state.activeWorkout && !state.activeWorkout.editingId ? `<button class="ex-line ex-rest-line ${restFor(ex) ? 'has' : ''}" aria-label="Rest timer for this exercise">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.6 1.6M9.5 3h5"/></svg>Rest timer: <b>${fmtRest(restFor(ex))}</b></button>` : ''}
+        ${ex.coach && !ex.deload ? `<button class="ex-line ex-hint ex-coach ${ex.coach.up ? 'up' : ''}"><i class="coach-tag">Auto</i> ${esc(ex.coach.text)}</button>` : ''}
+        ${ex.coach && ex.deload ? `<div class="ex-line ex-coach is-deload"><i class="coach-tag">Auto</i> ${esc(ex.coach.text)}</div>` : ''}
         ${(() => {
+          if (ex.coach) return '';
           const h = overloadHint(ex);
           if (!h) return '';
           const aim = h.ranged && !h.allHit ? h.low + '-' + h.high : h.reps;
@@ -5756,7 +5818,7 @@
                   ? `<i class="w-conv">${fmtNum(s.weight)} ${esc(unit())}</i>` : ''}
               </div>` : ''}
               <input class="set-input in-reps" type="number" inputmode="numeric" min="0" step="1"
-                     value="${s.reps ?? ''}" placeholder="${s.targetMax && s.target ? s.target + '-' + s.targetMax : s.plus && s.target ? s.target + '+' : (s.target ?? p?.reps ?? ex.targetReps ?? '')}" aria-label="Reps, set ${i + 1}">
+                     value="${s.reps ?? ''}" placeholder="${s.targetMax && s.target ? s.target + '-' + s.targetMax : s.plus && s.target ? s.target + '+' : (s.targetR ?? s.target ?? p?.reps ?? ex.targetReps ?? '')}" aria-label="Reps, set ${i + 1}">
               ${rpeOn ? `<button class="set-rpe ${s.rpe ? 'has' : ''}" aria-label="Effort for set ${numbers[i]}">${s.rpe ? fmtNum(s.rpe) : '–'}</button>` : ''}
               ${tick}
             </div>`;
@@ -6417,7 +6479,8 @@
   };
   function habitAuto(h, key) {
     switch (h.source) {
-      case 'workout': return state.workouts.some((w) => dateKey(new Date(w.startedAt)) === key) ? 1 : 0;
+      // a fresh start writes the days you trained into the log before the history goes
+      case 'workout': return state.workouts.some((w) => dateKey(new Date(w.startedAt)) === key) || ((state.habitLog || {})[key] || {})[h.id] ? 1 : 0;
       case 'weight': return weightOn(key) ? 1 : 0;
       case 'protein': return Math.round(dayTotals(key).protein);
       case 'kcal': return Math.round(dayTotals(key).kcal);
@@ -8338,6 +8401,11 @@
         <input type="checkbox" id="numPadSw" ${s.numPad === false ? '' : 'checked'}>
       </label>
       ${programSettingHTML()}
+      <label class="switch-row">
+        <span><b>Automatic progression</b><i>Every session from a routine comes with its weights and reps decided: more when you hit them all last time, one more rep when you didn't, a lighter week when a lift stalls</i></span>
+        <input type="checkbox" id="autoProgSw" ${s.autoProgress === false ? '' : 'checked'}>
+      </label>
+      <button class="btn btn-quiet" id="freshBtn" style="margin:4px 0 10px">Start fresh — delete workout history</button>
       <div class="section-title" style="margin-top:8px">Nutrition targets</div>
       <div class="field">
         <label for="tKcal">Calories (kcal / day)</label>
@@ -8561,6 +8629,8 @@
       $('#pcSyncBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openPcSync); });
       $('#healthBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openHealthSheet); });
       $('#progOpen', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openProgramsSheet); });
+      $('#autoProgSw', body).addEventListener('change', (e) => { state.settings.autoProgress = e.target.checked; save(); });
+      $('#freshBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(confirmFreshStart); });
       $('#feedBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openFeedSettings); });
       $('#tplRestore', body)?.addEventListener('click', () => {
         undoable('Routines restored', () => { state.tplHidden = []; });
@@ -8672,6 +8742,42 @@
       return false;   // no IndexedDB, or no room — never worth breaking a tap over
     }
   }
+  /* Start fresh: every workout goes, so previous weights, records, charts
+     and the coach start from nothing. Routines, meals, bodyweight, habits
+     and settings stay. The days you trained stay ticked on a "Train" habit,
+     a snapshot is taken first (Settings → Snapshots brings it all back),
+     and the deletion syncs like any other. */
+  function confirmFreshStart() {
+    if (state.activeWorkout) { toast('Finish or discard the running workout first'); return; }
+    const n = state.workouts.length;
+    if (!n) { toast('There is no workout history to delete'); return; }
+    confirmAction({
+      title: 'Start fresh?',
+      message: 'Deletes all ' + n + ' workout' + (n === 1 ? '' : 's') + ' — previous weights, records and progress start from zero. ' +
+        'Routines, meals, bodyweight and habits stay. A snapshot is saved first, so Settings → Snapshots can undo it. A synced PC clears them too.',
+      confirm: 'Delete history',
+      onConfirm: () => { freshStart().then((ok) => { if (ok) toast('Fresh start — ' + n + ' workout' + (n === 1 ? '' : 's') + ' deleted'); }); },
+      onCancel: openSettings,
+    });
+  }
+  async function freshStart() {
+    if (state.activeWorkout) return false;
+    await takeSnapshot('before starting fresh', 'fresh-' + dateKey() + '-' + Date.now());
+    const log = state.habitLog || (state.habitLog = {});
+    (state.habits || []).filter((h) => h.source === 'workout').forEach((h) => {
+      state.workouts.forEach((w) => {
+        const k = dateKey(new Date(w.startedAt));
+        (log[k] || (log[k] = {}))[h.id] = 1;
+      });
+    });
+    state.workouts = [];
+    Object.keys(state.exPrefs || {}).forEach((id) => { if (state.exPrefs[id] && 'deloadUntil' in state.exPrefs[id]) setExPref(id, { deloadUntil: null }); });
+    if (state.settings.program && state.settings.program.tm) delete state.settings.program.tm;
+    save(); render();
+    haptic('done');
+    return true;
+  }
+
   /* one a day, taken at the first launch of the day, before anything is
      changed — so the snapshot is yesterday as you left it */
   async function snapshotDaily() {
