@@ -37,14 +37,14 @@ module.exports = async (t) => {
   // ---- short on time ----
   await page.evaluate(() => document.querySelector('[data-tpl="tpl-push"]').click());
   await page.waitForTimeout(800);
-  const leftText = await page.textContent('#wkShort');
+  const leftText = await page.textContent('.wk-left');
   const before = Number((leftText.match(/~(\d+) min/) || [])[1]);
   t.check('the logger says how long is left', before >= 30, leftText);
   await page.click('#wkShort');
   await page.waitForTimeout(400);
   await page.evaluate(() => document.querySelector('#sheetRoot [data-min="30"]').click());
   await page.waitForTimeout(500);
-  const after = Number(((await page.textContent('#wkShort')).match(/~(\d+) min/) || [])[1]);
+  const after = Number(((await page.textContent('.wk-left')).match(/~(\d+) min/) || [])[1]);
   const w = (await readState(page)).activeWorkout;
   t.check('trimmed to about the time there is', after <= 35 && after < before, before + ' → ' + after);
   t.check('the heavy lift is left whole', w.exercises[0].exerciseId === 'bench-press' && w.exercises[0].sets.filter((x) => x.type !== 'W').length === 4);

@@ -73,6 +73,15 @@ module.exports = async (t) => {
   await page.waitForTimeout(300);
   t.check('it survives a re-render, still turned', await page.evaluate(() => !!document.querySelector('.mb-card .mm-wrap.is-3d canvas')) &&
     Math.abs((await page.evaluate(() => BelaBody3D.inspect('week').rot)) - before) < 0.5);
+  // the exercise sheet draws the same hologram, credit and all
+  await page.evaluate(() => document.querySelector('[data-tpl="tpl-pull"]').click());
+  await page.waitForTimeout(800);
+  await page.evaluate(() => document.querySelector('.ex-block .ex-name').click());
+  const guide3d = await page.waitForFunction(() => document.querySelector('#sheetRoot .exg-stage.is-3d canvas'), null, { timeout: 30000 }).then(() => true, () => false);
+  t.check('the exercise sheet shows the hologram', guide3d);
+  t.check('with the model\'s credit', await page.evaluate(() => { const c = document.querySelector('#sheetRoot .exg-credit'); return !!c && !c.hidden && /z-anatomy/.test(c.textContent); }));
+  await page.waitForTimeout(900);
+  t.check('a back-side lift turns it round', Math.cos(await page.evaluate(() => BelaBody3D.inspect('guide').target ?? BelaBody3D.inspect('guide').rot)) < -0.9);
   t.equal('no page errors', page.errors.length, 0, page.errors.join(' | '));
   await page.close();
 

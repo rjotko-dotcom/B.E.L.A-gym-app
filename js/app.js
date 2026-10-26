@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.6';
+  const APP_VERSION = '16.7';
 
   /* ---------------- state ---------------- */
 
@@ -5451,8 +5451,12 @@
           if (w.editingId) return '';
           const leftMin = estimateMin(w.exercises, true);
           if (done.length >= allSets || !allSets) return '';
-          return '<button class="wk-left" id="wkShort"><span>~' + leftMin + ' min left</span>' +
-            (leftMin > 20 ? '<b>Short on time?</b>' : '') + '</button>';
+          return '<div class="wk-left"><span class="wl-time">' +
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12.5" r="8"/><path d="M12 8.5v4l2.6 1.6"/></svg>' +
+            '<b>~' + leftMin + ' min</b> left</span>' +
+            (leftMin > 20 ? '<button class="wl-short" id="wkShort">' +
+              '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3.5 5.5 13.5H12l-1 7 7.5-10H12Z"/></svg>Short on time</button>' : '') +
+          '</div>';
         })()}
         <div class="wk-progress${allSets && done.length >= allSets ? ' is-done' : ''}" role="progressbar" aria-label="Sets done" aria-valuemin="0" aria-valuemax="${allSets}" aria-valuenow="${done.length}"><i style="width:${setPct}%"></i></div>
         <div class="wk-body">
@@ -6042,6 +6046,26 @@
 
   /* -------- exercise records & history -------- */
 
+  /* The exercise sheet's figure: the same 3D body, the muscles it works
+     bright and the ones that help dim, turned to the side that does the
+     work. The flat drawing stays where there is no WebGL. */
+  const BACK_MUSCLES = new Set(['lats', 'upper-back', 'lower-back', 'rear-delt', 'traps', 'hamstrings', 'glutes', 'triceps', 'calves']);
+  function mountGuideBody(worked) {
+    const stage = $('#sheetRoot .exg-stage');
+    if (!stage || !window.BelaBody3D || !BelaBody3D.supported()) return;
+    const levels = {};
+    Object.keys(MUSCLE_NAMES).forEach((m) => { levels[m] = worked.p.includes(m) ? 'l3' : worked.s.includes(m) ? 'l1' : 'l0'; });
+    const back = worked.p.filter((m) => BACK_MUSCLES.has(m)).length > worked.p.length / 2;
+    BelaBody3D.mount(stage, { key: 'guide', levels }).then((body) => {
+      if (!stage.isConnected) return;
+      $('svg', stage)?.remove();
+      stage.classList.add('is-3d');
+      const credit = stage.parentNode.querySelector('.exg-credit');
+      if (credit) credit.hidden = false;
+      body.face(back ? 'back' : 'front');
+    }).catch(() => { /* the flat figure stays */ });
+  }
+
   function openExerciseDetail(exerciseId) {
     const info = exerciseById(exerciseId);
     const cardio = isCardio(exerciseId);
@@ -6085,16 +6109,19 @@
     const names = (list) => list.map((m) => esc(MUSCLE_NAMES[m] || m)).join(', ');
     const guideHtml = (worked.p.length || worked.s.length ? `
       <div class="ex-guide">
-        ${window.BelaMuscleMap ? BelaMuscleMap.svg((m) => (worked.p.includes(m) ? 'l3' : worked.s.includes(m) ? 'l1' : 'l0'), { labels: false, cls: 'mm-small', label: 'Muscles this works' }) : ''}
+        <div class="exg-stage">${window.BelaMuscleMap ? BelaMuscleMap.svg((m) => (worked.p.includes(m) ? 'l3' : worked.s.includes(m) ? 'l1' : 'l0'), { labels: false, cls: 'mm-small', label: 'Muscles this works' }) : ''}</div>
         <div class="exg-works">
           ${worked.p.length ? `<span class="micro">Works</span><b>${names(worked.p)}</b>` : ''}
           ${worked.s.length ? `<span class="micro">Helps</span><i>${names(worked.s)}</i>` : ''}
+          <span class="exg-credit" hidden>${window.BelaBody3D ? esc(BelaBody3D.CREDIT) : ''}</span>
         </div>
       </div>` : '') +
       (guide && guide.how ? `
       <div class="section-title">How to</div>
       <ol class="exg-steps">${guide.how.map((x) => '<li>' + esc(x) + '</li>').join('')}</ol>
       ${guide.tip ? `<p class="exg-tip"><b>Watch for</b> ${esc(guide.tip)}</p>` : ''}` : '');
+    // the hologram, as on the Workouts page, once the sheet is in the page
+    if (worked.p.length || worked.s.length) setTimeout(() => mountGuideBody(worked), 0);
     openSheet(info?.name ?? 'Exercise', `
       <p class="muted" style="margin-bottom:12px">${esc(info?.muscle ?? '')}${info?.equipment ? ' · ' + esc(info.equipment) : ''} · ${sessions.length} session${sessions.length === 1 ? '' : 's'}</p>
       ${guideHtml}
