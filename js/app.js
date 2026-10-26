@@ -5437,6 +5437,9 @@
             <svg viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></svg>
           </button>
           <b class="wk-title">${w.editingId ? 'Editing · ' : ''}${esc(w.name)}</b>
+          ${w.editingId || !allSets || done.length >= allSets ? '' : `<button class="icon-btn wk-short-btn" id="wkShort" aria-label="Short on time — about ${estimateMin(w.exercises, true)} min left">
+            <svg viewBox="0 0 24 24"><path d="M13 3.5 5.5 13.5H12l-1 7 7.5-10H12Z"/></svg>
+          </button>`}
           ${w.editingId ? '' : `<button class="icon-btn wk-timer-btn${w.rest ? ' is-on' : ''}" id="wkTimer" aria-label="Rest timer">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.6 1.6M9.5 3h5"/></svg>
           </button>`}
@@ -5447,17 +5450,6 @@
           <div class="wk-vol-cell"><span class="micro">Volume</span><b data-roll="wk-vol" data-roll-to="${Math.round(vol)}">${Math.round(vol).toLocaleString()}<i> ${esc(unit())}</i></b></div>
           <div><span class="micro">Sets</span><b data-roll="wk-sets" data-roll-to="${done.length}">${done.length}<i>${allSets ? ' / ' + allSets : ''}</i></b></div>
         </div>
-        ${(() => {
-          if (w.editingId) return '';
-          const leftMin = estimateMin(w.exercises, true);
-          if (done.length >= allSets || !allSets) return '';
-          return '<div class="wk-left"><span class="wl-time">' +
-            '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12.5" r="8"/><path d="M12 8.5v4l2.6 1.6"/></svg>' +
-            '<b>~' + leftMin + ' min</b> left</span>' +
-            (leftMin > 20 ? '<button class="wl-short" id="wkShort">' +
-              '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3.5 5.5 13.5H12l-1 7 7.5-10H12Z"/></svg>Short on time</button>' : '') +
-          '</div>';
-        })()}
         <div class="wk-progress${allSets && done.length >= allSets ? ' is-done' : ''}" role="progressbar" aria-label="Sets done" aria-valuemin="0" aria-valuemax="${allSets}" aria-valuenow="${done.length}"><i style="width:${setPct}%"></i></div>
         <div class="wk-body">
           ${w.exercises.map((ex, exIdx) => renderExerciseBlock(ex, exIdx, ssPos(w.exercises, exIdx))).join('')}
