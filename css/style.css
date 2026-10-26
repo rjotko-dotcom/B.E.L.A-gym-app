@@ -2570,7 +2570,7 @@ body.has-mini .view.home-screen {
   transition: transform 0.2s var(--ease-spring);
 }
 .ex-remove.ex-menu svg, .ex-remove.rb-ex-menu svg { stroke-width: 3.2; width: 18px; height: 18px; }
-.ex-remove.ex-menu::after, .ex-remove.rb-ex-menu::after { content: ''; position: absolute; inset: -7px; }
+.feel-btn::after, .ex-remove.ex-menu::after, .ex-remove.rb-ex-menu::after { content: ''; position: absolute; inset: -7px; }
 .ex-remove.ex-menu:active, .ex-remove.rb-ex-menu:active { transform: scale(0.88); }
 .ex-head h3 { font-size: 1.04rem; font-weight: 700; letter-spacing: -0.02em; }
 
@@ -3046,3 +3046,60 @@ body.pad-open .rest-panel { opacity: 0; pointer-events: none; transform: transla
 }
 .ex-coach.up .coach-tag { color: #000; background: var(--done); border-color: var(--done); }
 .ex-coach.is-deload { color: var(--ink-2); }
+
+/* ---------- 16.6: how did it feel, rep range ---------- */
+.feel-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 10px; border-radius: 14px; background: var(--surface-2); }
+.feel-row > span { flex: 1; font-size: 0.8rem; font-weight: 600; color: var(--ink-2); }
+.feel-row.has > span { color: var(--ink-muted); }
+.feel-btn {
+  position: relative;
+  padding: 6px 11px; border-radius: 10px; font: inherit; font-size: 0.78rem; font-weight: 650; cursor: pointer;
+  color: var(--ink-2); background: transparent; border: 1px solid var(--card-edge);
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+}
+.feel-btn.on { color: var(--page); background: var(--ink-1); border-color: var(--ink-1); }
+.range-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.range-grid .chip-btn { justify-content: center; padding: 12px 0; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.range-grid .chip-btn.on { color: var(--page); background: var(--ink-1); border-color: var(--ink-1); }
+.mb-view { width: 210px; margin: 2px auto 10px; }
+/* the coach's pick for today, under the two home buttons */
+.coach-today {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left;
+  padding: 9px 12px; border-radius: 14px; font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+  color: var(--ink-2); background: var(--surface-1); border: 1px solid var(--card-edge);
+}
+.coach-today span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coach-today.is-alt { color: var(--ink-1); }
+.coach-today .coach-tag {
+  flex-shrink: 0; font-style: normal; font-size: 0.6rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 6px; color: var(--ink-1); border: 1px solid var(--card-edge); background: var(--surface-2);
+}
+/* time left in the session, and the way to trim it */
+.wk-left {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; width: calc(100% - 32px); margin: 0 16px 8px;
+  padding: 0; background: none; border: 0; font: inherit; font-size: 0.76rem; color: var(--ink-muted); cursor: pointer; text-align: left;
+}
+.wk-left b { color: var(--ink-2); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+/* Replace exercise: the same-muscle alternatives first */
+.sim-chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 8px; scrollbar-width: none; touch-action: pan-x; }
+.sim-chips::-webkit-scrollbar { display: none; }
+.sim-chip { flex-shrink: 0; }
+.sim-chip.on { color: var(--page); background: var(--ink-1); border-color: var(--ink-1); }
+.lib-all { margin-top: 14px; }
+
+/* ---------- strength levels and the records timeline ---------- */
+.sl-row { padding: 10px 0; border-top: 1px solid var(--card-edge); }
+.sl-row:first-of-type { border-top: 0; padding-top: 0; }
+.sl-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.sl-top b { font-size: 0.9rem; font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-lvl { font-size: 0.76rem; font-weight: 700; color: var(--ink-1); flex-shrink: 0; }
+.sl-track { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin: 8px 0 6px; }
+.sl-track i { position: relative; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.sl-track i.is-on { background: var(--ink-1); }
+.sl-track i em { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--ink-1) 45%, transparent); border-radius: 3px; }
+.sl-sub { font-size: 0.74rem; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.rec-row { display: grid; grid-template-columns: 54px 1fr auto; gap: 10px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--card-edge); }
+.rec-row:first-of-type { border-top: 0; }
+.rec-date { font-size: 0.74rem; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.rec-row b { font-size: 0.86rem; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-set { font-size: 0.84rem; font-weight: 650; font-variant-numeric: tabular-nums; }

@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.5';
+  const APP_VERSION = '16.6';
 
   /* ---------------- state ---------------- */
 
@@ -899,6 +899,81 @@
   const weekLevel = (n) => (n >= 10 ? 'l4' : n >= 6 ? 'l3' : n >= 3 ? 'l2' : n > 0 ? 'l1' : 'l0');
   const sessionLevel = (n) => (n >= 4 ? 'l3' : n >= 2 ? 'l2' : n > 0 ? 'l1' : 'l0');
   const fmtSets = (n) => (Math.round(n * 2) / 2).toLocaleString();
+  /* ---- recovery: what is ready to train again ----
+     For each muscle, when it last did real work and how much. The big ones
+     (legs, lower back) take about three days after a hard session, the rest
+     about two, the small ones a day and a half; a light session counts for
+     less. Ready = rested at least that long. A muscle not trained in a
+     fortnight is simply "rested", not "ready", so the figure does not light
+     up green for things you never do. */
+  const RECOVER_H = { quads: 72, hamstrings: 72, glutes: 72, 'lower-back': 72, adductors: 60, lats: 60, 'upper-back': 60, chest: 60, traps: 48,
+    'front-delt': 48, 'side-delt': 42, 'rear-delt': 42, triceps: 48, biceps: 42, forearms: 36, abs: 36, obliques: 36, calves: 36 };
+  function muscleRecovery(now = Date.now()) {
+    const out = {};
+    for (const m of Object.keys(MUSCLE_NAMES)) out[m] = { last: null, sets: 0 };
+    // newest first: the first session that touched a muscle is its last one
+    const ws = [...state.workouts].sort((a, b) => b.startedAt - a.startedAt);
+    for (const w of ws) {
+      if (now - w.startedAt > 14 * DAY) break;
+      const load = muscleLoad([w]);
+      Object.keys(load).forEach((m) => { if (out[m] && out[m].last == null && load[m] >= 1) { out[m].last = w.startedAt; out[m].sets = load[m]; } });
+    }
+    Object.keys(out).forEach((m) => {
+      const r = out[m];
+      if (r.last == null) { r.state = 'rested'; r.ratio = 1; return; }
+      const need = (RECOVER_H[m] || 48) * 3600e3 * (r.sets >= 6 ? 1 : r.sets >= 3 ? 0.8 : 0.6);
+      r.hours = (now - r.last) / 3600e3;
+      r.ratio = Math.min(1, (now - r.last) / need);
+      r.readyAt = r.last + need;
+      r.state = r.ratio >= 1 ? 'ready' : r.ratio >= 0.5 ? 'recovering' : 'fresh';
+    });
+    return out;
+  }
+  // the figure: just worked bright, recovering dimmer, ready green, rested plain
+  const recoveryLevel = (r) => (r.state === 'fresh' ? 'l3' : r.state === 'recovering' ? (r.ratio >= 0.75 ? 'l1' : 'l2') : r.state === 'ready' ? 'l4' : 'l0');
+  const agoText = (h) => (h < 20 ? 'today' : h < 44 ? 'yesterday' : Math.round(h / 24) + ' days ago');
+  function recoveryWords(m, r) {
+    if (r.state === 'rested') return MUSCLE_NAMES[m] + ' · not trained in two weeks';
+    const left = Math.max(0, Math.ceil((r.readyAt - Date.now()) / 3600e3));
+    return MUSCLE_NAMES[m] + ' · trained ' + agoText(r.hours) + ' · ' +
+      (r.state === 'ready' ? 'ready to train' : 'ready in about ' + (left >= 24 ? Math.round(left / 24) + ' day' + (Math.round(left / 24) === 1 ? '' : 's') : left + ' h'));
+  }
+  /* What fits today: each routine scored by how ready the muscles it leans
+     on are. The day's plan stays first unless what it trains is still
+     recovering; then the routine that fits best is offered instead. */
+  function routineFit(tpl, rec) {
+    const prim = new Set();
+    (tpl.exercises || []).forEach((e) => { if (!isCardio(e.exerciseId)) exerciseMuscles(e.exerciseId).p.forEach((m) => prim.add(m)); });
+    const list = [...prim].filter((m) => rec[m]);
+    if (!list.length) return null;
+    const score = list.reduce((t, m) => t + rec[m].ratio, 0) / list.length;
+    const notReady = list.filter((m) => rec[m].state === 'fresh' || rec[m].state === 'recovering');
+    return { tpl, score, notReady, muscles: list };
+  }
+  function todaysAdvice() {
+    if (state.activeWorkout || !state.workouts.length) return null;
+    const rec = muscleRecovery();
+    const planned = plannedFor(todayIndex());
+    const trained = state.workouts.some((w) => dateKey(new Date(w.startedAt)) === dateKey());
+    if (trained) return null;
+    const fits = allTemplates().map((t) => routineFit(t, rec)).filter(Boolean).sort((a, b) => b.score - a.score);
+    if (!fits.length) return null;
+    const best = fits[0];
+    const names = (ms) => ms.slice(0, 2).map((m) => MUSCLE_NAMES[m].toLowerCase()).join(' and ');
+    if (planned && !planned.rest) {
+      const mine = fits.find((f) => f.tpl.id === planned.id);
+      if (mine && mine.notReady.length && best.tpl.id !== planned.id && best.score - mine.score > 0.2) {
+        // the routine first: on a narrow screen the end of the line is what gets cut
+        return { id: best.tpl.id, text: best.tpl.name + ' fits better today · ' + names(mine.notReady) + ' still recovering', alt: true };
+      }
+      if (mine && !mine.notReady.length) return { id: planned.id, text: planned.name + ' · ' + names(mine.muscles) + ' rested and ready', alt: false };
+      return null;
+    }
+    if (planned && planned.rest) return null;
+    if (best.score < 0.75) return null;
+    return { id: best.tpl.id, text: 'Ready today: ' + best.tpl.name + ' · ' + names(best.muscles) + ' rested', alt: true };
+  }
+
   /* The figure: the 3D hologram (js/body3d.js) where the device can draw
      it, the flat map until then and wherever it cannot. The flat one is in
      the markup so there is never an empty card; the 3D one replaces it in
@@ -913,13 +988,14 @@
       '<div class="mm-credit" hidden>' + (window.BelaBody3D ? esc(BelaBody3D.CREDIT) : '') + '</div>' +
     '</div>';
   }
-  function muscleCaption(wrap, m, load, suffix) {
+  function muscleCaption(wrap, m, load, suffix, describe) {
     const cap = $('.mm-cap', wrap);
     if (!m) { cap.textContent = wrap.dataset.caption; return; }
+    if (describe) { cap.textContent = describe(m); return; }
     cap.textContent = MUSCLE_NAMES[m] + ' · ' + fmtSets(load[m] || 0) + ' set' + ((load[m] || 0) === 1 ? '' : 's') + suffix;
   }
   /* tap a muscle and the line under the map names it and its sets */
-  function wireMuscleMap(root, load, suffix, level) {
+  function wireMuscleMap(root, load, suffix, level, describe) {
     $$('.mm-wrap', root).forEach((wrap) => {
       wrap.addEventListener('click', (e) => {
         if (wrap.classList.contains('is-3d')) return;
@@ -928,13 +1004,13 @@
         if (!part) { muscleCaption(wrap, null); return; }
         const m = part.dataset.m;
         $$('[data-m="' + m + '"]', wrap).forEach((x) => x.classList.add('is-picked'));
-        muscleCaption(wrap, m, load, suffix);
+        muscleCaption(wrap, m, load, suffix, describe);
         haptic('tap');
       });
-      mountBody(wrap, load, suffix, level);
+      mountBody(wrap, load, suffix, level, describe);
     });
   }
-  function mountBody(wrap, load, suffix, level) {
+  function mountBody(wrap, load, suffix, level, describe) {
     if (!window.BelaBody3D || !BelaBody3D.supported()) return;
     const stage = $('.mm-stage', wrap);
     const faceSeg = $('.mm-face', wrap);
@@ -944,7 +1020,7 @@
     BelaBody3D.mount(stage, {
       key: wrap.dataset.key,
       levels,
-      onPick: (m) => { muscleCaption(wrap, m, load, suffix); if (m) haptic('tap'); },
+      onPick: (m) => { muscleCaption(wrap, m, load, suffix, describe); if (m) haptic('tap'); },
       onHover: (label, m, e) => {
         if (!label) { tip && tip.remove(); tip = null; return; }
         if (!tip) { tip = document.createElement('div'); tip.className = 'mm-tip'; stage.appendChild(tip); }
@@ -977,6 +1053,7 @@
   /* Where the week's work went. The app has always counted this and never
      said it: a muscle you have not touched in seven days is worth seeing
      before you plan the next session, not after. */
+  let mbView = 'week';      // the Sets this week card: 'week' or 'recovery'
   function muscleBalanceHTML() {
     const counts = muscleSets7d();
     const groups = MUSCLE_GROUPS.filter((g) => g !== 'Cardio');
@@ -986,11 +1063,27 @@
     const cutoff = Date.now() - 7 * 86400000;
     const load = muscleLoad(state.workouts.filter((w) => w.startedAt >= cutoff));
     const untouched = Object.keys(MUSCLE_NAMES).filter((m) => !load[m]).length;
+    const recov = mbView === 'recovery';
+    let map, legend;
+    if (recov) {
+      const rec = muscleRecovery();
+      const lv = {};
+      Object.keys(rec).forEach((m) => { lv[m] = recoveryLevel(rec[m]); });
+      const healing = Object.keys(rec).filter((m) => rec[m].state === 'fresh' || rec[m].state === 'recovering');
+      map = muscleMapHTML(lv, (x) => x || 'l0', healing.length
+        ? (healing.length === 1 ? MUSCLE_NAMES[healing[0]] + ' is' : healing.length + ' muscles are') + ' still recovering — tap one'
+        : 'Everything is rested — tap a muscle');
+      legend = '<div class="mm-legend"><span><i class="l3"></i>Just trained</span><span><i class="l2"></i>Recovering</span><span><i class="l4"></i>Ready</span></div>';
+    } else {
+      map = muscleMapHTML(load, weekLevel, untouched ? untouched + ' muscle' + (untouched === 1 ? '' : 's') + ' not trained this week — tap one' : 'Every muscle trained this week');
+      legend = '<div class="mm-legend"><span><i class="l1"></i>1–2</span><span><i class="l2"></i>3–5</span><span><i class="l3"></i>6–9</span><span><i class="l4"></i>10+ sets</span></div>';
+    }
     return '<div class="card mb-card">' +
-      '<div class="mb-head"><span class="micro">Sets this week</span>' +
-        '<span class="wv-sub">' + total + ' working set' + (total === 1 ? '' : 's') + '</span></div>' +
-      muscleMapHTML(load, weekLevel, untouched ? untouched + ' muscle' + (untouched === 1 ? '' : 's') + ' not trained this week — tap one' : 'Every muscle trained this week') +
-      '<div class="mm-legend"><span><i class="l1"></i>1–2</span><span><i class="l2"></i>3–5</span><span><i class="l3"></i>6–9</span><span><i class="l4"></i>10+ sets</span></div>' +
+      '<div class="mb-head"><span class="micro">' + (recov ? 'Recovery' : 'Sets this week') + '</span>' +
+        '<span class="wv-sub">' + total + ' working set' + (total === 1 ? '' : 's') + ' this week</span></div>' +
+      '<div class="seg mb-view" id="mbView"><button data-v="week" class="' + (recov ? '' : 'on') + '">This week</button>' +
+        '<button data-v="recovery" class="' + (recov ? 'on' : '') + '">Recovery</button></div>' +
+      map + legend +
       '<div class="mb-rows">' + groups.map((g) => {
         const n = counts[g] || 0;
         return '<div class="mb-row' + (n ? '' : ' is-none') + '">' +
@@ -2445,6 +2538,7 @@
     const proj = goalProjection();
     const planned = plannedFor(todayIndex());
     const trainedToday = state.workouts.some((w) => dateKey(new Date(w.startedAt)) === todayKey);
+    const advice = active ? null : todaysAdvice();
     const startLabel = active ? 'Resume workout'
       : planned && planned.rest ? 'Rest day'
       : planned ? 'Start ' + planned.name
@@ -2545,6 +2639,8 @@
           '<button class="ha-btn" id="homeLog">' +
             '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.6 3.4v6.1a2 2 0 0 1-4 0V3.4M5.6 9.7V20.6"/><path d="M17.4 3.4c-1.5 1.6-2.2 3.2-2.2 5.2 0 1.6.7 2.6 2.2 2.9v9.1"/></svg>' +
             'Log meal</button>' +
+          (advice ? '<button class="coach-today' + (advice.alt ? ' is-alt' : '') + '" id="coachToday" data-tpl="' + esc(advice.id) + '">' +
+            '<i class="coach-tag">Coach</i><span>' + esc(advice.text) + '</span></button>' : '') +
         '</div>');
 
     $('#homeAvatar').addEventListener('click', () => goTab('profile'));
@@ -2566,6 +2662,8 @@
       goTab('workout');
     });
     if ($('#homeLog')) $('#homeLog').addEventListener('click', () => { mealDayOffset = 0; openMealSheet(); });
+    // the coach's pick starts that routine (the planned one stays on the big button)
+    $('#coachToday', v)?.addEventListener('click', (e) => startWorkout(e.currentTarget.dataset.tpl));
   }
 
   /* How far along the journey to the goal weight — the number that actually
@@ -3911,7 +4009,7 @@
           '<div class="tpl-item" data-tpl="' + esc(t.id) + '" role="button" tabindex="0">' +
             '<div>' +
               '<div class="li-name">' + esc(t.name) + '</div>' +
-              '<div class="li-sub">' + t.exercises.length + ' exercise' + (t.exercises.length === 1 ? '' : 's') + ' · ' +
+              '<div class="li-sub">~' + templateMinutes(t) + ' min · ' + t.exercises.length + ' exercise' + (t.exercises.length === 1 ? '' : 's') + ' · ' +
                 t.exercises.map((e) => exerciseById(e.exerciseId)?.name).filter(Boolean).slice(0, 3).join(' · ') +
                 (t.exercises.length > 3 ? ' · …' : '') + '</div>' +
             '</div>' +
@@ -3932,7 +4030,20 @@
 
     if (active) $('#resumeWorkout').addEventListener('click', () => { workoutOpen = true; openWkEntry(); render(); });
     $('#startEmpty').addEventListener('click', () => startWorkout());
-    wireMuscleMap(v, muscleLoad(state.workouts.filter((w) => w.startedAt >= Date.now() - 7 * 86400000)), ' this week', weekLevel);
+    if (mbView === 'recovery') {
+      const rec = muscleRecovery();
+      const lv = {};
+      Object.keys(rec).forEach((m) => { lv[m] = recoveryLevel(rec[m]); });
+      wireMuscleMap(v, lv, '', (x) => x || 'l0', (m) => recoveryWords(m, rec[m]));
+    } else {
+      wireMuscleMap(v, muscleLoad(state.workouts.filter((w) => w.startedAt >= Date.now() - 7 * 86400000)), ' this week', weekLevel);
+    }
+    $$('#mbView button', v).forEach((b) => b.addEventListener('click', () => {
+      if (mbView === b.dataset.v) return;
+      mbView = b.dataset.v;
+      haptic('tap');
+      render();
+    }));
     wireInsights(v);
     $('#newRoutine').addEventListener('click', () => openRoutineBuilder());
     $('#newRoutine2').addEventListener('click', () => openRoutineBuilder());
@@ -4137,9 +4248,37 @@
 
   /* What is worth saying about the training, most useful first. Each one is
      a line you can act on or be glad about — never a chart restated. */
+  /* ---- weekly volume: sets per muscle against a target ----
+     Ten hard sets a muscle a week is the usual floor for growth (Settings
+     changes it). Only muscles he actually trains (anything in the last four
+     weeks) are held to it, and the target is paced across the week, so
+     Tuesday is not "behind" for not having done Friday's work yet. */
+  const weeklyTarget = () => Number(state.settings.weeklySets) || 10;
+  function weekStart(d = new Date()) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime(); }
+  function volumeBehind(extra = {}) {
+    const target = weeklyTarget();
+    const day = (new Date().getDay() + 6) % 7;                       // 0 = Monday
+    const pace = target * (day + 1) / 7;
+    const week = muscleLoad(state.workouts.filter((w) => w.startedAt >= weekStart()));
+    const trained = muscleLoad(state.workouts.filter((w) => w.startedAt >= Date.now() - 28 * DAY));
+    return Object.keys(MUSCLE_NAMES)
+      .filter((m) => (trained[m] || 0) >= 2)
+      .map((m) => ({ m, done: (week[m] || 0) + (extra[m] || 0), target, pace, left: 6 - day }))
+      .filter((x) => x.done <= x.pace - 2)
+      .sort((a, b) => (b.pace - b.done) - (a.pace - a.done));
+  }
+
   function insights() {
     const out = [];
     const u = unit();
+    const behind = volumeBehind().filter((x) => x.left <= 3);      // from Thursday on, while it can still be caught
+    if (behind.length) {
+      const top = behind.slice(0, 3);
+      out.push({ kind: 'vol',
+        title: top.length === 1 ? MUSCLE_NAMES[top[0].m] + ' is behind this week' : top.map((x) => MUSCLE_NAMES[x.m]).join(', ') + ' are behind',
+        body: top.map((x) => MUSCLE_NAMES[x.m] + ' ' + fmtSets(x.done) + ' of ' + x.target).join(' · ') +
+          ' sets, ' + (top[0].left ? top[0].left + ' day' + (top[0].left === 1 ? '' : 's') + ' left' : 'last day') + '. The coach adds a set where it can.' });
+    }
     stalledLifts().forEach((x) => {
       const name = exerciseById(x.id)?.name ?? 'A lift';
       out.push({ kind: 'stall', id: x.id,
@@ -4177,6 +4316,7 @@
     best: '<path d="m12 3.8 2.5 5.2 5.6.7-4.1 3.9 1 5.6-5-2.7-5 2.7 1-5.6-4.1-3.9 5.6-.7Z"/>',
     streak: '<path d="M12 21c-3.6 0-6-2.4-6-5.6 0-3.9 3.7-5.2 4-9.4 2.5 1.7 3.4 4 3.2 6.2 1-.6 1.6-1.6 1.8-2.8 1.7 1.5 3 3.6 3 6 0 3.2-2.4 5.6-6 5.6Z"/>',
     pr: '<path d="M7 4h10v4a5 5 0 0 1-10 0ZM12 13v4M8.5 20h7M7 6H4.5a2.5 2.5 0 0 0 2.5 3M17 6h2.5a2.5 2.5 0 0 1-2.5 3"/>',
+    vol: '<path d="M5 19V11M10 19V6M15 19v-5M20 19V9"/>',
   };
   function insightsHTML(limit = 4) {
     const list = insights().slice(0, limit);
@@ -4284,25 +4424,200 @@
       : /dumbbell|kettlebell/.test(eq) ? 2 : 2.5;
     return unit() === 'kg' ? kg : kg * 2;
   }
+  /* Each exercise works in a rep range, the way a coach writes a program:
+     the heavy barbell lifts 5–8, other compound lifts 8–12, single-muscle
+     work 10–15. A routine's own targets win; then what he set from the ⋯
+     menu (exPrefs[id].range); then the default. Weight goes up only when
+     every working set reaches the top of the range — +2 kg a session on a
+     lateral raise was never going to last. */
+  const HEAVY_LIFTS = new Set(['squat', 'front-squat', 'deadlift', 'bench-press', 'overhead-press', 'barbell-row', 'romanian-deadlift', 'sumo-deadlift', 'trap-bar-deadlift']);
+  const RANGE_CHOICES = [[3, 5], [5, 8], [6, 10], [8, 12], [10, 15], [12, 20]];
+  function defaultRange(exId) {
+    if (HEAVY_LIFTS.has(exId)) return [5, 8];
+    const g = typeof EXERCISE_GUIDE !== 'undefined' && EXERCISE_GUIDE[exId];
+    if (g) return g.p.length === 1 && g.s.length <= 1 ? [10, 15] : [8, 12];
+    const info = exerciseById(exId) || {};
+    return /barbell/i.test(info.equipment || '') ? [6, 10] : [8, 12];
+  }
+  function repRange(ex) {
+    const planned = (ex.sets || []).filter((st) => (st.type || 'N') !== 'W');
+    const lo = planned.find((st) => st.target)?.target, hi = planned.find((st) => st.targetMax)?.targetMax;
+    if (lo && hi) return [lo, hi];
+    if (lo) return [lo, lo];
+    const own = exPref(ex.exerciseId).range;
+    if (Array.isArray(own) && own.length === 2) return own;
+    return defaultRange(ex.exerciseId);
+  }
+  const fmtRange = (r) => (r[0] === r[1] ? String(r[0]) : r[0] + '–' + r[1]);
+  /* the entry from the last session that did this exercise: its sets and
+     how it felt (ex.feel: 'e' easy, 'g' good, 'h' hard) */
+  function previousEntry(exerciseId) {
+    for (const w of state.workouts) {
+      const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
+      if (ex && ex.sets.some((st) => st.done)) return ex;
+    }
+    return null;
+  }
+  const FEEL_WORD = { e: 'easy', g: 'good', h: 'hard' };
   function coachFor(ex) {
     if (isCardio(ex.exerciseId)) return null;
-    const prev = previousSets(ex.exerciseId).filter((st) => (st.type || 'N') !== 'W' && st.reps);
+    const last = previousEntry(ex.exerciseId);
+    if (!last) return null;
+    const prev = last.sets.filter((st) => st.done && (st.type || 'N') !== 'W' && st.reps);
     if (!prev.length) return null;
+    const feel = last.feel || null;
     const u = unit();
+    const [lo, hi] = repRange(ex);
+    const range = fmtRange([lo, hi]);
     if (!prev.some((st) => st.weight)) {
       const best = Math.max(...prev.map((st) => st.reps || 0));
-      return { reps: best + 1, up: true, text: 'Aim for ' + (best + 1) + ' reps — one more than your best last time' };
+      const reps = feel === 'h' ? best : best + (feel === 'e' ? 2 : 1);
+      return { reps, up: reps > best, text: feel === 'h' ? 'Match your best of ' + best + ' reps — it felt hard last time'
+        : 'Aim for ' + reps + ' reps — ' + (reps - best) + ' more than your best last time' };
     }
-    const h = overloadHint(ex);
-    if (!h) return null;
-    if (h.allHit) {
-      const step = progressStep(ex.exerciseId);
-      const weight = Math.round((h.prevWeight + step) * 2) / 2;
-      return { weight, reps: h.reps, up: true,
-        text: '+' + fmtNum(step) + ' ' + u + ' → ' + fmtNum(weight) + ' ' + u + ' × ' + h.reps + ' · every set hit its reps last time' };
+    const top = Math.max(...prev.map((st) => st.weight || 0));
+    const atTop = prev.filter((st) => st.weight === top);
+    const minReps = Math.min(...atTop.map((st) => st.reps || 0));
+    const step = progressStep(ex.exerciseId);
+    const r2 = (v) => Math.round(v * 2) / 2;
+    const said = feel ? ' and it felt ' + FEEL_WORD[feel] : '';
+    if (minReps >= hi && feel !== 'h') {
+      const jump = feel === 'e' ? step * 2 : step;
+      const weight = r2(top + jump);
+      return { weight, reps: lo, up: true,
+        text: '+' + fmtNum(jump) + ' ' + u + ' → ' + fmtNum(weight) + ' ' + u + ' × ' + lo + ' · every set reached ' + hi + said };
     }
-    return { weight: h.prevWeight, reps: h.reps, up: false,
-      text: 'Same ' + fmtNum(h.prevWeight) + ' ' + u + ', aim for ' + h.reps + ' reps · last time ' + h.prevReps };
+    if (minReps >= hi) {
+      return { weight: top, reps: hi, up: false,
+        text: 'Stay at ' + fmtNum(top) + ' ' + u + ' × ' + hi + ' — you got there, but it felt hard. Own it, then go up' };
+    }
+    // clearly too heavy: under the range on every set and it was a fight
+    if (minReps < lo - 1 && (feel === 'h' || Math.max(...atTop.map((st) => st.reps || 0)) < lo - 1)) {
+      const weight = Math.max(0, r2(top - step));
+      return { weight, reps: lo, up: false,
+        text: 'Down to ' + fmtNum(weight) + ' ' + u + ' × ' + lo + ' — last time was under the ' + range + ' range' };
+    }
+    const reps = Math.min(hi, Math.max(lo, minReps + 1));
+    return { weight: top, reps, up: false,
+      text: 'Same ' + fmtNum(top) + ' ' + u + ', aim for ' + reps + ' reps · range ' + range + ', last time ' + atTop.map((st) => st.reps).join(',') + said };
+  }
+  /* ---- how long a session takes ----
+     Each working set ~45 s of work plus its rest (the exercise's own rest
+     timer, else 2½ min for the heavy lifts down to 75 s for small muscles);
+     a warm-up set a minute; partners in a superset rest once per round;
+     five minutes to get set up. Only what is not done yet counts toward
+     "left". */
+  const isIsolation = (ex) => repRange(ex)[0] >= 10;
+  function restGuess(ex) {
+    const own = restFor(ex);
+    if (own) return own;
+    const lo = repRange(ex)[0];
+    return lo <= 6 ? 150 : lo <= 8 ? 120 : lo < 10 ? 105 : 75;
+  }
+  function estimateSeconds(exercises, onlyLeft) {
+    let t = onlyLeft ? 0 : 300;
+    exercises.forEach((ex, i) => {
+      if (isCardio(ex.exerciseId)) {
+        ex.sets.forEach((st) => { if (!(onlyLeft && st.done)) t += (st.reps || st.target || 15) * 60; });
+        return;
+      }
+      const next = exercises[i + 1];
+      const restsHere = !ex.ss || !next || next.ss !== ex.ss;       // in a superset only the last partner rests
+      ex.sets.forEach((st) => {
+        if (onlyLeft && st.done) return;
+        if ((st.type || 'N') === 'W') { t += 60; return; }
+        t += 45 + (restsHere ? restGuess(ex) : 15);
+      });
+    });
+    return t;
+  }
+  const estimateMin = (exercises, onlyLeft) => Math.max(1, Math.round(estimateSeconds(exercises, onlyLeft) / 60 / 5) * 5);
+  function templateMinutes(t) {
+    const exs = (t.exercises || []).map((e) => ({ exerciseId: e.exerciseId, ss: e.ss,
+      sets: tplSets(e).map((st) => ({ type: st.type, target: st.reps ?? st.target, targetMax: st.repsMax ?? st.targetMax })) }));
+    return estimateMin(exs, false);
+  }
+  /* Short on time: bring what is left down to the minutes there are. In
+     order, cheapest first — pair untouched accessories into supersets, take
+     sets off accessories (down to two), then off the other non-heavy lifts
+     (down to two), then drop the last untouched accessory. The heavy lifts
+     are left alone. Returns what it did, for the toast. */
+  function trimSession(w, minutes) {
+    const goal = minutes * 60;
+    const did = { sets: 0, dropped: [], paired: 0 };
+    const untouched = (ex) => !ex.sets.some((st) => st.done);
+    const undone = (ex) => ex.sets.filter((st) => !st.done && (st.type || 'N') !== 'W');
+    const left = () => estimateSeconds(w.exercises, true);
+    let guard = 60;
+    while (left() > goal && guard-- > 0) {
+      const ex = w.exercises;
+      // 1. two untouched accessories side by side become a superset
+      const pair = ex.findIndex((a, i) => i < ex.length - 1 && !a.ss && !ex[i + 1].ss && untouched(a) && untouched(ex[i + 1]) &&
+        !isCardio(a.exerciseId) && !isCardio(ex[i + 1].exerciseId) && isIsolation(a) && isIsolation(ex[i + 1]));
+      if (pair >= 0) {
+        const g = Math.max(0, ...ex.map((x) => x.ss || 0)) + 1;
+        ex[pair].ss = g; ex[pair + 1].ss = g; did.paired++;
+        continue;
+      }
+      // 2./3. a set off the accessory with the most left, then the other non-heavy lifts
+      const pick = (test) => ex.filter((x) => !isCardio(x.exerciseId) && test(x) && undone(x).length > 0 &&
+        x.sets.filter((st) => (st.type || 'N') !== 'W').length > 2).sort((a, b) => undone(b).length - undone(a).length)[0];
+      const cut = pick(isIsolation) || pick((x) => !isIsolation(x) && !HEAVY_LIFTS.has(x.exerciseId));
+      if (cut) {
+        const sets = cut.sets;
+        for (let k = sets.length - 1; k >= 0; k--) {
+          if (!sets[k].done && (sets[k].type || 'N') !== 'W') { sets.splice(k, 1); break; }
+        }
+        did.sets++;
+        continue;
+      }
+      // 4. the last untouched accessory goes
+      let drop = -1;
+      for (let k = ex.length - 1; k >= 0; k--) if (untouched(ex[k]) && isIsolation(ex[k])) { drop = k; break; }
+      if (drop < 0) break;
+      const gone = ex.splice(drop, 1)[0];
+      if (gone.ss) { const mates = ex.filter((x) => x.ss === gone.ss); if (mates.length === 1) delete mates[0].ss; }
+      did.dropped.push(exerciseById(gone.exerciseId)?.name ?? 'an exercise');
+    }
+    return did;
+  }
+  function openShortOnTime() {
+    const w = state.activeWorkout;
+    if (!w) return;
+    const now = estimateMin(w.exercises, true);
+    const opts = [20, 30, 45, 60].filter((m) => m < now);
+    openSheet('Short on time', '' +
+      '<p class="portion-per">About <b>' + now + ' min</b> left as planned. Pick what you have — accessories get paired and trimmed first, the main lifts stay.</p>' +
+      (opts.length ? '<div class="range-grid">' + opts.map((m) => '<button class="chip-btn range-pick" data-min="' + m + '">' + m + ' min</button>').join('') + '</div>'
+        : '<p class="empty-note" style="padding:12px">It already fits in 20 minutes.</p>'),
+    (body) => {
+      $$('[data-min]', body).forEach((b) => b.addEventListener('click', () => {
+        const did = trimSession(w, Number(b.dataset.min));
+        save(); closeSheet(); render();
+        haptic('tick');
+        const bits = [];
+        if (did.paired) bits.push(did.paired + ' superset' + (did.paired === 1 ? '' : 's'));
+        if (did.sets) bits.push(did.sets + ' set' + (did.sets === 1 ? '' : 's') + ' fewer');
+        if (did.dropped.length) bits.push(did.dropped.join(', ') + ' dropped');
+        toast('Now ~' + estimateMin(w.exercises, true) + ' min left' + (bits.length ? ' — ' + bits.join(', ') : ''));
+      }));
+    });
+  }
+
+  /* the coach's numbers onto an exercise that has nothing logged yet */
+  function applyCoach(ex) {
+    const c = coachFor(ex);
+    // nothing to go on (a first time): the routine's own planned weights stay
+    if (!c) return null;
+    ex.sets.forEach((st) => { if (!st.done && (st.type || 'N') !== 'W') { delete st.targetW; delete st.targetR; } });
+    delete ex.coach;
+    ex.sets.forEach((st) => {
+      if (st.done || (st.type || 'N') === 'W') return;
+      if (c.weight != null) st.targetW = c.weight;
+      st.targetR = c.reps;
+    });
+    ex.coach = { text: c.text, up: c.up, weight: c.weight ?? null, reps: c.reps };
+    return c;
   }
 
   /* What starting a routine does with a program, a deload or the coach: the
@@ -4340,17 +4655,51 @@
         if (top) ex.sets.forEach((st) => { if ((st.type || 'N') !== 'W') st.targetW = roundBar(top * 0.9); });
         ex.deload = true;
       } else if (auto && !(fromProgram && src && src.w531)) {
-        const c = coachFor(ex);
-        if (c) {
-          ex.sets.forEach((st) => {
-            if ((st.type || 'N') === 'W') return;
-            if (c.weight != null) st.targetW = c.weight;
-            st.targetR = c.reps;
-          });
-          ex.coach = { text: c.text, up: c.up, weight: c.weight ?? null, reps: c.reps };
-        }
+        applyCoach(ex);
       }
     });
+    /* A muscle behind its weekly sets, even counting today: one more set on
+       the first exercise here that trains it, at most two extra in all. */
+    if (auto && state.settings.volumeAssist !== false) {
+      const today = {};
+      w.exercises.forEach((ex) => {
+        if (isCardio(ex.exerciseId)) return;
+        const n = ex.sets.filter((st) => (st.type || 'N') !== 'W').length;
+        exerciseMuscles(ex.exerciseId).p.forEach((m) => { today[m] = (today[m] || 0) + n; });
+      });
+      let added = 0;
+      for (const b of volumeBehind(today)) {
+        if (added >= 2) break;
+        const ex = w.exercises.find((e) => !isCardio(e.exerciseId) && !e.extraSet && !e.deload && exerciseMuscles(e.exerciseId).p.includes(b.m));
+        if (!ex) continue;
+        const work = ex.sets.filter((st) => (st.type || 'N') !== 'W');
+        const lastSet = work[work.length - 1];
+        if (!lastSet) continue;
+        const copy = { weight: null, reps: null, done: false };
+        ['targetW', 'targetR', 'target', 'targetMax'].forEach((k) => { if (lastSet[k] != null) copy[k] = lastSet[k]; });
+        ex.sets.push(copy);
+        ex.extraSet = b.m;
+        const note = '+1 set: ' + MUSCLE_NAMES[b.m].toLowerCase() + ' is at ' + fmtSets(b.done) + ' of ' + b.target + ' this week';
+        if (ex.coach) ex.coach.text += ' · ' + note; else ex.coach = { text: note, up: false };
+        added++;
+      }
+    }
+    /* Warm-ups for the day's first heavy lift, so the first working set is
+       not the first time the bar moves. Not for single-muscle work, not for
+       a light bar, and not where the routine already has warm-ups. */
+    if (auto && state.settings.autoWarmup !== false) {
+      const first = w.exercises.find((ex) => !isCardio(ex.exerciseId) && showsWeight(ex) && repRange(ex)[0] <= 8);
+      const working = first && first.sets.find((st) => (st.type || 'N') !== 'W');
+      const target = working && (working.targetW ?? null);
+      if (first && target && target >= (unit() === 'kg' ? 40 : 90) && !first.sets.some((st) => (st.type || 'N') === 'W')) {
+        const ws = warmupSets(target);
+        if (ws.length) {
+          first.sets.unshift(...ws);
+          first.autoWarm = ws.length;
+          if (first.coach) first.coach.text += ' · ' + ws.length + ' warm-up set' + (ws.length === 1 ? '' : 's') + ' added';
+        }
+      }
+    }
     if (fromProgram && pr.def.kind === '531') w.name = tpl.name + ' · ' + WAVE_531[week % 4].label;
   }
 
@@ -5098,6 +5447,13 @@
           <div class="wk-vol-cell"><span class="micro">Volume</span><b data-roll="wk-vol" data-roll-to="${Math.round(vol)}">${Math.round(vol).toLocaleString()}<i> ${esc(unit())}</i></b></div>
           <div><span class="micro">Sets</span><b data-roll="wk-sets" data-roll-to="${done.length}">${done.length}<i>${allSets ? ' / ' + allSets : ''}</i></b></div>
         </div>
+        ${(() => {
+          if (w.editingId) return '';
+          const leftMin = estimateMin(w.exercises, true);
+          if (done.length >= allSets || !allSets) return '';
+          return '<button class="wk-left" id="wkShort"><span>~' + leftMin + ' min left</span>' +
+            (leftMin > 20 ? '<b>Short on time?</b>' : '') + '</button>';
+        })()}
         <div class="wk-progress${allSets && done.length >= allSets ? ' is-done' : ''}" role="progressbar" aria-label="Sets done" aria-valuemin="0" aria-valuemax="${allSets}" aria-valuenow="${done.length}"><i style="width:${setPct}%"></i></div>
         <div class="wk-body">
           ${w.exercises.map((ex, exIdx) => renderExerciseBlock(ex, exIdx, ssPos(w.exercises, exIdx))).join('')}
@@ -5122,6 +5478,7 @@
     ensureRestTimer();
     wireRestPanel(root);
     $('#wkTimer', root)?.addEventListener('click', openTimerSheet);
+    $('#wkShort', root)?.addEventListener('click', openShortOnTime);
     wirePad(root);
 
     const wkBody = $('.wk-body', root);
@@ -5174,6 +5531,12 @@
         save(); render();
         toast('Filled in ' + (h.weight != null ? fmtNum(h.weight) + ' ' + unit() + ' × ' : '') + h.reps);
       });
+      $$('.feel-btn', block).forEach((b) => b.addEventListener('click', () => {
+        ex.feel = ex.feel === b.dataset.feel ? undefined : b.dataset.feel;
+        if (!ex.feel) delete ex.feel;
+        save(); render();
+        haptic('tick');
+      }));
       $('.add-set', block).addEventListener('click', () => {
         ex.sets.push({ weight: null, reps: null, done: false });
         save(); render();
@@ -5413,6 +5776,32 @@
     bin: mi('<path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/>'),
   };
 
+  /* The rep range an exercise works in, kept against the exercise so every
+     routine that has it uses the same one. Changing it re-plans the sets
+     not yet logged. */
+  function openRangePicker(ex) {
+    const own = exPref(ex.exerciseId).range;
+    const def = defaultRange(ex.exerciseId);
+    const cur = repRange(ex);
+    const planned = ex.sets.some((st) => (st.type || 'N') !== 'W' && st.target);
+    openSheet('Rep range', '' +
+      '<p class="portion-per">The coach adds weight once every working set reaches the top of the range, then starts again at the bottom.' +
+      (planned ? ' This routine sets its own reps, which win while you follow it.' : '') + '</p>' +
+      '<div class="range-grid">' + RANGE_CHOICES.map((r) => '<button class="chip-btn range-pick' +
+        (cur[0] === r[0] && cur[1] === r[1] ? ' on' : '') + '" data-r="' + r.join('-') + '">' + fmtRange(r) + '</button>').join('') + '</div>' +
+      '<button class="btn btn-quiet" id="rangeDefault" style="margin-top:12px"' + (own ? '' : ' disabled') + '>Back to the default (' + fmtRange(def) + ')</button>',
+    (body) => {
+      const done = (range) => {
+        setExPref(ex.exerciseId, { range });
+        if (state.activeWorkout && !state.activeWorkout.editingId && autoProgress() && !ex.deload) applyCoach(ex);
+        save(); closeSheet(); render();
+        haptic('tick');
+      };
+      $$('.range-pick', body).forEach((b) => b.addEventListener('click', () => done(b.dataset.r.split('-').map(Number))));
+      $('#rangeDefault', body).addEventListener('click', () => done(null));
+    });
+  }
+
   function openExerciseMenu(exIdx) {
     const w = state.activeWorkout;
     const ex = w.exercises[exIdx];
@@ -5430,6 +5819,7 @@
         ${ex.ss ? `<button class="menu-item" data-act="ssbreak">${MI.link}Remove from superset</button>`
           : exIdx < w.exercises.length - 1 ? `<button class="menu-item" data-act="ss">${MI.link}Superset with next exercise</button>` : ''}
         ${!cardioEx ? `<button class="menu-item" data-act="rpe">${MI.rpe}${(exPref(ex.exerciseId).rpe !== undefined ? !!exPref(ex.exerciseId).rpe : (ex.sets.some((st) => st.rpe) || state.settings.trackRpe === true)) ? 'Hide the RPE column here' : 'Track RPE here'}</button>` : ''}
+        ${!cardioEx ? `<button class="menu-item" data-act="range">${MI.range}Rep range · ${esc(fmtRange(repRange(ex)))}</button>` : ''}
         <button class="menu-item" data-act="replace">${MI.swap}Replace exercise</button>
         ${showsWeight(ex) && !cardioEx ? '<button class="menu-item" data-act="warmup">' + MI.warm + 'Add warm-up sets</button>' : ''}
         ${showsWeight(ex) && !cardioEx ? '<button class="menu-item" data-act="plates">' + MI.weight + 'Plate calculator</button>' : ''}
@@ -5477,6 +5867,7 @@
           openExercisePicker((newId) => {
             const was = ex.exerciseId;
             ex.exerciseId = newId;
+            delete ex.coach; delete ex.deload; delete ex.feel;
             /* A different movement takes a different weight. The sets and reps
                are the shape of the work and stay; what you were lifting does
                not carry across to a machine you have not tried. */
@@ -5487,16 +5878,22 @@
                 delete st.targetW;
                 if (isCardio(newId) !== isCardio(was)) { st.reps = null; delete st.target; delete st.targetMax; }
                 delete st.kmh; delete st.incl;
+                delete st.targetR;
               });
+              // done it before: the coach knows what to put on it
+              if (!w.editingId && autoProgress() && !isCardio(newId)) applyCoach(ex);
             }
             save(); render();
-          });
+          }, { replacing: ex.exerciseId });
         } else if (act === 'reorder') {
           closeSheetNow();
           openReorderSheet();
         } else if (act === 'rest') {
           closeSheetNow();
           openRestPicker(ex);
+        } else if (act === 'range') {
+          closeSheetNow();
+          openRangePicker(ex);
         } else if (act === 'note') {
           closeSheetNow();
           openNoteSheet(ex);
@@ -5825,6 +6222,15 @@
           }).join('')}
         </div>
         <button class="chip-btn add-set">+ Add set</button>
+        ${(() => {
+          // every working set in: one tap for how it went, which the coach reads next time
+          if (cardio) return '';
+          const work = ex.sets.filter((st) => (st.type || 'N') !== 'W');
+          if (!work.length || !work.every((st) => st.done)) return '';
+          return '<div class="feel-row' + (ex.feel ? ' has' : '') + '"><span>' + (ex.feel ? 'Felt' : 'How did it feel?') + '</span>' +
+            ['e', 'g', 'h'].map((k) => '<button class="feel-btn' + (ex.feel === k ? ' on' : '') + '" data-feel="' + k + '">' +
+              { e: 'Easy', g: 'Good', h: 'Hard' }[k] + '</button>').join('') + '</div>';
+        })()}
       </div>`;
   }
 
@@ -6361,7 +6767,47 @@
 
   /* -------- exercise picker sheet -------- */
 
-  function openExercisePicker(onPick) {
+  /* Alternatives for an exercise: others that work the same muscles, the
+     ones sharing its main muscles first (a shared main muscle counts double
+     a helper), then the ones he has done before. */
+  function similarExercises(exId, equipment) {
+    const me = exerciseMuscles(exId);
+    if (!me.p.length) return [];
+    const done = new Set(state.workouts.flatMap((w) => w.exercises.map((e) => e.exerciseId)));
+    return allExercises()
+      .filter((e) => e.id !== exId && !isCardio(e.id) && (!equipment || e.equipment === equipment))
+      .map((e) => {
+        const m = exerciseMuscles(e.id);
+        // shared main muscles count most; main muscles the original does not
+        // lean on count against (dips are a triceps lift as much as a chest one)
+        const score = m.p.filter((x) => me.p.includes(x)).length * 2
+          + m.s.filter((x) => me.s.includes(x) || me.p.includes(x)).length * 0.5
+          - m.p.filter((x) => !me.p.includes(x)).length * 1
+          + (done.has(e.id) ? 0.25 : 0);
+        return { e, score, mainShared: m.p.some((x) => me.p.includes(x)) };
+      })
+      .filter((x) => x.mainShared)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
+      .map((x) => x.e);
+  }
+
+  function openExercisePicker(onPick, opts = {}) {
+    const replacing = opts.replacing || null;
+    let equip = '';
+    const similarHtml = () => {
+      if (!replacing) return '';
+      const list = similarExercises(replacing, equip);
+      const equips = [...new Set(similarExercises(replacing, '').map((e) => e.equipment))];
+      return '<div class="lib-group-title">Same muscles</div>' +
+        (equips.length > 1 ? '<div class="sim-chips">' + ['', ...equips].map((q) => '<button class="chip-btn sim-chip' + (q === equip ? ' on' : '') +
+          '" data-eq="' + esc(q) + '">' + esc(q || 'Any') + '</button>').join('') + '</div>' : '') +
+        (list.length ? list.map((e) => {
+          const m = exerciseMuscles(e.id).p.map((x) => MUSCLE_NAMES[x]).filter(Boolean).slice(0, 2).join(', ');
+          return '<div class="lib-item is-sim" data-pick="' + esc(e.id) + '" role="button" tabindex="0"><div>' +
+            '<div class="li-name">' + esc(e.name) + '</div><div class="li-sub">' + esc(e.equipment) + (m ? ' · ' + esc(m) : '') + '</div></div></div>';
+        }).join('') : '<p class="empty-note" style="padding:10px">Nothing with that equipment.</p>');
+    };
     const listHtml = (q) => {
       const query = q.trim().toLowerCase();
       const items = allExercises().filter((e) => !query || e.name.toLowerCase().includes(query) || e.muscle.toLowerCase().includes(query));
@@ -6379,15 +6825,22 @@
       }).join('');
     };
 
-    openSheet('Add exercise', `
+    openSheet(replacing ? 'Replace exercise' : 'Add exercise', `
       <input class="search-field" id="pickSearch" type="search" placeholder="Search exercises…" autocomplete="off">
-      <div id="pickList">${listHtml('')}</div>
+      <div id="pickSim">${similarHtml()}</div>
+      <div id="pickList">${replacing ? '<div class="lib-group-title lib-all">Everything</div>' : ''}${listHtml('')}</div>
       <button class="btn btn-quiet" id="newCustom" style="margin-top:8px">+ New custom exercise</button>
     `, (body) => {
       const search = $('#pickSearch', body);
       const list = $('#pickList', body);
-      search.addEventListener('input', () => { list.innerHTML = listHtml(search.value); });
+      const sim = $('#pickSim', body);
+      search.addEventListener('input', () => {
+        list.innerHTML = listHtml(search.value);
+        sim.hidden = !!search.value.trim();          // a search is for something specific
+      });
       body.addEventListener('click', (e) => {
+        const chip = e.target.closest('[data-eq]');
+        if (chip) { equip = chip.dataset.eq; sim.innerHTML = similarHtml(); return; }
         const item = e.target.closest('[data-pick]');
         if (item) {
           closeSheetNow();
@@ -7987,6 +8440,73 @@
     }).catch(() => {});
   }
 
+  /* ---- where the main lifts stand ----
+     Estimated 1RM over bodyweight against the usual strength standards (a
+     rough guide, the common tables for adult men): Beginner → Elite. The
+     best estimate of the last three months counts, so one great day a year
+     ago does not keep a level that has gone. */
+  const STANDARDS = {
+    'bench-press': [0.5, 0.75, 1.0, 1.5, 2.0],
+    squat: [0.75, 1.25, 1.5, 2.25, 2.75],
+    deadlift: [1.0, 1.5, 2.0, 2.5, 3.0],
+    'overhead-press': [0.35, 0.55, 0.75, 1.0, 1.25],
+    'barbell-row': [0.5, 0.75, 1.0, 1.5, 1.75],
+  };
+  const LEVELS = ['Beginner', 'Novice', 'Intermediate', 'Advanced', 'Elite'];
+  function strengthLevels() {
+    const lw = latestWeight();
+    if (!lw) return [];
+    const bw = lw.value;          // kept in the app's unit, like the lifts
+    const since = Date.now() - 90 * DAY;
+    return Object.keys(STANDARDS).map((id) => {
+      const ss = liftSessions(id).filter((x) => x.t >= since);
+      if (!ss.length) return null;
+      const e1 = Math.max(...ss.map((x) => x.best));
+      const ratio = e1 / bw;
+      const std = STANDARDS[id];
+      let lvl = -1;
+      std.forEach((r, i) => { if (ratio >= r) lvl = i; });
+      const next = lvl < std.length - 1 ? std[lvl + 1] : null;
+      return { id, e1, ratio, lvl, name: lvl >= 0 ? LEVELS[lvl] : 'Starting out',
+        next: next ? { name: LEVELS[lvl + 1], at: roundBar(next * bw) } : null,
+        // where between this level and the next, for the bar
+        frac: Math.min(1, Math.max(0, (ratio - (lvl >= 0 ? std[lvl] : 0)) / ((next || std[std.length - 1] * 1.2) - (lvl >= 0 ? std[lvl] : 0)))) };
+    }).filter(Boolean);
+  }
+  function strengthCardHTML() {
+    const list = strengthLevels();
+    if (!list.length) return '';
+    const u = unit();
+    return '<div class="card sl-card"><h3>Strength levels</h3>' +
+      '<p class="muted" style="margin-bottom:12px">Estimated 1RM against your bodyweight · common standards for adult men, a rough guide</p>' +
+      list.map((x) => '<div class="sl-row">' +
+        '<div class="sl-top"><b>' + esc(exerciseById(x.id)?.name ?? x.id) + '</b><span class="sl-lvl">' + esc(x.name) + '</span></div>' +
+        '<div class="sl-track">' + LEVELS.map((_, i) => '<i class="' + (i < x.lvl + 1 ? 'is-on' : i === x.lvl + 1 ? 'is-next' : '') + '">' +
+          (i === x.lvl + 1 ? '<em style="width:' + Math.round(x.frac * 100) + '%"></em>' : '') + '</i>').join('') + '</div>' +
+        '<div class="sl-sub">' + fmtNum(Math.round(x.e1 * 2) / 2) + ' ' + esc(u) + ' est. 1RM · ' + x.ratio.toFixed(2) + '× bodyweight' +
+          (x.next ? ' · ' + esc(x.next.name) + ' at ' + fmtNum(x.next.at) + ' ' + esc(u) : ' · the top of the table') + '</div>' +
+      '</div>').join('') + '</div>';
+  }
+  /* the latest records, newest first */
+  function recordsCardHTML() {
+    const rows = [];
+    for (const w of [...state.workouts].sort((a, b) => b.startedAt - a.startedAt)) {
+      for (const ex of w.exercises) for (const st of ex.sets) if (st.done && st.pr) rows.push({ t: w.startedAt, id: ex.exerciseId, st });
+      if (rows.length >= 8) break;
+    }
+    if (!rows.length) return '';
+    const u = unit();
+    const month = new Date(); month.setDate(1); month.setHours(0, 0, 0, 0);
+    const thisMonth = state.workouts.filter((w) => w.startedAt >= month.getTime())
+      .reduce((n, w) => n + w.exercises.reduce((m, e) => m + e.sets.filter((st) => st.done && st.pr).length, 0), 0);
+    return '<div class="card rec-card"><h3>Records</h3>' +
+      '<p class="muted" style="margin-bottom:10px">' + (thisMonth ? thisMonth + ' this month · ' : '') + 'the latest first</p>' +
+      rows.slice(0, 8).map((r) => '<div class="rec-row"><span class="rec-date">' + esc(fmtShortDate(r.t)) + '</span>' +
+        '<b>' + esc(exerciseById(r.id)?.name ?? '') + '</b>' +
+        '<span class="rec-set">' + (r.st.weight ? fmtNum(r.st.weight) + ' ' + esc(u) + ' × ' : '') + r.st.reps + '</span></div>').join('') +
+    '</div>';
+  }
+
   function renderTrends(v) {
     const options = exercisesWithHistory();
     const u = unit();
@@ -8043,6 +8563,9 @@
           ${series.length >= 2 ? lineChartSVG(series, chartUnit, cardioPick ? 'Distance per session' : 'Estimated one rep max over time', 'var(--series-1)') : `<p class="empty-note">Log this exercise in at least two workouts to see a trend.</p>`}
         </div>
       </div>
+
+      ${strengthCardHTML()}
+      ${recordsCardHTML()}
 
       <div class="card chart-card">
         <h3>Weekly volume</h3>
@@ -8405,6 +8928,13 @@
         <span><b>Automatic progression</b><i>Every session from a routine comes with its weights and reps decided: more when you hit them all last time, one more rep when you didn't, a lighter week when a lift stalls</i></span>
         <input type="checkbox" id="autoProgSw" ${s.autoProgress === false ? '' : 'checked'}>
       </label>
+      <div class="field">
+        <label>Weekly sets per muscle</label>
+        <div class="seg" id="volSeg" style="margin-bottom:0">
+          ${[8, 10, 12, 15, 20].map((n) => `<button data-n="${n}" class="${(Number(s.weeklySets) || 10) === n ? 'on' : ''}">${n}</button>`).join('')}
+        </div>
+        <i class="field-hint">The target the coach and Insights hold each muscle you train to. 10 is the usual floor for growth.</i>
+      </div>
       <button class="btn btn-quiet" id="freshBtn" style="margin:4px 0 10px">Start fresh — delete workout history</button>
       <div class="section-title" style="margin-top:8px">Nutrition targets</div>
       <div class="field">
@@ -8630,6 +9160,11 @@
       $('#healthBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openHealthSheet); });
       $('#progOpen', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openProgramsSheet); });
       $('#autoProgSw', body).addEventListener('change', (e) => { state.settings.autoProgress = e.target.checked; save(); });
+      $$('#volSeg button', body).forEach((b) => b.addEventListener('click', () => {
+        state.settings.weeklySets = Number(b.dataset.n);
+        $$('#volSeg button', body).forEach((x) => x.classList.toggle('on', x === b));
+        save();
+      }));
       $('#freshBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(confirmFreshStart); });
       $('#feedBtn', body).addEventListener('click', () => { closeSheetNow(); queueMicrotask(openFeedSettings); });
       $('#tplRestore', body)?.addEventListener('click', () => {

@@ -34,7 +34,10 @@ function build() {
     }],
   }));
   return {
-    settings: { unit: 'kg', appearance: 'dark', name: 'Rimvydas', goalWeight: 75, restSeconds: 90 },
+    // volumeAssist off: whether a muscle is "behind this week" depends on the
+    // weekday, which would make suites pass on some days and not others.
+    // tests/coach.test.js turns it on with a target that holds any day.
+    settings: { unit: 'kg', appearance: 'dark', name: 'Rimvydas', goalWeight: 75, restSeconds: 90, volumeAssist: false },
     nutrition: {
       targets: { kcal: 2800, protein: 180, carbs: 300, fat: 70 },
       meals, weights, water: [], measurements: [],
