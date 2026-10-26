@@ -3,7 +3,10 @@
    a tap, sets swiped away, the next set marked, the session reordered, and a
    closing page once it is saved. */
 const { openApp, readState, PHONE } = require('./lib/harness');
-const { build } = require('./lib/seed');
+const seedLib = require('./lib/seed');
+// the logger's own mechanics, without the coach's warm-ups and targets
+// (tests/coach.test.js and tests/trainer.test.js have those)
+const build = () => { const s = seedLib.build(); s.settings.autoProgress = false; return s; };
 
 const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
 

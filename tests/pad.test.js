@@ -2,7 +2,10 @@
    into the real box, steps by a plate or a rep, copies the set above, walks
    weight → reps → next set, and can be switched off for the keyboard. */
 const { openApp, readState } = require('./lib/harness');
-const { build } = require('./lib/seed');
+const seedLib = require('./lib/seed');
+// the logger's own mechanics, without the coach's warm-ups and targets
+// (tests/coach.test.js and tests/trainer.test.js have those)
+const build = () => { const s = seedLib.build(); s.settings.autoProgress = false; return s; };
 
 module.exports = async (t) => {
   const server = await t.serve({ serviceWorker: false });
