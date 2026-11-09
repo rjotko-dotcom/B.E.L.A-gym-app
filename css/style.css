@@ -3141,3 +3141,6 @@ body.pad-open .rest-panel { opacity: 0; pointer-events: none; transform: transla
 .qt-total { padding-top: 8px; font-size: 0.8rem; font-weight: 650; color: var(--ink-2); }
 .repeat-row .li-name { font-weight: 650; }
 .pd-portions .qchip i { font-style: normal; color: var(--ink-muted); font-size: 0.85em; margin-left: 2px; }
+
+/* six-row months: shorter day cells so the habits page still fits one screen */
+.hc-grid.is-six .hc-day { aspect-ratio: 1.24; }

@@ -7370,7 +7370,9 @@
         '</div>' +
         (hView === 'calendar'
           ? '<div class="hc-dow">' + ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((l) => '<span>' + l + '</span>').join('') + '</div>' +
-            '<div class="hc-grid">' + cells + '</div>'
+            // a month that needs six rows (November 2026 starts on a Sunday) gets
+            // shorter cells, so the page still fits one screen
+            '<div class="hc-grid' + (Math.ceil((firstDow + daysInMonth) / 7) > 5 ? ' is-six' : '') + '">' + cells + '</div>'
           : '<div class="hb-grid-scroll" id="hbScroll">' +
               '<table class="hb-grid"><thead><tr><th></th>' +
                 cols.map((h) => '<th><span>' + esc(h.name.length > 7 ? h.name.slice(0, 7) : h.name) + '</span></th>').join('') +
