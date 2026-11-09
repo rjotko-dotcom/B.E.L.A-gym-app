@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.9';
+  const APP_VERSION = '16.10';
 
   /* ---------------- state ---------------- */
 
@@ -69,7 +69,8 @@
   let sheetHasEntry = false;
 
   function goTab(tab) {
-    if (tab !== 'habits') habitReorder = false;
+    if (tab === 'plan' || tab === 'bela') tab = 'today';     // old routes land on Today
+    if (tab !== 'habits' && tab !== 'today') habitReorder = false;
     if (tab !== 'workout') planWeekOffset = 0;
     currentTab = tab;
     rememberTab(tab);
@@ -2650,7 +2651,7 @@
     $('#hbCard').addEventListener('click', (e) => {
       const cell = e.target.closest('[data-h]');
       const h = cell && habitById(cell.dataset.h);
-      if (!h) { goTab('habits'); return; }
+      if (!h) { goTab('today'); return; }
       if (h.source) goHabitSource(h);
       else if (habitType(h) === 'check') toggleHabit(h);
       else openHabitPad(h, todayKey);
@@ -7410,8 +7411,9 @@
   // done at a glance rather than as a circle that happens to be full
   const habitTick = '<svg class="hb-tick" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.6 10 17.6 19 6.8"/></svg>';
 
-  function renderHabits() {
-    const v = $('#view');
+  function renderHabits(root, opts = {}) {
+    const v = root || $('#view');
+    const compact = !!opts.compact;
     const list = habitsList();
     const todayKey = dateKey();
     const today = new Date();
@@ -7462,10 +7464,13 @@
     const monthLabel = gridMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
     const hView = state.settings.habitView === 'list' ? 'list' : 'calendar';
 
-    v.innerHTML =
-      '<div class="page-head">' +
+    v.innerHTML = (compact
+      ? '<div class="td-head"><span class="micro">Habits</span><span class="td-sub' + (total && done === total ? ' all-done' : '') + '">' + done + ' of ' + total + ' done</span>' +
+          '<button class="td-link" id="hbAdd" aria-label="New habit">+ New</button></div>'
+      : '<div class="page-head">' +
         '<div><h2>Habits</h2><p class="subtitle' + (total && done === total ? ' all-done' : '') + '">' + done + ' of ' + total + ' done today</p></div>' +
         '<div class="ph-actions">' +
+          '<button class="icon-btn" id="hbBack" aria-label="Back to Today"><svg viewBox="0 0 24 24"><path d="M14.5 6 8.5 12l6 6"/></svg></button>' +
           '<button class="icon-btn" id="hbViewBtn" aria-label="' + (hView === 'calendar' ? 'Switch to list view' : 'Switch to calendar view') + '">' +
             (hView === 'calendar'
               ? '<svg viewBox="0 0 24 24"><path d="M4 6.5h3M10 6.5h10M4 12h3M10 12h10M4 17.5h3M10 17.5h10"/></svg>'
@@ -7473,7 +7478,7 @@
           '</button>' +
           '<button class="icon-btn" id="hbAdd" aria-label="New habit"><svg viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg></button>' +
         '</div>' +
-      '</div>' +
+      '</div>') +
 
       (list.length ? (
       '<div class="card hb-today-card">' +
@@ -7511,6 +7516,7 @@
         }).join('') +
       '</div>' +
 
+      (compact ? '<button class="td-more" id="hbAll">Habit calendar &amp; history<span>›</span></button>' :
       '<div class="card hb-grid-card">' +
         '<div class="hb-month">' +
           '<button class="hb-nav" id="hbPrev" aria-label="Previous month">‹</button>' +
@@ -7528,8 +7534,11 @@
               '</tr></thead><tbody>' + rows + '</tbody></table>' +
             '</div>' +
             (list.length > 5 ? '<p class="hb-note">Showing the first 5 habits — tap a date for the rest.</p>' : '')) +
-      '</div>'
-      ) : '<p class="empty-note">No habits yet. Tap + to add your first one.</p>');
+      '</div>')
+      ) : '<p class="empty-note">No habits yet. Tap + to add your first one.</p>' +
+        (compact ? '<button class="td-more" id="hbAll">Habit calendar &amp; history<span>›</span></button>' : ''));
+    $('#hbAll', v)?.addEventListener('click', () => goTab('habits'));
+    $('#hbBack', v)?.addEventListener('click', () => goTab('today'));
 
     $('#hbAdd').addEventListener('click', () => openHabitEditor());
     const prev = $('#hbPrev'); if (prev) prev.addEventListener('click', () => { habitMonthOffset -= 1; render(); });
@@ -7565,7 +7574,7 @@
       });
     });
     $$('.hc-day', v).forEach((cell) => cell.addEventListener('click', () => openDaySheet(cell.dataset.day)));
-    $('#hbViewBtn').addEventListener('click', () => {
+    $('#hbViewBtn')?.addEventListener('click', () => {
       state.settings.habitView = hView === 'calendar' ? 'list' : 'calendar';
       save(); render();
     });
@@ -7796,7 +7805,7 @@
             const item = e.target.closest('[data-into]');
             if (!item) return;
             Object.entries(parsed.days).forEach(([key, val]) => setHabitValue(item.dataset.into, val, key));
-            save(); closeSheet(); goTab('habits');
+            save(); closeSheet(); goTab(currentTab === 'habits' ? 'habits' : 'today');
             toast(parsed.count + ' days imported');
           });
         });
@@ -8019,7 +8028,7 @@
         if (!state.habits) state.habits = [];
         const i = state.habits.findIndex((x) => x.id === draft.id);
         if (i >= 0) state.habits[i] = draft; else state.habits.push(draft);
-        save(); closeSheet(); goTab('habits');
+        save(); closeSheet(); goTab(currentTab === 'habits' ? 'habits' : 'today');
         toast(h ? 'Habit saved' : 'Habit added');
       });
       const del = $('#hbDel', body);
@@ -8087,7 +8096,7 @@
       if (!data || !Array.isArray(data.items)) throw new Error('nothing');
       planSave({ items: data.items, at: Date.now(), from: data.from, to: data.to });
       planBadge();
-      if (currentTab === 'plan') render();
+      if (currentTab === 'plan' || currentTab === 'today') render();
       return true;
     } catch (err) {
       if (!opts.quiet) toast('Could not read the plan from the PC');
@@ -8128,15 +8137,19 @@
     return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
-  function renderPlan() {
-    const v = $('#view');
+  let planShowAll = false;          // Today shows the week; this opens the three weeks
+  function renderPlan(root, opts = {}) {
+    const v = root || $('#view');
+    const compact = !!opts.compact;
     const cache = planCache();
     const cfg = pcCfg();
-    const items = cache.items.filter((i) => {
+    const weekEnd = (() => { const d = new Date(); d.setDate(d.getDate() + 6); return dateKey(d); })();
+    const all = cache.items.filter((i) => {
       if (agdFilter === 'all') return true;
       if (agdFilter === 'university') return i.area === 'university';
       return i.kind === 'task' || i.kind === 'assignment' || i.kind === 'deadline' || i.kind === 'skola' || i.kind === 'payment';
     });
+    const items = compact && !planShowAll ? all.filter((i) => i.date <= weekEnd) : all;
 
     let body;
     if (!cfg.host) {
@@ -8166,26 +8179,30 @@
       }).join('');
     }
 
-    const when = cache.at ? 'read ' + feedWhen(cache.at) : 'never read';
+    const when = cache.at ? 'updated ' + feedWhen(cache.at) : 'never read';
     v.innerHTML =
-      '<div class="agd-head"><span class="micro">WHAT AWAITS YOU</span>' +
+      '<div class="agd-head"><span class="micro">' + (compact ? 'Calendar' : 'WHAT AWAITS YOU') + '</span>' +
         '<span class="agd-when">' + esc(when) + '</span></div>' +
       '<div class="agd-chips">' +
         PLAN_FILTERS.map(([k, label]) => '<button class="agd-chip' + (agdFilter === k ? ' is-on' : '') +
           '" data-agd-filter="' + k + '">' + esc(label) + '</button>').join('') +
-      '</div>' + body;
+      '</div>' + body +
+      (compact && all.length > items.length ? '<button class="td-more" id="agdAll">Next three weeks<span>›</span></button>' : '') +
+      (compact && planShowAll && cache.items.length ? '<button class="td-more" id="agdLess">Just this week<span>›</span></button>' : '');
+    $('#agdAll', v)?.addEventListener('click', () => { planShowAll = true; render(); });
+    $('#agdLess', v)?.addEventListener('click', () => { planShowAll = false; render(); });
 
     $$('[data-agd-filter]', v).forEach((b) => b.addEventListener('click', () => {
       agdFilter = b.dataset.agdFilter;
       render();
     }));
-    planFetch({ quiet: true });
+    if (Date.now() - (cache.at || 0) > 60000) planFetch({ quiet: true });
   }
 
-  function renderBela() {
-    const v = $('#view');
+  function renderBela(root, opts = {}) {
+    const v = root || $('#view');
     const cfg = feedCfg();
-    const all = feed ? feed.list() : [];
+    const all = (feed ? feed.list() : []).filter((m) => !opts.skip || m.id !== opts.skip);
     const todayKey = fmtShortDate(Date.now());
     const shown = feedFilter === 'all' ? all : all.filter((m) => feedKind(m) === feedFilter);
 
@@ -8230,6 +8247,40 @@
       feedFilter = c.dataset.filter; render();
     }));
   }
+
+  /* ---------------- Today ----------------
+     He asked for Plan and Info (and the habits) on one page: the calendar
+     first, kept fresh on its own, then the morning brief, today's habits,
+     and the rest of what the PC said. The full habit calendar is a page of
+     its own, one tap from here. */
+  function latestBrief() {
+    const list = feed ? feed.list() : [];
+    const since = Date.now() - 20 * 3600e3;
+    return list.find((m) => feedKind(m) === 'brief' && m.at >= since) || null;
+  }
+  function renderToday() {
+    const v = $('#view');
+    const brief = latestBrief();
+    const d = new Date();
+    v.innerHTML =
+      '<div class="page-head"><div><h2>Today</h2><p class="subtitle">' +
+        esc(d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })) + '</p></div></div>' +
+      '<section class="card td-sec" id="tdCal"></section>' +
+      (brief
+        ? '<section class="card td-sec td-brief' + (brief.read ? '' : ' is-new') + '"><div class="td-head"><span class="micro">Morning brief</span>' +
+            '<span class="td-sub">' + esc(feedClock(brief.at)) + '</span></div>' +
+            '<p class="td-brief-body">' + esc(brief.body || feedTitle(brief)).replace(/\n/g, '<br>') + '</p></section>'
+        : '') +
+      '<section class="card td-sec" id="tdHabits"></section>' +
+      '<section class="td-sec td-feed" id="tdFeed"></section>';
+    renderPlan($('#tdCal', v), { compact: true });
+    renderHabits($('#tdHabits', v), { compact: true });
+    renderBela($('#tdFeed', v), { skip: brief ? brief.id : null });
+  }
+  // the calendar keeps itself current while Today is open
+  setInterval(() => {
+    if (currentTab === 'today' && !document.hidden && !$('#sheetRoot').children.length) planFetch({ quiet: true });
+  }, 5 * 60000);
 
   /* One line for the settings sheet that says where the feed stands. */
   function feedStatusText() {
@@ -9926,7 +9977,7 @@
       goTab('home');
       setTimeout(() => openWeightSheet(), 60);
     } else if (go === 'habits') {
-      goTab('habits');
+      goTab('today');
     } else if (go === 'nutrition') {
       goTab('meals');
     }
@@ -9975,7 +10026,8 @@
 
   /* ---------------- swipe between tabs ---------------- */
 
-  const TAB_ORDER = ['home', 'workout', 'meals', 'habits', 'plan', 'bela'];
+  // Habits, Plan and Info live on Today now (16.10); their own pages are still routes
+  const TAB_ORDER = ['home', 'workout', 'meals', 'today'];
   let swipeStart = null;
   let slideDir = null;
   /* Anything that drags sideways on its own — a meal row, the plan card, a
@@ -10096,6 +10148,7 @@
       case 'habits': renderHabits(); break;
       case 'plan': renderPlan(); break;
       case 'bela': renderBela(); break;
+      case 'today': renderToday(); break;
       case 'profile': renderProfile(); break;
     }
     renderWorkoutOverlay();
@@ -10114,11 +10167,11 @@
     } else if (entering && !firstRender) staggerIn($('#view'));
     animateProgress($('#view'), entering);
     markJustDone($('#view'), entering);
-    $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === currentTab));
+    $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === currentTab || (t.dataset.tab === 'today' && currentTab === 'habits')));
     moveTabIndicator();
     /* Leaving Info is what marks it read: while you are on it, what is new
        stays bright, and the badge on the tab waits until you have gone. */
-    if (feedLastTab === 'bela' && currentTab !== 'bela' && feed) { feedLastTab = currentTab; feed.markAllRead(); }
+    if ((feedLastTab === 'bela' || feedLastTab === 'today') && currentTab !== feedLastTab && feed) { feedLastTab = currentTab; feed.markAllRead(); }
     feedLastTab = currentTab;
     feedBadge();
     planBadge();
@@ -10152,7 +10205,9 @@
     return total;
   })();
 
-  if (lastTab && lastTab !== 'home' && TAB_ORDER.includes(lastTab)) goTab(lastTab);
+  if (lastTab === 'habits') goTab('habits');           // the full habit page, kept on a refresh
+  else if (lastTab && ['plan', 'bela'].includes(lastTab)) goTab('today');
+  else if (lastTab && lastTab !== 'home' && TAB_ORDER.includes(lastTab)) goTab(lastTab);
   else render();
   snapshotDaily();
   setTimeout(() => weeklyBackup(), 2500);    // after the opening settles, never in its way

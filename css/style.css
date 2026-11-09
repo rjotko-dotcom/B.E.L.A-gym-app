@@ -3153,3 +3153,27 @@ body.pad-open .rest-panel { opacity: 0; pointer-events: none; transform: transla
 .scan-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .scan-btn:active { transform: scale(0.96); }
 .scan-btn::after { content: ''; position: absolute; inset: -7px; }
+
+/* ---------- 16.10: Today — calendar, morning brief, habits, the feed ---------- */
+.td-sec { margin-bottom: 14px; }
+.td-sec.card { padding: 14px 16px; }
+.td-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.td-head .micro { flex: 1; }
+.td-sub { font-size: 0.78rem; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.td-sub.all-done { color: var(--done); }
+.td-link { position: relative; padding: 0; border: 0; background: none; font: inherit; font-size: 0.8rem; font-weight: 650; color: var(--ink-1); cursor: pointer; }
+.td-link::after { content: ''; position: absolute; inset: -7px; }
+.td-more {
+  display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 10px; padding: 11px 2px 2px;
+  border: 0; border-top: 1px solid var(--card-edge); background: none; font: inherit; font-size: 0.84rem; font-weight: 600;
+  color: var(--ink-2); cursor: pointer; text-align: left;
+}
+.td-more span { font-size: 1.1rem; color: var(--ink-muted); }
+.td-brief-body { font-size: 0.9rem; line-height: 1.5; color: var(--ink-1); margin: 0; }
+.td-brief.is-new { box-shadow: inset 3px 0 0 var(--ink-1), var(--card-shadow); }
+/* the habits card and the agenda lose their own card when they sit in a Today section */
+.td-sec .hb-today-card { background: none; border: 0; box-shadow: none; padding: 0; margin: 0; }
+.td-sec .agd-head { margin-top: 0; }
+.td-back { position: relative; display: block; padding: 0; margin-bottom: 4px; border: 0; background: none; font: inherit; font-size: 0.82rem; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.td-back::after { content: ''; position: absolute; inset: -7px; }
+.td-sec .hb-th .micro { visibility: hidden; }

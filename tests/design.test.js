@@ -25,17 +25,19 @@ module.exports = async (t) => {
   });
   const homeX = await indX();
   t.check('the tab bar has one marker', homeX != null && await page.evaluate(() => document.querySelectorAll('.tab-ind').length === 1));
-  await page.click('.tab[data-tab="habits"]');
+  await page.click('.tab[data-tab="today"]');
   await page.waitForTimeout(700);
   const habitsX = await indX();
   t.check('and it slides to the tab picked', habitsX > homeX + 100, homeX + ' → ' + habitsX);
   t.check('it sits under that tab\'s icon', await page.evaluate(() => {
     const i = document.querySelector('.tab-ind').getBoundingClientRect();
-    const s = document.querySelector('.tab[data-tab="habits"] svg').getBoundingClientRect();
+    const s = document.querySelector('.tab[data-tab="today"] svg').getBoundingClientRect();
     return Math.abs((i.left + i.width / 2) - (s.left + s.width / 2)) < 2;
   }));
 
   // every column of the habits calendar is the same width
+  await page.evaluate(() => document.querySelector('#hbAll').click());
+  await page.waitForTimeout(500);
   const cols = await page.evaluate(() => {
     const cells = [...document.querySelectorAll('.hc-grid > *')].slice(0, 14);
     return [...new Set(cells.map((c) => Math.round(c.getBoundingClientRect().width)))];
@@ -96,7 +98,7 @@ module.exports = async (t) => {
   await calm.goto(server.url);
   await calm.waitForTimeout(450);
   t.check('reduced motion: no entrance on arrival', await calm.evaluate(() => {
-    document.querySelector('.tab[data-tab="habits"]').click();
+    document.querySelector('.tab[data-tab="today"]').click();
     return !document.querySelector('#view').classList.contains('view-enter');
   }));
   t.check('reduced motion: a closed sheet just goes', await calm.evaluate(async () => {

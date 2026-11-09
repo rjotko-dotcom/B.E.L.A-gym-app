@@ -36,7 +36,7 @@ module.exports = async (t) => {
     t.check(size.label + ': every gap is the same', new Set(m.gaps).size === 1, 'gaps ' + m.gaps.join(','));
     t.equal(size.label + ': no sideways scroll', m.horizontal, 0);
     /* six since 2026-09-11: Home, Workouts, Nutrition, Habits, Plan, Info */
-    t.equal(size.label + ': six tabs', m.tabs, 6);
+    t.equal(size.label + ': four tabs (Today holds habits, plan and the feed)', m.tabs, 4);
     await page.close();
   }
 
@@ -80,12 +80,12 @@ module.exports = async (t) => {
   // a refresh (pull-to-refresh included) comes back where you were
   await page.evaluate(() => { const c = document.querySelector('[data-close]'); if (c) c.click(); });
   await page.waitForTimeout(350);
-  await page.click('.tab[data-tab="habits"]');
+  await page.evaluate(() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); });
   await page.waitForTimeout(400);
   await page.reload();
   await page.waitForTimeout(600);
-  t.equal('a refresh stays on the tab you were on',
-    await page.evaluate(() => document.querySelector('.tab.active')?.dataset.tab), 'habits');
+  t.check('a refresh stays on the page you were on', await page.evaluate(() =>
+    document.querySelector('.tab.active')?.dataset.tab === 'today' && /Habits/.test(document.querySelector('#view h2')?.textContent || '')));
   await page.goBack();
   await page.waitForTimeout(450);
   t.equal('back still walks out to home',
@@ -184,7 +184,7 @@ module.exports = async (t) => {
     i.remove();
     return ok;
   }));
-  for (const tab of ['workout', 'meals', 'habits']) {
+  for (const tab of ['workout', 'meals', 'today']) {
     await page.evaluate((x) => document.querySelector('.tab[data-tab="' + x + '"]').click(), tab);
     await page.waitForTimeout(450);
     t.check('the bar clears the nav on ' + tab, (await gap()) > 12, String(await gap()));
@@ -239,7 +239,7 @@ module.exports = async (t) => {
   const light = await openApp(t.browser, { url: server.url, seed: lightSeed, theme: 'light' });
   const paper = await light.evaluate(() => getComputedStyle(document.body).backgroundColor);
   t.check('light mode paints a light page', paper !== 'rgb(0, 0, 0)', paper);
-  for (const tab of ['workout', 'meals', 'habits', 'home']) {
+  for (const tab of ['workout', 'meals', 'today', 'home']) {
     await light.evaluate((x) => document.querySelector('.tab[data-tab="' + x + '"]').click(), tab);
     await light.waitForTimeout(400);
     const view = await light.evaluate(() => ({

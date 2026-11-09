@@ -13,7 +13,7 @@ module.exports = async (t) => {
   for (let i = 0; i <= 20; i++) { seed.habitLog[day(i)] = seed.habitLog[day(i)] || {}; if (i !== 9) seed.habitLog[day(i)].h_med = 1; }
   const page = await openApp(t.browser, { url: server.url, seed });
   const streak = () => page.evaluate(() => {
-    document.querySelector('.tab[data-tab="habits"]').click();
+    (() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); })();
     return new Promise((r) => setTimeout(() => {
       const row = document.querySelector('.hb-row[data-habit="h_med"]');
       row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
@@ -89,7 +89,7 @@ module.exports = async (t) => {
   await p2.goto(server.url);
   await p2.waitForTimeout(500);
   t.check('installed: habit reminders have a channel', await p2.evaluate(() => window.__LN.channels.includes('habits')));
-  await p2.evaluate(() => document.querySelector('.tab[data-tab="habits"]').click());
+  await p2.evaluate(() => (() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); })());
   await p2.waitForTimeout(400);
   await p2.evaluate(() => document.querySelector('.hb-row[data-habit="h_read"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
   await p2.waitForTimeout(400);

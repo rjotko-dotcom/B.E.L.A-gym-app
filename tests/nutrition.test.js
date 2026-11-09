@@ -552,7 +552,7 @@ module.exports = async (t) => {
     legacy.habits = [...legacy.habits, { id: 'h_water', name: 'Water', icon: 'water', source: 'water' }];
     const p6 = await openApp(t.browser, { url: server.url, seed: legacy });
     await p6.waitForTimeout(500);
-    await p6.evaluate(() => document.querySelector('.tab[data-tab="habits"]').click());
+    await p6.evaluate(() => (() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); })());
     await p6.waitForTimeout(500);
     t.check('it still draws in the list, under its own name', await p6.evaluate(() =>
       [...document.querySelectorAll('.hb-row')].some((r) => /Water/.test(r.textContent))));

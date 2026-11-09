@@ -8,7 +8,7 @@ module.exports = async (t) => {
   const seed = build();
   const page = await openApp(t.browser, { url: server.url, seed });
 
-  await page.click('.tab[data-tab="habits"]');
+  await page.evaluate(() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); });
   await page.waitForTimeout(450);
 
   const cal = await page.evaluate(() => ({
@@ -39,7 +39,7 @@ module.exports = async (t) => {
   });
   await page.reload();
   await page.waitForTimeout(400);
-  await page.click('.tab[data-tab="habits"]');
+  await page.evaluate(() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); });
   await page.waitForTimeout(400);
   const colour = await page.evaluate(() => {
     const cell = document.querySelector('.hc-day.is-full');
@@ -54,7 +54,7 @@ module.exports = async (t) => {
   t.equal('the view choice is saved', (await readState(page)).settings.habitView, 'list');
   await page.reload();
   await page.waitForTimeout(450);
-  await page.click('.tab[data-tab="habits"]');
+  await page.evaluate(() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); });
   await page.waitForTimeout(400);
   t.check('and survives a reload', await page.evaluate(() => !!document.querySelector('.hb-grid')));
   await page.click('#hbViewBtn');
@@ -113,7 +113,7 @@ module.exports = async (t) => {
   await page.waitForTimeout(400);
   t.equal('home follows the new order',
     await page.evaluate(() => document.querySelector('.hs-cell').getAttribute('aria-label')), moved[0]);
-  await page.click('.tab[data-tab="habits"]');
+  await page.evaluate(() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); });
   await page.waitForTimeout(400);
 
   // ---- rest days: a habit that is not due today must not count as missed ----
@@ -138,7 +138,7 @@ module.exports = async (t) => {
   });
   await page.reload();
   await page.waitForTimeout(450);
-  await page.click('.tab[data-tab="habits"]');
+  await page.evaluate(() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); });
   await page.waitForTimeout(450);
 
   const dueState = await page.evaluate(() => {
@@ -252,7 +252,7 @@ module.exports = async (t) => {
   });
   await page.reload();
   await page.waitForTimeout(600);
-  await page.click('.tab[data-tab="habits"]');
+  await page.evaluate(() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); });
   await page.waitForTimeout(450);
   const autoRows = await page.evaluate(() => {
     const pick = (name) => {
@@ -292,7 +292,7 @@ module.exports = async (t) => {
   });
   await page.reload();
   await page.waitForTimeout(650);
-  await page.click('.tab[data-tab="habits"]');
+  await page.evaluate(() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); });
   await page.waitForTimeout(450);
   await page.click('.hb-row:not(.is-done)');
   await page.waitForTimeout(300);
@@ -321,7 +321,7 @@ module.exports = async (t) => {
     ];
     near.habitLog = { [key]: { h_steps: 9700, h_read: 5 } };
     const p2 = await openApp(t.browser, { url: server.url, seed: near });
-    await p2.click('.tab[data-tab="habits"]');
+    await p2.evaluate(() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); });
     await p2.waitForTimeout(700);
     const rings = await p2.evaluate(() => {
       const out = {};

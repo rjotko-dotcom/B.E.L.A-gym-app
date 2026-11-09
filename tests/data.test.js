@@ -329,7 +329,7 @@ module.exports = async (t) => {
   legacy.nutrition.meals.forEach((m) => { delete m.slot; });
   const page2 = await openApp(t.browser, { url: server.url, seed: legacy });
   // the migration happens in memory on load, so check what the app shows
-  await page2.click('.tab[data-tab="habits"]');
+  await page2.evaluate(() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); });
   await page2.waitForTimeout(450);
   t.check('an old save gains the starter habits',
     await page2.evaluate(() => document.querySelectorAll('.hb-row').length > 0));

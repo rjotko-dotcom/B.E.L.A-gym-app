@@ -43,7 +43,7 @@ module.exports = async (t) => {
   t.check('what starting would start', /^(Start|Resume)/.test(d.start), d.start);
 
   // moving between tabs changes nothing on it
-  await p.evaluate(() => document.querySelector('.tab[data-tab="habits"]').click());
+  await p.evaluate(() => (() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); })());
   await p.waitForTimeout(1300);
   t.equal('a render that changes nothing is not sent again', (await p.evaluate(() => window.__W.updates.length)), 1);
 
@@ -70,7 +70,7 @@ module.exports = async (t) => {
 
   const p3 = await installed(t, server.url, build(), 'habits');
   await p3.waitForTimeout(1200);
-  t.check('the habits figure opens habits', await p3.evaluate(() => document.querySelector('.tab.active')?.dataset.tab === 'habits'));
+  t.check('the habits figure opens Today, where the habits are', await p3.evaluate(() => document.querySelector('.tab.active')?.dataset.tab === 'today' && !!document.querySelector('#tdHabits .hb-row')));
   await p3.close();
   await server.close();
 };

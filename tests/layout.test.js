@@ -133,7 +133,9 @@ module.exports = async (t) => {
       await page.waitForTimeout(400);
     };
     await look('home');
-    for (const x of ['workout', 'meals', 'habits', 'plan', 'bela']) { await tab(x); await look(x, true); }
+    for (const x of ['workout', 'meals', 'today']) { await tab(x); await look(x, true); }
+    // the full habit page, one tap in from Today
+    await page.evaluate(() => document.querySelector('#hbAll').click()); await page.waitForTimeout(400); await look('habits', true);
     await tab('meals'); await page.waitForTimeout(400);
     await sheet('log meal', () => document.querySelector('#addMeal').click());
     await tab('home'); await page.waitForTimeout(400);

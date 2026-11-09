@@ -304,7 +304,7 @@ module.exports = async (t) => {
   // the bolts on auto habits line up
   await page.evaluate(() => { const b = document.querySelector('#wkMin'); if (b) b.click(); });
   await page.waitForTimeout(450);
-  await page.evaluate(() => document.querySelector('.tab[data-tab="habits"]').click());
+  await page.evaluate(() => (() => { document.querySelector('.tab[data-tab="today"]').click(); document.querySelector('#hbAll').click(); })());
   await page.waitForTimeout(500);
   const bolts = await page.evaluate(() => [...document.querySelectorAll('.hb-auto')]
     .map((b) => Math.round(b.getBoundingClientRect().left)));
