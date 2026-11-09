@@ -25,6 +25,10 @@
 
         </activity>
 
+        <!-- Google's barcode scanner (ML Kit code scanner): Play Services fetches
+             it when the app is installed, so the first scan does not wait -->
+        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui" />
+
         <!-- today on the home screen -->
         <receiver android:name=".BelaWidget" android:exported="false" android:label="B.E.L.A · Today">
             <intent-filter>

@@ -176,6 +176,25 @@
     return top;
   }
 
+  /* ---- a barcode ----
+     One product by its code (EAN-13, EAN-8, UPC). null when Open Food Facts
+     does not know it — the app then asks for the label once and keeps it. */
+  const PRODUCT = 'https://world.openfoodfacts.org/api/v2/product/';
+  const codeCache = new Map();
+  const cleanCode = (c) => String(c || '').replace(/\D+/g, '');
+  async function lookupOff(code, opts = {}) {
+    const c = cleanCode(code);
+    if (c.length < 8) return null;
+    if (codeCache.has(c)) return codeCache.get(c);
+    const res = await (opts.fetch || fetch)(PRODUCT + c + '.json?fields=' + OFF_FIELDS, { signal: opts.signal });
+    if (res.status === 404) { codeCache.set(c, null); return null; }
+    if (!res.ok) throw new Error('Open Food Facts answered ' + res.status);
+    const d = await res.json();
+    const f = d && d.status === 1 && d.product ? fromOff({ ...d.product, code: d.product.code || c }) : null;
+    codeCache.set(c, f);
+    return f;
+  }
+
   /* ---- typed meals ----
      "200 g chicken breast, 2 eggs, banana, ryžiai 150g" → lines of
      { query, amount, unit } where unit is 'g' | 'ml' | 'n' (a count) | null. */
@@ -230,5 +249,5 @@
   }
 
   const usdaList = () => usda || [];
-  return { fold, score, rank, translate, loadUsda, usdaReady, usdaList, searchUsda, fromUsda, searchOff, fromOff, parseMeal, bestMatch };
+  return { cleanCode, lookupOff, fold, score, rank, translate, loadUsda, usdaReady, usdaList, searchUsda, fromUsda, searchOff, fromOff, parseMeal, bestMatch };
 }));

@@ -268,9 +268,9 @@ module.exports = async (t) => {
   // a logged portion can be corrected instead of deleted and retyped
   await page.click('#addMeal');
   await page.waitForTimeout(450);
-  // the barcode scanner is gone: searching and typing are the only ways in
-  t.equal('no scan button in the meal sheet',
-    await page.evaluate(() => document.querySelectorAll('.scan-btn, #scanBtn').length), 0);
+  // the barcode scanner is back (16.9, native) beside the search — tests/barcode.test.js covers it
+  t.equal('one scan button beside the food search',
+    await page.evaluate(() => document.querySelectorAll('.search-row #scanBtn').length), 1);
   await page.fill('#foodSearch', 'chicken breast');
   await page.waitForTimeout(400);
   await page.evaluate(() => {

@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.8';
+  const APP_VERSION = '16.9';
 
   /* ---------------- state ---------------- */
 
@@ -3658,6 +3658,151 @@
     });
   }
 
+  /* -------- barcode scanning --------
+     It never worked before because it ran the camera inside the WebView and
+     asked the page's BarcodeDetector, which Android's WebView does not have.
+     Now the installed app hands the scan to Google's own scanner (ML Kit
+     Google Code Scanner, through @capacitor-mlkit/barcode-scanning): Google's
+     screen, no camera permission, codes read by Play Services. The scanner is
+     a Play Services module — the manifest asks for it at install time, and if
+     it is still missing it is fetched here, with its progress. Where there is
+     no native scanner (the website) the code can be typed.
+     A code is looked up in his own foods first (offline, instant), then Open
+     Food Facts; a product nobody knows is entered once from its label and
+     found by its code from then on. */
+  const SCAN_FORMATS = ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E'];
+  let scanRestoredWired = false;
+  function waitForScannerModule(BS) {
+    return new Promise((resolve) => {
+      let handle = null;
+      let timer = 0;
+      const finish = (v) => {
+        clearTimeout(timer);
+        if (handle && typeof handle.remove === 'function') handle.remove();
+        resolve(v);
+      };
+      timer = setTimeout(() => finish(false), 90000);
+      Promise.resolve(BS.addListener('googleBarcodeScannerModuleInstallProgress', (ev) => {
+        if (ev.state === 4) finish(true);                              // COMPLETED
+        else if (ev.state === 3 || ev.state === 5) finish(false);      // CANCELED, FAILED
+      })).then((h) => { handle = h; });
+      BS.installGoogleBarcodeScannerModule().catch(() => finish(false));
+    });
+  }
+  function scanBarcode(slot, key) {
+    const BS = native() ? nativePlugin('BarcodeScanner') : null;
+    if (!BS) { openCodeEntry(slot, key); return; }
+    // Android may close the app while Google's scanner is open; the code then
+    // comes back through App's appRestoredResult when he returns
+    const App = nativePlugin('App');
+    if (App && !scanRestoredWired) {
+      scanRestoredWired = true;
+      try {
+        App.addListener('appRestoredResult', (ev) => {
+          if (!ev || ev.pluginId !== 'BarcodeScanner' || ev.methodName !== 'scan' || !ev.success) return;
+          const code = ev.data && ev.data.barcodes && ev.data.barcodes[0] && ev.data.barcodes[0].rawValue;
+          if (code) lookupBarcode(code, slotFromTime(new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' })), dateKey());
+        });
+      } catch (e) { /* older shell: the promise still answers when it can */ }
+    }
+    (async () => {
+      try {
+        const avail = await BS.isGoogleBarcodeScannerModuleAvailable().catch(() => ({ available: true }));
+        if (!avail.available) {
+          toast('Getting the scanner from Google Play…');
+          const ok = await waitForScannerModule(BS);
+          if (!ok) {
+            toast('The scanner could not be installed — type the code instead');
+            openCodeEntry(slot, key);
+            return;
+          }
+        }
+        const res = await BS.scan({ formats: SCAN_FORMATS, autoZoom: true });
+        const code = res && res.barcodes && res.barcodes[0] && res.barcodes[0].rawValue;
+        if (code) lookupBarcode(code, slot, key);
+        else openMealSheet(key, slot);
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        // closing the scanner is not an error
+        if (/cancel/i.test(msg)) { openMealSheet(key, slot); return; }
+        toast('The scanner did not open — type the code instead');
+        openCodeEntry(slot, key);
+      }
+    })();
+  }
+  function openCodeEntry(slot, key) {
+    openSheet('Barcode', '' +
+      '<p class="portion-per">' + (native() ? 'The numbers under the bars.' : 'The website cannot use the camera for this — the installed app scans. Type the numbers under the bars.') + '</p>' +
+      '<div class="field"><label for="bcCode">Barcode</label>' +
+        '<input id="bcCode" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 4770275047548"></div>' +
+      '<button class="btn btn-primary" id="bcGo">Look it up</button>',
+    (body) => {
+      const box = $('#bcCode', body);
+      const go = () => {
+        const c = BelaFoodSearch.cleanCode(box.value);
+        if (c.length < 8) { toast('A barcode has 8 or 13 digits'); return; }
+        closeSheetNow();
+        lookupBarcode(c, slot, key);
+      };
+      $('#bcGo', body).addEventListener('click', go);
+      box.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+      setTimeout(() => box.focus(), 250);
+    });
+  }
+  async function lookupBarcode(raw, slot, key) {
+    const code = window.BelaFoodSearch ? BelaFoodSearch.cleanCode(raw) : String(raw || '');
+    // his own foods know their codes: no network, no waiting
+    const mine = (state.foods || []).find((f) => f.code && f.code === code);
+    if (mine) { haptic('tick'); openPortionSheet(mine, slot, key); return; }
+    toast('Looking up ' + code + '…');
+    let f = null;
+    try {
+      f = await BelaFoodSearch.lookupOff(code);
+    } catch (e) {
+      toast('No connection — enter it from the label');
+      openLabelEntry(code, slot, key);
+      return;
+    }
+    if (!f) { openLabelEntry(code, slot, key); return; }
+    haptic('tick');
+    openPortionSheet(f, slot, key, { offerSave: true });
+  }
+  /* a product Open Food Facts does not know: the label, once */
+  function openLabelEntry(code, slot, key) {
+    openSheet('New product', '' +
+      '<p class="portion-per">Barcode ' + esc(code) + ' is not in Open Food Facts yet. Enter it from the label once — next time the scan finds it straight away, even offline.</p>' +
+      '<div class="field"><label for="lbName">Name</label><input id="lbName" type="text" placeholder="e.g. Kefyras 2.5%"></div>' +
+      '<div class="seg" id="lbUnit"><button data-u="g" class="is-on">per 100 g</button><button data-u="ml">per 100 ml</button></div>' +
+      '<div class="macro-fields">' +
+        '<div class="field"><label for="lbKcal">kcal</label><input id="lbKcal" type="number" inputmode="decimal" min="0"></div>' +
+        '<div class="field"><label for="lbP">Protein</label><input id="lbP" type="number" inputmode="decimal" min="0"></div>' +
+        '<div class="field"><label for="lbC">Carbs</label><input id="lbC" type="number" inputmode="decimal" min="0"></div>' +
+        '<div class="field"><label for="lbF">Fat</label><input id="lbF" type="number" inputmode="decimal" min="0"></div>' +
+      '</div>' +
+      '<div class="field"><label for="lbServing">Package or usual portion <span class="lbl-opt">optional</span></label>' +
+        '<input id="lbServing" type="number" inputmode="decimal" min="0" placeholder="e.g. 500"></div>' +
+      '<button class="btn btn-primary" id="lbSave" style="margin-top:12px">Save and log</button>',
+    (body) => {
+      let unit = 'g';
+      $$('#lbUnit button', body).forEach((b) => b.addEventListener('click', () => {
+        unit = b.dataset.u;
+        $$('#lbUnit button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+      }));
+      $('#lbSave', body).addEventListener('click', () => {
+        const name = $('#lbName', body).value.trim();
+        const n = (id) => Math.max(0, Number($(id, body).value) || 0);
+        if (!name) { toast('Give it a name'); return; }
+        if (!$('#lbKcal', body).value) { toast('Enter the kcal per 100 ' + unit); return; }
+        const serving = n('#lbServing') || 100;
+        const food = rememberFood({ name, unit, per: 100, serving, code, src: 'label',
+          kcal: n('#lbKcal'), protein: n('#lbP'), carbs: n('#lbC'), fat: n('#lbF') });
+        save();
+        closeSheetNow();
+        openPortionSheet(food, slot, key);
+      });
+    });
+  }
+
   function openMealSheet(key = dateKey(), slot = null) {
     if (!slot) slot = slotFromTime(new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit' }));
     // one-off entries logged before, newest first — anything already in a food
@@ -3772,6 +3917,9 @@
       </div>
       <div class="search-row">
         <input class="search-field" id="foodSearch" type="search" placeholder="Search 7,000+ foods and products…" autocomplete="off">
+        <button class="scan-btn" id="scanBtn" type="button" aria-label="Scan a barcode">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7.5 8.5v7M10 8.5v7M12.5 8.5v7M15 8.5v7M16.5 8.5v7"/></svg>
+        </button>
       </div>
       <button class="qt-open" id="qtOpen" type="button">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h7M17 14l2 2 3-4"/></svg>
@@ -3894,6 +4042,7 @@
         save(); closeSheet(); mealDayOffset = 0; goTab('meals');
         toast(ok.length + ' item' + (ok.length === 1 ? '' : 's') + ' logged');
       });
+      $('#scanBtn', body).addEventListener('click', () => { closeSheetNow(); scanBarcode(slot, key); });
       $('#recipeOpen', body)?.addEventListener('click', () => { closeSheetNow(); openRecipeBuilder(() => openMealSheet(key, slot)); });
       list.addEventListener('click', (e) => {
         const edit = e.target.closest('[data-editfood]');

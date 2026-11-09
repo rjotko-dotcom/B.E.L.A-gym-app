@@ -3144,3 +3144,12 @@ body.pad-open .rest-panel { opacity: 0; pointer-events: none; transform: transla
 
 /* six-row months: shorter day cells so the habits page still fits one screen */
 .hc-grid.is-six .hc-day { aspect-ratio: 1.24; }
+
+/* ---------- 16.9: the barcode button beside the food search ---------- */
+.scan-btn {
+  position: relative; flex-shrink: 0; width: 52px; display: grid; place-items: center; cursor: pointer;
+  border-radius: 999px; color: var(--ink-1); background: var(--surface-1); border: 1px solid var(--card-edge);
+}
+.scan-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.scan-btn:active { transform: scale(0.96); }
+.scan-btn::after { content: ''; position: absolute; inset: -7px; }
