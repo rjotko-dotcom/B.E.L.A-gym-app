@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.7';
+  const APP_VERSION = '16.8';
 
   /* ---------------- state ---------------- */
 
@@ -3288,6 +3288,27 @@
   }
 
   const round1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
+  /* what a logged entry keeps of its food, so the portion can be changed later */
+  const foodBaseRecord = (f) => ({
+    name: f.name, unit: foodUnit(f), per: foodBase(f),
+    serving: foodPortion(f) || undefined, sname: foodSName(f) || undefined,
+    ...scaleFood(f, foodBase(f)),
+  });
+  // "1 cup, chopped or diced" → "1 cup" on a small button
+  const shortPortion = (label) => String(label).split(/,|\(/)[0].trim();
+  /* the amount a typed line means for this food: grams as typed, a count of
+     pieces or portions, or one usual portion when no number was given */
+  function typedAmount(f, ln) {
+    const n = ln.amount;
+    if (ln.unit === 'g' || ln.unit === 'ml') return foodUnit(f) === 'piece' ? Math.max(1, Math.round(n / (Number(f.serving) || 50))) : n;
+    if (ln.unit === 'n' && n) {
+      if (foodUnit(f) === 'piece') return n;
+      if (f.portions && f.portions.length) return round1(n * f.portions[0].g);
+      if (foodPortion(f) && foodSName(f)) return round1(n * foodPortion(f));
+      return round1(n * foodServing(f));
+    }
+    return foodUnit(f) === 'piece' ? 1 : (f.portions && f.portions.length ? f.portions[0].g : foodServing(f));
+  }
   const amountLabel = (f, amount) => (foodUnit(f) === 'piece' ? round1(amount) + '×' : round1(amount) + ' ' + foodUnit(f));
 
   /* A portion you can count. Bread is weighed in grams, but nobody eats
@@ -3465,7 +3486,8 @@
     /* A food that counts in slices has the counter above; a row of gram chips
        under it would only say the same thing twice. */
     const named = !piece && !!foodSName(food) && foodPortion(food) > 0;
-    const quick = named ? []
+    const portions = (food.portions || []).filter((p) => p.g > 0).slice(0, 4);
+    const quick = named || portions.length ? []
       : [...new Set([foodServing(food), ...(piece ? [1, 2, 3] : [50, 100, 150, 200])])]
         .filter((n) => n > 0).sort((a, b) => a - b).slice(0, 5);
 
@@ -3473,10 +3495,17 @@
       '<div class="seg seg-slot" id="slotPick">' +
         MEAL_SLOTS.map(([k, title]) => '<button data-slot="' + k + '" class="' + (k === slot ? 'is-on' : '') + '">' + title + '</button>').join('') +
       '</div>' +
-      '<p class="portion-per">' + macroLine(scaleFood(food, foodBase(food))) + ' ' + perLabel(food) + '</p>' +
+      '<p class="portion-per">' + macroLine(scaleFood(food, foodBase(food))) + ' ' + perLabel(food) +
+        (food.src === 'off' ? ' · <i class="src-tag">Open Food Facts</i>' : food.src === 'usda' ? ' · <i class="src-tag">USDA</i>' : '') + '</p>' +
       stepperHTML(food, 'pdStep') +
       '<div class="field"><label for="pdAmt">' + (piece ? 'How many' : 'Portion (' + foodUnit(food) + ')') + '</label>' +
-        '<input id="pdAmt" type="number" inputmode="decimal" min="0" step="1" value="' + foodServing(food) + '"></div>' +
+        '<input id="pdAmt" type="number" inputmode="decimal" min="0" step="1" value="' + (portions.length ? portions[0].g : foodServing(food)) + '"></div>' +
+      (portions.length
+        ? '<div class="quick-amounts pd-portions" id="pdQuick">' +
+            portions.map((p) => '<button class="qchip" data-amt="' + p.g + '">' + esc(shortPortion(p.label)) + ' <i>' + round1(p.g) + ' ' + foodUnit(food) + '</i></button>').join('') +
+            [100].filter((g) => !portions.some((p) => p.g === g)).map((g) => '<button class="qchip" data-amt="' + g + '">' + g + ' ' + foodUnit(food) + '</button>').join('') +
+          '</div>'
+        : '') +
       (quick.length
         ? '<div class="quick-amounts" id="pdQuick">' +
             quick.map((n) => '<button class="qchip" data-amt="' + n + '">' + amountLabel(food, n) + '</button>').join('') +
@@ -3648,16 +3677,20 @@
         id: f.id, name: f.name, unit: foodUnit(f), per: foodBase(f), serving: foodServing(f),
         sname: foodSName(f),
         kcal: f.kcal, protein: f.protein, carbs: f.carbs, fat: f.fat,
+        ...(f.portions && f.portions.length ? { portions: f.portions } : {}),
+        ...(f.src ? { src: f.src } : {}), ...(f.code ? { code: f.code } : {}),
+        ...(f.fiber != null ? { fiber: f.fiber } : {}), ...(f.sugar != null ? { sugar: f.sugar } : {}),
       }));
       return '<div class="lib-item" data-food="' + data + '" role="button" tabindex="0">' +
-        '<div><div class="li-name">' + esc(f.name) + '</div>' +
+        '<div><div class="li-name">' + esc(f.name) + (f.lt ? ' <i class="lt-tag">LT</i>' : '') + '</div>' +
           '<div class="li-sub">' + Math.round(f.kcal) + ' kcal ' + perLabel(f) + ' · P ' + round1(f.protein) + ' C ' + round1(f.carbs) + ' F ' + round1(f.fat) + '</div></div>' +
         '<div class="li-actions">' +
           (mine ? '<button class="saved-edit" data-editfood="' + esc(f.id) + '" aria-label="Edit ' + esc(f.name) + '">' +
             '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/></svg></button>' : '') +
           (() => {
             const one = foodSName(f) && foodUnit(f) !== 'piece'
-              ? '1 ' + foodSName(f) : amountLabel(f, foodServing(f));
+              ? '1 ' + foodSName(f)
+              : f.portions && f.portions.length ? shortPortion(f.portions[0].label) : amountLabel(f, foodServing(f));
             return '<button class="li-add" data-quick="' + data + '" aria-label="Log ' + esc(one) + '">+ ' + esc(one) + '</button>';
           })() +
         '</div></div>';
@@ -3671,9 +3704,19 @@
       '<span class="li-best">+</span></div>';
 
     const savedHtml = () => {
+      // the day before, same meal — most days look like the one before
+      const prev = new Date(key + 'T12:00:00'); prev.setDate(prev.getDate() - 1);
+      const prevKey = dateKey(prev);
+      const yday = state.nutrition.meals.filter((m) => m.date === prevKey && m.slot === slot);
+      const slotTitle = (MEAL_SLOTS.find(([k]) => k === slot) || [, 'meal'])[1];
+      const repeat = yday.length ? '<div class="lib-item repeat-row" data-repeat="' + prevKey + '" role="button" tabindex="0">' +
+        '<div><div class="li-name">Same as yesterday\'s ' + esc(slotTitle.toLowerCase()) + '</div>' +
+          '<div class="li-sub">' + esc(yday.map((m) => baseName(m.name)).slice(0, 3).join(', ') + (yday.length > 3 ? ' +' + (yday.length - 3) : '')) + ' · ' +
+            Math.round(yday.reduce((t, m) => t + (m.kcal || 0), 0)) + ' kcal</div></div>' +
+        '<span class="li-best">+</span></div>' : '';
       const mine = (state.savedMeals || []).filter((m) => !m.slot || m.slot === slot);
-      if (!mine.length) return '';
-      return '<div class="lib-group-title">Saved meals</div>' + mine.map((m) => {
+      if (!mine.length) return repeat;
+      return repeat + '<div class="lib-group-title">Saved meals</div>' + mine.map((m) => {
         const kcal = Math.round(m.items.reduce((t, x) => t + (x.kcal || 0), 0));
         return '<div class="lib-item" data-saved="' + esc(m.id) + '" role="button" tabindex="0">' +
           '<div><div class="li-name">' + esc(m.name) + '</div>' +
@@ -3682,18 +3725,45 @@
       }).join('');
     };
 
+    const FS = window.BelaFoodSearch;
     const listHtml = (q) => {
-      const query = q.trim().toLowerCase();
-      const hit = (f) => !query || f.name.toLowerCase().includes(query);
-      const mine = myFoods().filter(hit);
-      const rec = recents.filter(hit);
-      const lib = FOOD_LIBRARY.filter(hit);
+      const query = q.trim();
+      const pick = (list, n) => (!query ? list : FS ? FS.rank(list, query, n) : list.filter((f) => f.name.toLowerCase().includes(query.toLowerCase())));
+      const mine = pick(myFoods(), 30);
+      const rec = pick(recents, 10);
+      const lib = pick(FOOD_LIBRARY, 12);
+      const usdaHits = query && FS ? FS.searchUsda(query, 15) : [];
       let html = '';
       if (mine.length) html += '<div class="lib-group-title">My foods</div>' + mine.map((f) => basisRow(f, true)).join('');
       if (rec.length) html += '<div class="lib-group-title">Logged before</div>' + rec.map(recentRow).join('');
       if (lib.length) html += '<div class="lib-group-title">Common foods</div>' + lib.map((f) => basisRow(f, false)).join('');
+      if (usdaHits.length) html += '<div class="lib-group-title">More foods <i class="src-tag">USDA</i></div>' + usdaHits.map((f) => basisRow(f, false)).join('');
+      if (query && FS && FS.fold(query).length >= 3) html += '<div id="offList" class="off-list"></div>';
       if (!html) html = '<p class="empty-note">No matches — add it under Custom entry and it will be waiting here next time.</p>';
       return html;
+    };
+    /* Packaged products, asked online once typing pauses. A slower answer
+       for an older query never overwrites a newer one. */
+    let offTimer = 0, offSeq = 0, offCtl = null;
+    const offPaint = (box, html) => { if (box && box.isConnected) box.innerHTML = html; };
+    const searchProducts = (query, list) => {
+      clearTimeout(offTimer);
+      if (offCtl) offCtl.abort();
+      if (!FS || FS.fold(query).length < 3) return;
+      const seq = ++offSeq;
+      const title = '<div class="lib-group-title">Products <i class="src-tag">Open Food Facts</i></div>';
+      offPaint($('#offList', list), title + '<p class="off-note">Searching products…</p>');
+      offTimer = setTimeout(() => {
+        offCtl = new AbortController();
+        FS.searchOff(query, { signal: offCtl.signal }).then((hits) => {
+          if (seq !== offSeq) return;
+          offPaint($('#offList', list), title + (hits.length ? hits.map((f) => basisRow(f, false)).join('')
+            : '<p class="off-note">No packaged products found for that.</p>'));
+        }).catch((e) => {
+          if (seq !== offSeq || (e && e.name === 'AbortError')) return;
+          offPaint($('#offList', list), title + '<p class="off-note">Products need the internet — the foods above work offline.</p>');
+        });
+      }, 650);
     };
 
     openSheet('Log a meal', `
@@ -3701,7 +3771,15 @@
         ${MEAL_SLOTS.map(([k, title]) => `<button data-slot="${k}" class="${k === slot ? 'is-on' : ''}">${title}</button>`).join('')}
       </div>
       <div class="search-row">
-        <input class="search-field" id="foodSearch" type="search" placeholder="Search foods…" autocomplete="off">
+        <input class="search-field" id="foodSearch" type="search" placeholder="Search 7,000+ foods and products…" autocomplete="off">
+      </div>
+      <button class="qt-open" id="qtOpen" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h7M17 14l2 2 3-4"/></svg>
+        <span><b>Type the whole meal</b><i>200 g chicken breast, 2 eggs, banana</i></span></button>
+      <div class="qt-box" id="qtBox" hidden>
+        <textarea id="qtText" rows="2" placeholder="200 g chicken breast, 2 eggs, banana, 150 g ryžiai" autocomplete="off"></textarea>
+        <div id="qtPrev" class="qt-prev"></div>
+        <button class="btn btn-primary" id="qtAdd" disabled>Log all</button>
       </div>
       <p class="portion-per">Tap a food to set the grams, or + to log the usual portion.</p>
       <div id="savedList">${savedHtml()}</div>
@@ -3758,7 +3836,64 @@
 
       const search = $('#foodSearch', body);
       const list = $('#foodList', body);
-      search.addEventListener('input', () => { list.innerHTML = listHtml(search.value); });
+      const refresh = () => { list.innerHTML = listHtml(search.value); searchProducts(search.value.trim(), list); };
+      search.addEventListener('input', refresh);
+      // the offline foods arrive the first time the sheet opens; a search
+      // typed before then is answered again once they are in
+      if (FS && !FS.usdaReady()) FS.loadUsda('js/data/foods-usda.json?v=' + APP_VERSION).then(() => { if (search.isConnected && search.value.trim()) list.innerHTML = listHtml(search.value) + ''; }).catch(() => {});
+
+      /* A whole meal typed in one line: each item matched against his foods,
+         the common list and the offline foods, with its amount worked out —
+         grams as typed, a count of eggs or slices, or one usual portion. */
+      const qtText = $('#qtText', body), qtPrev = $('#qtPrev', body), qtAdd = $('#qtAdd', body);
+      let qtLines = [];
+      $('#qtOpen', body).addEventListener('click', () => {
+        $('#qtBox', body).hidden = false;
+        $('#qtOpen', body).hidden = true;
+        qtText.focus();
+      });
+      const qtPaint = () => {
+        qtLines = FS ? FS.parseMeal(qtText.value).map((ln) => {
+          const f = FS.bestMatch(ln.query, [myFoods(), FOOD_LIBRARY, FS.usdaList()]);
+          return f ? { ...ln, f, amount: typedAmount(f, ln) } : { ...ln, f: null };
+        }) : [];
+        const ok = qtLines.filter((x) => x.f);
+        const tot = ok.reduce((t, x) => { const v = scaleFood(x.f, x.amount); return { kcal: t.kcal + v.kcal, protein: t.protein + v.protein }; }, { kcal: 0, protein: 0 });
+        qtPrev.innerHTML = qtLines.map((x, i) => x.f
+          ? '<div class="qt-row"><span class="qt-amt">' + esc(amountLabel(x.f, x.amount)) + '</span><b>' + esc(x.f.name) + '</b><i>' + scaleFood(x.f, x.amount).kcal + ' kcal</i>' +
+            '<button class="qt-x" data-qx="' + i + '" aria-label="Leave out">×</button></div>'
+          : '<div class="qt-row is-miss"><span class="qt-amt">?</span><b>' + esc(x.raw) + '</b><i>not found — search it above</i></div>').join('') +
+          (ok.length ? '<div class="qt-total">' + ok.length + ' item' + (ok.length === 1 ? '' : 's') + ' · ' + Math.round(tot.kcal) + ' kcal · ' + round1(tot.protein) + ' g protein</div>' : '');
+        qtAdd.disabled = !ok.length;
+        qtAdd.textContent = ok.length ? 'Log ' + ok.length + ' item' + (ok.length === 1 ? '' : 's') : 'Log all';
+      };
+      qtText.addEventListener('input', qtPaint);
+      qtPrev.addEventListener('click', (e) => {
+        const x = e.target.closest('[data-qx]');
+        if (!x) return;
+        const parts = qtText.value.split(/([,;\n+]|\s+(?:and|ir|su)\s+)/i);
+        // drop the n-th item and its separator, keep the rest as typed
+        let n = -1;
+        qtText.value = parts.filter((p) => {
+          if (/^([,;\n+]|\s+(?:and|ir|su)\s+)$/i.test(p)) return true;
+          if (!p.trim()) return true;
+          n++;
+          return n !== Number(x.dataset.qx);
+        }).join('').replace(/^[\s,;+]+|[\s,;+]+$/g, '').replace(/([,;])\s*[,;]/g, '$1');
+        qtPaint();
+      });
+      qtAdd.addEventListener('click', () => {
+        const ok = qtLines.filter((x) => x.f);
+        if (!ok.length) return;
+        ok.forEach((x) => {
+          const v = scaleFood(x.f, x.amount);
+          logMeal({ name: portionName(x.f, x.amount), ...v, base: foodBaseRecord(x.f), amount: x.amount }, slot, key);
+          if (x.f.src) rememberFood(x.f); else if (x.f.id) touchFood(x.f.id);
+        });
+        haptic('tick');
+        save(); closeSheet(); mealDayOffset = 0; goTab('meals');
+        toast(ok.length + ' item' + (ok.length === 1 ? '' : 's') + ' logged');
+      });
       $('#recipeOpen', body)?.addEventListener('click', () => { closeSheetNow(); openRecipeBuilder(() => openMealSheet(key, slot)); });
       list.addEventListener('click', (e) => {
         const edit = e.target.closest('[data-editfood]');
@@ -3773,13 +3908,14 @@
           const f = JSON.parse(quick.dataset.quick);
           const amount = foodServing(f);
           if (f.id) touchFood(f.id);
-          addMeal({ name: portionName(f, amount), ...scaleFood(f, amount) });
+          else if (f.src) rememberFood(f);       // from the database: his from now on
+          addMeal({ name: portionName(f, amount), ...scaleFood(f, amount), base: foodBaseRecord(f), amount });
           return;
         }
         const again = e.target.closest('[data-recent]');
         if (again) { addMeal(JSON.parse(again.dataset.recent)); return; }
         const item = e.target.closest('[data-food]');
-        if (item) { closeSheetNow(); openPortionSheet(JSON.parse(item.dataset.food), slot, key); }
+        if (item) { const f = JSON.parse(item.dataset.food); closeSheetNow(); openPortionSheet(f, slot, key, { offerSave: !!f.src && !f.id }); }
       });
 
       const savedBox = $('#savedList', body);
@@ -3797,6 +3933,15 @@
               save(); savedBox.innerHTML = savedHtml(); haptic('tick');
             },
           });
+          return;
+        }
+        const rep = e.target.closest('[data-repeat]');
+        if (rep) {
+          const items = state.nutrition.meals.filter((m) => m.date === rep.dataset.repeat && m.slot === slot);
+          items.forEach((m) => logMeal({ name: m.name, kcal: m.kcal, protein: m.protein, carbs: m.carbs, fat: m.fat, base: m.base, amount: m.amount }, slot, key));
+          haptic('tick');
+          save(); closeSheet(); mealDayOffset = 0; goTab('meals');
+          toast(items.length + ' item' + (items.length === 1 ? '' : 's') + ' from yesterday logged');
           return;
         }
         const pick = e.target.closest('[data-saved]');

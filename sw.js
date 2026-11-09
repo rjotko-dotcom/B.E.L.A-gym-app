@@ -1,5 +1,5 @@
 /* B.E.L.A Gym — service worker */
-const VERSION = '16.7';
+const VERSION = '16.8';
 const CACHE = 'bela-gym-' + VERSION;
 const ASSETS = [
   '.',
@@ -19,6 +19,8 @@ const ASSETS = [
   'models/anatomy.glb?v=' + VERSION,
   'js/programs.js?v=' + VERSION,
   'js/foods.js?v=' + VERSION,
+  'js/food-search.js?v=' + VERSION,
+  'js/data/foods-usda.json?v=' + VERSION,
   'manifest.webmanifest',
   /* the typeface never changes between versions, so it carries no ?v= */
   'fonts/inter-latin.woff2',
