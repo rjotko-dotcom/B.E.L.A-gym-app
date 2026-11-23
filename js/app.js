@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.10';
+  const APP_VERSION = '16.11';
 
   /* ---------------- state ---------------- */
 
@@ -3386,7 +3386,7 @@
     }));
     return show;
   }
-  const perLabel = (f) => (foodUnit(f) === 'piece' ? 'each' : 'per ' + foodBase(f) + ' ' + foodUnit(f));
+  const perLabel = (f) => (foodUnit(f) === 'piece' ? (foodSName(f) ? 'a ' + foodSName(f) : 'each') : 'per ' + foodBase(f) + ' ' + foodUnit(f));
   const macroLine = (v) => Math.round(v.kcal) + ' kcal · P ' + round1(v.protein) + ' · C ' + round1(v.carbs) + ' · F ' + round1(v.fat);
   const baseName = (n) => String(n || '').split(' · ')[0];
 
@@ -3571,56 +3571,160 @@
      servings the pot makes, and the app works out one serving. It is saved
      as one of your own foods counted in servings, so logging it is the same
      tap as any food — "Chili · 2 servings" — and it syncs like one. */
-  function openRecipeBuilder(after) {
-    const draft = { name: '', servings: 4, items: [] };
-    const pool = () => [...FOOD_LIBRARY, ...myFoods().filter((f) => !f.recipe)];
+  /* -------- my meals --------
+     He makes the same things: pancakes in the morning (eggs, flour, whey,
+     milk), a chili for the week. A meal is made once from its ingredients —
+     searched like any food (his foods, the common list, USDA, Open Food
+     Facts, a barcode) or typed in one line — and from then on it is one tap:
+     "Blynai · 1 serving". It says how many servings the batch makes; if he
+     weighs the cooked total too, it can be logged by the gram instead.
+     Each ingredient keeps its numbers, so a meal can be opened and changed
+     later (more whey, one egg less) and every later log follows. */
+  const mealIngredient = (f) => ({
+    name: f.name, unit: foodUnit(f), per: foodBase(f),
+    kcal: Number(f.kcal) || 0, protein: Number(f.protein) || 0, carbs: Number(f.carbs) || 0, fat: Number(f.fat) || 0,
+    ...(f.portions && f.portions.length ? { portions: f.portions.slice(0, 3) } : {}),
+    ...(f.serving ? { serving: f.serving } : {}),
+  });
+  function openRecipeBuilder(after, editId) {
+    const FS = window.BelaFoodSearch;
+    const old = editId ? (state.foods || []).find((f) => f.id === editId && f.recipe) : null;
+    const draft = {
+      name: old ? old.name : '',
+      servings: old ? (old.recipe.servings || 1) : 1,
+      cooked: old ? (old.recipe.cookedG || '') : '',
+      // ingredients saved before 16.11 kept only a name: find their numbers again
+      items: old ? old.recipe.items.map((it) => {
+        if (it.kcal != null) return { food: it, amount: it.amount };
+        const f = [...myFoods(), ...FOOD_LIBRARY].find((x) => x.name === it.name);
+        return f ? { food: mealIngredient(f), amount: it.amount } : null;
+      }).filter(Boolean) : [],
+    };
+    const pool = () => [...myFoods().filter((f) => !f.recipe), ...FOOD_LIBRARY];
     const totals = () => draft.items.reduce((t, it) => {
       const m = scaleFood(it.food, it.amount);
       return { kcal: t.kcal + m.kcal, protein: t.protein + m.protein, carbs: t.carbs + m.carbs, fat: t.fat + m.fat };
     }, { kcal: 0, protein: 0, carbs: 0, fat: 0 });
-    openSheet('Build a recipe', '' +
-      '<div class="field"><label for="rcName">Name</label><input id="rcName" type="text" placeholder="e.g. Chicken chili" autocomplete="off"></div>' +
-      '<div class="field"><label>Servings it makes</label>' +
-        '<div class="portion-step"><button class="chip-btn" id="rcLess" aria-label="Fewer servings">−</button>' +
-        '<div class="ps-mid"><span class="ps-n" id="rcServ">4</span> <i class="ps-lbl">servings</i></div>' +
-        '<button class="chip-btn" id="rcMore" aria-label="More servings">+</button></div></div>' +
+    openSheet(old ? 'Edit ' + old.name : 'Create a meal', '' +
+      '<div class="field"><label for="rcName">Name</label><input id="rcName" type="text" placeholder="e.g. Blynai, Chicken chili" autocomplete="off" value="' + esc(draft.name) + '"></div>' +
       '<div class="section-title" style="margin-top:4px">Ingredients</div>' +
       '<div id="rcItems"></div>' +
-      '<input class="search-field" id="rcSearch" type="search" placeholder="Add an ingredient…" autocomplete="off">' +
+      '<div class="search-row rc-search">' +
+        '<input class="search-field" id="rcSearch" type="search" placeholder="Add an ingredient…" autocomplete="off">' +
+        '<button class="scan-btn" id="rcScan" type="button" aria-label="Scan an ingredient\'s barcode">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M7.5 8.5v7M10 8.5v7M12.5 8.5v7M15 8.5v7M16.5 8.5v7"/></svg>' +
+        '</button></div>' +
+      '<button class="qt-open rc-type" id="rcTypeOpen" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h7M17 14l2 2 3-4"/></svg>' +
+        '<span><b>Type them all at once</b><i>3 eggs, 100 g flour, 30 g whey, 200 ml milk</i></span></button>' +
+      '<div class="qt-box" id="rcTypeBox" hidden><textarea id="rcType" rows="2" placeholder="3 kiaušiniai, 100 g miltų, 30 g whey, 200 ml pieno"></textarea>' +
+        '<div id="rcTypePrev" class="qt-prev"></div><button class="btn btn-quiet" id="rcTypeAdd" disabled>Add them</button></div>' +
       '<div id="rcFound"></div>' +
+      '<div class="field"><label>The batch makes</label>' +
+        '<div class="portion-step"><button class="chip-btn" id="rcLess" aria-label="Fewer servings">−</button>' +
+        '<div class="ps-mid"><span class="ps-n" id="rcServ">1</span> <i class="ps-lbl" id="rcServLbl">serving</i></div>' +
+        '<button class="chip-btn" id="rcMore" aria-label="More servings">+</button></div></div>' +
+      '<div class="field"><label for="rcCooked">Cooked weight of the whole batch <span class="lbl-opt">optional</span></label>' +
+        '<input id="rcCooked" type="number" inputmode="decimal" min="0" placeholder="g — then you can log it by the gram" value="' + esc(String(draft.cooked || '')) + '"></div>' +
       '<div class="rc-sum" id="rcSum"></div>' +
-      '<button class="btn btn-primary" id="rcSave" disabled>Save recipe</button>',
+      '<button class="btn btn-primary" id="rcSave" disabled>' + (old ? 'Save changes' : 'Save meal') + '</button>' +
+      (old ? '<button class="btn btn-danger" id="rcDel" style="margin-top:10px">Delete this meal</button>' : ''),
     (body) => {
       const paint = () => {
         $('#rcServ', body).textContent = draft.servings;
+        $('#rcServLbl', body).textContent = draft.servings === 1 ? 'serving' : 'servings';
         $('#rcItems', body).innerHTML = draft.items.length ? draft.items.map((it, i) => {
           const m = scaleFood(it.food, it.amount);
-          return '<div class="rc-item"><div><b>' + esc(it.food.name) + '</b><i>' + esc(amountLabel(it.food, it.amount)) + ' · ' + m.kcal + ' kcal · P ' + Math.round(m.protein) + '</i></div>' +
-            '<input class="rc-amt" data-i="' + i + '" type="number" inputmode="decimal" min="0" value="' + it.amount + '" aria-label="Amount of ' + esc(it.food.name) + '">' +
+          return '<div class="rc-item"><div><b>' + esc(it.food.name) + '</b><i>' + m.kcal + ' kcal · P ' + round1(m.protein) + '</i></div>' +
+            '<label class="rc-amt-wrap"><input class="rc-amt" data-i="' + i + '" type="number" inputmode="decimal" min="0" value="' + it.amount + '" aria-label="Amount of ' + esc(it.food.name) + '">' +
+            '<span>' + (foodUnit(it.food) === 'piece' ? '×' : esc(foodUnit(it.food))) + '</span></label>' +
             '<button class="saved-del" data-rm="' + i + '" aria-label="Remove ' + esc(it.food.name) + '">×</button></div>';
-        }).join('') : '<p class="portion-per">Search below and tap a food to add it.</p>';
+        }).join('') : '<p class="portion-per">Search, scan or type the ingredients — the amounts you put in the pan.</p>';
         const t = totals(), n = draft.servings;
+        const cooked = Number($('#rcCooked', body).value) || 0;
         $('#rcSum', body).innerHTML = draft.items.length
-          ? '<span class="micro">One serving</span><b>' + Math.round(t.kcal / n) + ' kcal</b><i>P ' + round1(t.protein / n) + ' · C ' + round1(t.carbs / n) + ' · F ' + round1(t.fat / n) + '</i>'
+          ? '<span class="micro">' + (n === 1 ? 'The whole meal' : 'One serving of ' + n) + '</span><b>' + Math.round(t.kcal / n) + ' kcal</b>' +
+            '<i>P ' + round1(t.protein / n) + ' · C ' + round1(t.carbs / n) + ' · F ' + round1(t.fat / n) +
+            (cooked ? ' · ' + Math.round(cooked / n) + ' g' : '') + '</i>'
           : '';
         $('#rcSave', body).disabled = !(draft.items.length && $('#rcName', body).value.trim());
       };
-      const found = (q) => {
-        q = q.trim().toLowerCase();
-        $('#rcFound', body).innerHTML = q ? pool().filter((f) => f.name.toLowerCase().includes(q)).slice(0, 8).map((f, i) =>
-          '<button class="lib-item rc-hit" data-name="' + esc(f.name) + '"><div><div class="li-name">' + esc(f.name) + '</div>' +
-          '<div class="li-sub">' + Math.round(f.kcal) + ' kcal per ' + (foodUnit(f) === 'piece' ? 'piece' : foodBase(f) + ' ' + foodUnit(f)) + '</div></div>' +
-          '<span class="li-add">+ ' + esc(amountLabel(f, foodServing(f))) + '</span></button>').join('') : '';
-      };
-      $('#rcSearch', body).addEventListener('input', (e) => found(e.target.value));
-      $('#rcFound', body).addEventListener('click', (e) => {
-        const b = e.target.closest('[data-name]');
-        if (!b) return;
-        const f = pool().find((x) => x.name === b.dataset.name);
-        if (!f) return;
-        draft.items.push({ food: f, amount: foodServing(f) });
-        $('#rcSearch', body).value = ''; found('');
+      const add = (f, amount) => {
+        draft.items.push({ food: mealIngredient(f), amount: amount != null ? amount : (f.portions && f.portions.length ? f.portions[0].g : foodServing(f)) });
         haptic('tap');
+        paint();
+      };
+      // ---- search: his foods, common, USDA, then products online ----
+      let found = [], offSeq = 0, offT = 0;
+      const row = (f, i) => '<button class="lib-item rc-hit" data-hit="' + i + '"><div><div class="li-name">' + esc(f.name) + (f.lt ? ' <i class="lt-tag">LT</i>' : '') + '</div>' +
+        '<div class="li-sub">' + Math.round(f.kcal) + ' kcal ' + perLabel(f) + (f.src === 'usda' ? ' · USDA' : f.src === 'off' ? ' · Open Food Facts' : '') + '</div></div>' +
+        '<span class="li-add">+</span></button>';
+      const showFound = () => { $('#rcFound', body).innerHTML = found.map(row).join(''); };
+      const search = (q) => {
+        q = q.trim();
+        clearTimeout(offT);
+        if (!q) { found = []; showFound(); return; }
+        const local = FS ? [...FS.rank(pool(), q, 6), ...FS.searchUsda(q, 6)] : pool().filter((f) => f.name.toLowerCase().includes(q.toLowerCase())).slice(0, 8);
+        found = local; showFound();
+        if (FS && FS.fold(q).length >= 3) {
+          const seq = ++offSeq;
+          offT = setTimeout(() => FS.searchOff(q).then((hits) => {
+            if (seq !== offSeq) return;
+            found = [...local, ...hits.slice(0, 6)]; showFound();
+          }).catch(() => {}), 650);
+        }
+      };
+      if (FS && !FS.usdaReady()) FS.loadUsda('js/data/foods-usda.json?v=' + APP_VERSION).catch(() => {});
+      $('#rcSearch', body).addEventListener('input', (e) => search(e.target.value));
+      $('#rcFound', body).addEventListener('click', (e) => {
+        const b = e.target.closest('[data-hit]');
+        if (!b) return;
+        add(found[Number(b.dataset.hit)]);
+        $('#rcSearch', body).value = ''; found = []; showFound();
+      });
+      // ---- a barcode for an ingredient ----
+      $('#rcScan', body).addEventListener('click', async () => {
+        const BS = native() ? nativePlugin('BarcodeScanner') : null;
+        let code = null;
+        if (BS) {
+          try {
+            const avail = await BS.isGoogleBarcodeScannerModuleAvailable().catch(() => ({ available: true }));
+            if (!avail.available && !(await waitForScannerModule(BS))) { toast('The scanner could not be installed'); return; }
+            const res = await BS.scan({ formats: SCAN_FORMATS, autoZoom: true });
+            code = res && res.barcodes && res.barcodes[0] && res.barcodes[0].rawValue;
+          } catch (err) { if (!/cancel/i.test(String((err && err.message) || err))) toast('The scanner did not open'); return; }
+        } else {
+          code = window.prompt('Barcode (the numbers under the bars)');
+        }
+        if (!code || !FS) return;
+        const c = FS.cleanCode(code);
+        const mine = (state.foods || []).find((f) => f.code === c);
+        if (mine) { add(mine); return; }
+        toast('Looking up ' + c + '…');
+        try {
+          const f = await FS.lookupOff(c);
+          if (f) { rememberFood(f); add(f); } else toast('Not in Open Food Facts — search it or add it by hand');
+        } catch (err) { toast('No connection — search it instead'); }
+      });
+      // ---- typed in one line ----
+      let typed = [];
+      $('#rcTypeOpen', body).addEventListener('click', () => { $('#rcTypeBox', body).hidden = false; $('#rcTypeOpen', body).hidden = true; $('#rcType', body).focus(); });
+      $('#rcType', body).addEventListener('input', (e) => {
+        typed = FS ? FS.parseMeal(e.target.value).map((ln) => {
+          const f = FS.bestMatch(ln.query, [myFoods().filter((x) => !x.recipe), FOOD_LIBRARY, FS.usdaList()]);
+          return f ? { f, amount: typedAmount(f, ln), raw: ln.raw } : { f: null, raw: ln.raw };
+        }) : [];
+        $('#rcTypePrev', body).innerHTML = typed.map((x) => x.f
+          ? '<div class="qt-row"><span class="qt-amt">' + esc(amountLabel(x.f, x.amount)) + '</span><b>' + esc(x.f.name) + '</b><i>' + scaleFood(x.f, x.amount).kcal + ' kcal</i><span></span></div>'
+          : '<div class="qt-row is-miss"><span class="qt-amt">?</span><b>' + esc(x.raw) + '</b><i>not found</i></div>').join('');
+        const ok = typed.filter((x) => x.f).length;
+        $('#rcTypeAdd', body).disabled = !ok;
+        $('#rcTypeAdd', body).textContent = ok ? 'Add ' + ok + ' ingredient' + (ok === 1 ? '' : 's') : 'Add them';
+      });
+      $('#rcTypeAdd', body).addEventListener('click', () => {
+        typed.filter((x) => x.f).forEach((x) => draft.items.push({ food: mealIngredient(x.f), amount: x.amount }));
+        $('#rcType', body).value = ''; $('#rcTypePrev', body).innerHTML = ''; typed = [];
+        $('#rcTypeBox', body).hidden = true; $('#rcTypeOpen', body).hidden = false;
+        haptic('tick');
         paint();
       });
       $('#rcItems', body).addEventListener('input', (e) => {
@@ -3641,19 +3745,36 @@
       $('#rcLess', body).addEventListener('click', () => { draft.servings = Math.max(1, draft.servings - 1); paint(); });
       $('#rcMore', body).addEventListener('click', () => { draft.servings = Math.min(40, draft.servings + 1); paint(); });
       $('#rcName', body).addEventListener('input', paint);
+      $('#rcCooked', body).addEventListener('input', paint);
       $('#rcSave', body).addEventListener('click', () => {
         const t = totals(), n = draft.servings;
         const name = $('#rcName', body).value.trim();
-        rememberFood({
-          name, unit: 'piece', per: 1, serving: 1, sname: 'serving',
-          kcal: Math.round(t.kcal / n), protein: round1(t.protein / n), carbs: round1(t.carbs / n), fat: round1(t.fat / n),
-          recipe: { servings: n, items: draft.items.map((it) => ({ name: it.food.name, amount: it.amount, unit: foodUnit(it.food) })) },
-        });
+        const cooked = Number($('#rcCooked', body).value) || 0;
+        const recipe = { servings: n, items: draft.items.map((it) => ({ ...it.food, amount: it.amount })), ...(cooked ? { cookedG: cooked } : {}) };
+        // weighed: per 100 g, a serving is its share of the pot; otherwise counted in servings
+        const rec = cooked
+          ? { name, unit: 'g', per: 100, serving: round1(cooked / n), sname: 'serving',
+              kcal: Math.round(t.kcal / cooked * 100), protein: round1(t.protein / cooked * 100), carbs: round1(t.carbs / cooked * 100), fat: round1(t.fat / cooked * 100), recipe }
+          : { name, unit: 'piece', per: 1, serving: 1, sname: 'serving',
+              kcal: Math.round(t.kcal / n), protein: round1(t.protein / n), carbs: round1(t.carbs / n), fat: round1(t.fat / n), recipe };
+        if (old) {
+          // keep its id; a renamed meal is still the same meal
+          Object.assign(old, rec, { used: Date.now() });
+        } else {
+          rememberFood(rec);
+        }
         save();
         haptic('done');
-        toast(name + ' saved — ' + Math.round(t.kcal / n) + ' kcal a serving');
+        toast(name + (old ? ' updated — ' : ' saved — ') + Math.round(t.kcal / n) + ' kcal a serving');
         closeSheetNow();
         if (after) after(); else render();
+      });
+      $('#rcDel', body)?.addEventListener('click', () => {
+        const gone = JSON.stringify(state.foods);
+        state.foods = state.foods.filter((f) => f.id !== old.id);
+        save(); closeSheetNow(); haptic('tap');
+        if (after) after(); else render();
+        toast(old.name + ' deleted', false, { label: 'Undo', onClick: () => { state.foods = JSON.parse(gone); save(); render(); } });
       });
       paint();
     });
@@ -3834,7 +3955,7 @@
           (mine ? '<button class="saved-edit" data-editfood="' + esc(f.id) + '" aria-label="Edit ' + esc(f.name) + '">' +
             '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17Z"/></svg></button>' : '') +
           (() => {
-            const one = foodSName(f) && foodUnit(f) !== 'piece'
+            const one = foodSName(f)
               ? '1 ' + foodSName(f)
               : f.portions && f.portions.length ? shortPortion(f.portions[0].label) : amountLabel(f, foodServing(f));
             return '<button class="li-add" data-quick="' + data + '" aria-label="Log ' + esc(one) + '">+ ' + esc(one) + '</button>';
@@ -3875,11 +3996,13 @@
     const listHtml = (q) => {
       const query = q.trim();
       const pick = (list, n) => (!query ? list : FS ? FS.rank(list, query, n) : list.filter((f) => f.name.toLowerCase().includes(query.toLowerCase())));
-      const mine = pick(myFoods(), 30);
+      const meals = pick(myFoods().filter((f) => f.recipe), 20);
+      const mine = pick(myFoods().filter((f) => !f.recipe), 30);
       const rec = pick(recents, 10);
       const lib = pick(FOOD_LIBRARY, 12);
       const usdaHits = query && FS ? FS.searchUsda(query, 15) : [];
       let html = '';
+      if (meals.length) html += '<div class="lib-group-title">My meals</div>' + meals.map((f) => basisRow(f, true)).join('');
       if (mine.length) html += '<div class="lib-group-title">My foods</div>' + mine.map((f) => basisRow(f, true)).join('');
       if (rec.length) html += '<div class="lib-group-title">Logged before</div>' + rec.map(recentRow).join('');
       if (lib.length) html += '<div class="lib-group-title">Common foods</div>' + lib.map((f) => basisRow(f, false)).join('');
@@ -3930,10 +4053,11 @@
         <div id="qtPrev" class="qt-prev"></div>
         <button class="btn btn-primary" id="qtAdd" disabled>Log all</button>
       </div>
+      <button class="qt-open rc-open" id="recipeOpen" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 11h15a7.5 7.5 0 0 1-15 0ZM3.5 11h17M9 7.5c0-1.2 1-1.7 1-3M13 7.5c0-1.2 1-1.7 1-3"/></svg>
+        <span><b>Create a meal</b><i>Pancakes, a chili — made once, logged in one tap</i></span></button>
       <p class="portion-per">Tap a food to set the grams, or + to log the usual portion.</p>
       <div id="savedList">${savedHtml()}</div>
       <div id="foodList">${listHtml('')}</div>
-      <button class="btn btn-quiet rc-open" id="recipeOpen"><svg class="btn-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 11h15a7.5 7.5 0 0 1-15 0ZM3.5 11h17M9 7.5c0-1.2 1-1.7 1-3M13 7.5c0-1.2 1-1.7 1-3"/></svg>Build a recipe</button>
       <div class="section-title">Custom entry</div>
       <div class="field"><label for="cmName">Name</label><input id="cmName" type="text" placeholder="e.g. Chicken bowl"></div>
       <div class="field" id="cmUnitWrap">
@@ -4050,7 +4174,9 @@
         if (edit) {
           const id = edit.dataset.editfood;
           closeSheetNow();
-          queueMicrotask(() => openFoodEditor(id, () => { closeSheetNow(); openMealSheet(key, slot); }));
+          const isMeal = (state.foods || []).some((f) => f.id === id && f.recipe);
+          queueMicrotask(() => (isMeal ? openRecipeBuilder(() => openMealSheet(key, slot), id)
+            : openFoodEditor(id, () => { closeSheetNow(); openMealSheet(key, slot); })));
           return;
         }
         const quick = e.target.closest('[data-quick]');

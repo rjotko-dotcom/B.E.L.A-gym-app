@@ -3177,3 +3177,10 @@ body.pad-open .rest-panel { opacity: 0; pointer-events: none; transform: transla
 .td-back { position: relative; display: block; padding: 0; margin-bottom: 4px; border: 0; background: none; font: inherit; font-size: 0.82rem; font-weight: 600; color: var(--ink-2); cursor: pointer; }
 .td-back::after { content: ''; position: absolute; inset: -7px; }
 .td-sec .hb-th .micro { visibility: hidden; }
+
+/* ---------- 16.11: my meals ---------- */
+.rc-amt-wrap { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.rc-amt-wrap span { font-size: 0.76rem; color: var(--ink-muted); min-width: 16px; }
+.rc-search { margin-top: 6px; }
+.rc-type { margin-top: 2px; }
+.rc-open { margin-top: 8px; }

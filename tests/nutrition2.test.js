@@ -34,12 +34,14 @@ module.exports = async (t) => {
   await page.fill('#rcName', 'Chicken rice pot');
   await page.fill('#rcSearch', 'chicken breast');
   await page.waitForTimeout(200);
-  await page.click('#rcFound [data-name="Chicken breast"]');
+  await page.evaluate(() => [...document.querySelectorAll('#rcFound [data-hit]')].find((b) => /^Chicken breast/.test(b.querySelector('.li-name').textContent)).click());
   await page.fill('.rc-amt[data-i="0"]', '600');
   await page.fill('#rcSearch', 'rice');
   await page.waitForTimeout(200);
-  await page.evaluate(() => document.querySelector('#rcFound [data-name]').click());
+  await page.evaluate(() => document.querySelector('#rcFound [data-hit]').click());
   await page.waitForTimeout(200);
+  // the batch makes four (a meal starts as one serving now)
+  for (let i = 0; i < 3; i++) await page.click('#rcMore');
   t.check('the serving is worked out as it is built', /One serving/.test(await page.textContent('#rcSum')));
   await page.click('#rcSave');
   await page.waitForTimeout(500);
