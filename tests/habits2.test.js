@@ -27,23 +27,29 @@ module.exports = async (t) => {
   await page.waitForTimeout(300);
 
   // a second miss in the same week breaks it
-  await page.evaluate((k) => {
+  const removed = await page.evaluate((k) => {
     const st = JSON.parse(localStorage.getItem('bela-gym-v1'));
+    let gone = null;
     const d9 = new Date(k + 'T12:00:00');
     // the other days of the missed day's week (Mon–Sun)
     const mon = new Date(d9); mon.setDate(d9.getDate() - ((d9.getDay() + 6) % 7));
     for (let i = 0; i < 7; i++) {
       const d = new Date(mon); d.setDate(mon.getDate() + i);
       const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-      if (key !== k && st.habitLog[key] && st.habitLog[key].h_med) { delete st.habitLog[key].h_med; break; }
+      if (key !== k && st.habitLog[key] && st.habitLog[key].h_med) { delete st.habitLog[key].h_med; gone = key; break; }
     }
     localStorage.setItem('bela-gym-v1', JSON.stringify(st));
+    return gone;
   }, day(9));
+  const r = [...Array(21).keys()].find((i) => day(i) === removed);
   await page.reload();
   await page.waitForTimeout(600);
-  // today back to the first miss is 9 days, then 4 more to the second miss,
-  // which is in the same week and so ends it: 13, not 20
-  t.equal('two misses in a week do', await streak(), '13days');
+  /* The second miss is the first other day of that Mon–Sun week: usually
+     its Monday, days before the first miss; when the first miss is itself
+     the Monday, the Tuesday after it. The streak counts done days back to
+     whichever miss comes second (walking back from today). */
+  const expect = r > 9 ? r - 1 : r;
+  t.equal('two misses in a week do', await streak(), expect + 'days');
   await page.evaluate(() => document.querySelector('#sheetRoot [data-close]').click());
 
   // switched off, the first miss breaks it

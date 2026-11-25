@@ -168,6 +168,22 @@ const EXERCISE_LIBRARY = [
   { id: 'sled-push', name: 'Sled Push', muscle: 'Cardio', equipment: 'Machine' },
   { id: 'battle-ropes', name: 'Battle Ropes', muscle: 'Cardio', equipment: 'Machine' },
   { id: 'box-jump', name: 'Box Jump', muscle: 'Cardio', equipment: 'Bodyweight' },
+
+  // At home — no equipment (16.12)
+  { id: 'reverse-crunch', name: 'Reverse Crunch', muscle: 'Core', equipment: 'Bodyweight' },
+  { id: 'leg-raise', name: 'Lying Leg Raise', muscle: 'Core', equipment: 'Bodyweight' },
+  { id: 'heel-touch', name: 'Heel Touches', muscle: 'Core', equipment: 'Bodyweight' },
+  { id: 'flutter-kick', name: 'Flutter Kicks', muscle: 'Core', equipment: 'Bodyweight' },
+  { id: 'plank-shoulder-tap', name: 'Plank Shoulder Tap', muscle: 'Core', equipment: 'Bodyweight' },
+  { id: 'bw-squat', name: 'Bodyweight Squat', muscle: 'Legs', equipment: 'Bodyweight' },
+  { id: 'jump-squat', name: 'Jump Squat', muscle: 'Legs', equipment: 'Bodyweight' },
+  { id: 'reverse-lunge', name: 'Reverse Lunge', muscle: 'Legs', equipment: 'Bodyweight' },
+  { id: 'glute-bridge', name: 'Glute Bridge', muscle: 'Legs', equipment: 'Bodyweight' },
+  { id: 'wall-sit', name: 'Wall Sit', muscle: 'Legs', equipment: 'Bodyweight' },
+  { id: 'pike-push-up', name: 'Pike Push-Up', muscle: 'Shoulders', equipment: 'Bodyweight' },
+  { id: 'superman', name: 'Superman', muscle: 'Back', equipment: 'Bodyweight' },
+  { id: 'jumping-jack', name: 'Jumping Jacks', muscle: 'Cardio', equipment: 'Bodyweight' },
+  { id: 'high-knees', name: 'High Knees', muscle: 'Cardio', equipment: 'Bodyweight' },
 ];
 
 const MUSCLE_GROUPS = ['Chest', 'Back', 'Legs', 'Shoulders', 'Arms', 'Core', 'Cardio'];

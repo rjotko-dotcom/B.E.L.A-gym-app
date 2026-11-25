@@ -10,6 +10,12 @@ module.exports = async (t) => {
   const server = await t.serve({ serviceWorker: false });
   const seed = build();
   seed.workouts[0].exercises[0].sets[0].pr = true;       // a record yesterday, for the timeline
+  /* Recovery reads hours, not days: yesterday at 18:00 is only 25 h old by
+     the evening and the chest has half come back. Late yesterday and twice
+     the sets keeps it "still recovering" whatever the hour the suite runs. */
+  { const y = new Date(); y.setDate(y.getDate() - 1); y.setHours(23, 0, 0, 0);
+    seed.workouts[0].startedAt = y.getTime(); seed.workouts[0].finishedAt = y.getTime() + 50 * 60000;
+    seed.workouts[0].exercises[0].sets.push(...seed.workouts[0].exercises[0].sets.map((s) => ({ ...s, pr: undefined }))); }
   let page = await openApp(t.browser, { url: server.url, seed });
 
   // ---- what fits today ----

@@ -1,5 +1,5 @@
 /* B.E.L.A Gym — service worker */
-const VERSION = '16.11';
+const VERSION = '16.12';
 const CACHE = 'bela-gym-' + VERSION;
 const ASSETS = [
   '.',
@@ -18,6 +18,7 @@ const ASSETS = [
   'js/vendor/three-body.js?v=' + VERSION,
   'models/anatomy.glb?v=' + VERSION,
   'js/programs.js?v=' + VERSION,
+  'js/home-workouts.js?v=' + VERSION,
   'js/foods.js?v=' + VERSION,
   'js/food-search.js?v=' + VERSION,
   'js/data/foods-usda.json?v=' + VERSION,

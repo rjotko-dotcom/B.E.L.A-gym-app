@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.11';
+  const APP_VERSION = '16.12';
 
   /* ---------------- state ---------------- */
 
@@ -92,6 +92,7 @@
     if (skipPop > 0) { skipPop--; return; }
     if ($('#sheetRoot').children.length) { sheetHasEntry = false; sheetOut(); return; }
     if (routineDraft) { rbHasEntry = false; closeRoutineBuilder(); return; }
+    if (homeRun) { history.pushState({ t: 'home' }, ''); askEndHomeRun(); return; }
     if (workoutOpen) { wkHasEntry = false; workoutOpen = false; render(); return; }
     if (currentTab !== 'home') { tabHasEntry = false; currentTab = 'home'; rememberTab('home'); render(); return; }
     // nothing left to close — the next back press exits normally
@@ -265,6 +266,7 @@
   function cardioText(s) {
     const bits = [];
     if (s.reps) bits.push(s.reps + ' min');
+    else if (s.secs) bits.push(s.secs + ' s');
     if (s.kmh) bits.push(fmtNum(s.kmh) + ' km/h');
     if (s.incl) bits.push(fmtNum(s.incl) + '%');
     if (s.weight) bits.push(fmtNum(s.weight) + ' km');
@@ -386,6 +388,7 @@
   }
   function previousSets(exerciseId) {
     for (const w of state.workouts) {
+      if (w.home) continue;
       const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
       if (ex) {
         const done = ex.sets.filter((s) => s.done);
@@ -4423,6 +4426,7 @@
       '</div>' +
 
       '<button class="btn btn-primary wk-start" id="startEmpty">Start empty workout</button>' +
+      homeCardHTML() +
 
       '<div class="section-title">Routines</div>' +
       '<div class="tpl-list">' +
@@ -4451,6 +4455,7 @@
 
     if (active) $('#resumeWorkout').addEventListener('click', () => { workoutOpen = true; openWkEntry(); render(); });
     $('#startEmpty').addEventListener('click', () => startWorkout());
+    $('#wkHome').addEventListener('click', () => openHomeSheet());
     if (mbView === 'recovery') {
       const rec = muscleRecovery();
       const lv = {};
@@ -5685,8 +5690,8 @@
       const work = ex.sets.filter((st) => st.done && (st.type || 'N') !== 'W');
       if (!work.length) return null;
       const best = work.reduce((b, st) => (!b || setMass(st) > setMass(b) ? st : b), null);
-      const txt = isCardio(ex.exerciseId) ? cardioText(best)
-        : best.weight ? fmtNum(best.weight) + ' ' + unit() + ' × ' + best.reps : best.reps + ' reps';
+      const txt = isCardio(ex.exerciseId) ? cardioText(best) : timedText(best)
+        || (best.weight ? fmtNum(best.weight) + ' ' + unit() + ' × ' + best.reps : best.reps + ' reps');
       return [exerciseById(ex.exerciseId)?.name ?? '?', work.length + ' × ' + txt, ex.sets.some((st) => st.pr)];
     }).filter(Boolean).slice(0, 4);
     let y = 1130;
@@ -5746,8 +5751,8 @@
       const info = exerciseById(ex.exerciseId);
       const work = ex.sets.filter((st) => st.done && (st.type || 'N') !== 'W');
       const best = work.reduce((b, st) => (!b || setMass(st) > setMass(b) ? st : b), null);
-      const bestTxt = !best ? '' : isCardio(ex.exerciseId) ? cardioText(best)
-        : best.weight ? fmtNum(best.weight) + ' ' + esc(unit()) + ' × ' + best.reps : best.reps + ' reps';
+      const bestTxt = !best ? '' : isCardio(ex.exerciseId) ? cardioText(best) : timedText(best)
+        || (best.weight ? fmtNum(best.weight) + ' ' + esc(unit()) + ' × ' + best.reps : best.reps + ' reps');
       return '<div class="sm-row">' +
         '<span class="sm-name">' + esc(info?.name ?? '?') + (ex.sets.some((st) => st.pr) ? ' ' + prIcon('pr-mark pr-inline') : '') + '</span>' +
         '<span class="sm-best">' + work.length + ' × <b>' + bestTxt + '</b></span></div>';
@@ -5762,22 +5767,381 @@
       '</div>' +
       '<div class="sm-stats">' +
         '<div><span class="micro">Duration</span><b>' + esc(fmtDuration(w.finishedAt - w.startedAt)) + '</b></div>' +
-        '<div><span class="micro">Volume</span><b>' + Math.round(workoutVolume(w)).toLocaleString() + '<i> ' + esc(unit()) + '</i></b></div>' +
-        '<div><span class="micro">Sets</span><b>' + sets.length + '</b></div>' +
-        '<div><span class="micro">Records</span><b>' + prs.length + '</b></div>' +
+        (w.home
+          ? '<div><span class="micro">Work</span><b>' + esc(fmtDuration(sets.reduce((t, s) => t + (s.secs || 0), 0) * 1000 || (w.finishedAt - w.startedAt))) + '</b></div>' +
+            '<div><span class="micro">' + (w.home.kind === 'video' ? 'Video' : 'Moves') + '</span><b>' + (w.home.kind === 'video' ? '1' : sets.length) + '</b></div>' +
+            '<div><span class="micro">Focus</span><b>' + esc(w.home.focus || '—') + '</b></div>'
+          : '<div><span class="micro">Volume</span><b>' + Math.round(workoutVolume(w)).toLocaleString() + '<i> ' + esc(unit()) + '</i></b></div>' +
+            '<div><span class="micro">Sets</span><b>' + sets.length + '</b></div>' +
+            '<div><span class="micro">Records</span><b>' + prs.length + '</b></div>') +
       '</div>' +
-      '<div class="sm-map">' + muscleMapHTML(muscleLoad([w]), sessionLevel, 'What this session worked — tap a muscle', 'session') + '</div>' +
+      (w.exercises.length ? '<div class="sm-map">' + muscleMapHTML(muscleLoad([w]), sessionLevel, 'What this session worked — tap a muscle', 'session') + '</div>' : '') +
       '<div class="sm-list">' + rows + '</div>' +
       '<div class="btn-row" style="margin-top:18px">' +
-        '<button class="btn btn-quiet" id="smShare"><svg class="btn-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3.5M7.5 8 12 3.5 16.5 8M5 12.5v6A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-6"/></svg>Share</button>' +
+        (w.home && w.home.kind === 'video' ? '' : '<button class="btn btn-quiet" id="smShare"><svg class="btn-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3.5M7.5 8 12 3.5 16.5 8M5 12.5v6A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-6"/></svg>Share</button>') +
         '<button class="btn btn-primary" id="smDone">Done</button>' +
       '</div>',
     (body) => {
       $('#smDone', body).addEventListener('click', () => closeSheet());
-      $('#smShare', body).addEventListener('click', () => shareWorkout(w));
-      wireMuscleMap(body, muscleLoad([w]), ' this session', sessionLevel);
+      if ($('#smShare', body)) $('#smShare', body).addEventListener('click', () => shareWorkout(w));
+      if (w.exercises.length) wireMuscleMap(body, muscleLoad([w]), ' this session', sessionLevel);
       setTimeout(() => burst($('.sm-badge', body), { count: prs.length ? 60 : 40 }), 260);
     });
+  }
+
+  /* ---------------- at home (16.12) ----------------
+     A day without the gym — missed it, or too busy — still trains. Two kinds:
+     follow-along sessions (js/home-workouts.js: work / rest per move, a timer
+     runs it, every move done is a timed set) and his own videos (a YouTube
+     link opened outside the app; "I did it" logs the minutes). Both land in
+     history like any session: the calendar, the streak, habits that read
+     workouts. The video list lives in settings, so it syncs. */
+  const HOME = window.BelaHome;
+  const HOUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.5l8 6.7M6.5 9.6v9.9h11V9.6M10 19.5v-5h4v5"/></svg>';
+  const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.8v12.4L18.5 12Z"/></svg>';
+  const BIN_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/></svg>';
+  const homeVideos = () => (Array.isArray(state.settings.homeVideos)
+    ? state.settings.homeVideos : HOME.DEFAULT_VIDEOS.map((v) => ({ ...v })));
+  const timedText = (s) => (s && s.secs && !s.reps ? s.secs + ' s' : null);
+  const ytThumb = (v) => {
+    const id = HOME.youtubeId(v.url);
+    return id ? '<img class="hv-thumb" alt="" loading="lazy" src="https://i.ytimg.com/vi/' + id + '/mqdefault.jpg" onerror="this.remove()">' : '';
+  };
+
+  function homeCardHTML() {
+    return '<button class="card wk-home" id="wkHome">' +
+      '<span class="wh-ico">' + HOUSE_ICON + '</span>' +
+      '<span class="wh-txt"><b>Home workout</b><i>No gym today? Follow along with a timer, or one of your videos</i></span>' +
+      '<svg class="wh-go" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg>' +
+    '</button>';
+  }
+
+  function openHomeSheet() {
+    const vids = homeVideos();
+    openSheet('Home workout', '' +
+      '<p class="muted hs-lead">No equipment, no gym. Pick one — the timer calls every move.</p>' +
+      '<div class="hs-label micro">Follow along</div>' +
+      '<div class="hs-list">' +
+        HOME.SESSIONS.map((s) =>
+          '<button class="hs-item" data-hs="' + s.id + '">' +
+            '<span class="hs-min"><b>' + s.min + '</b><i>min</i></span>' +
+            '<span class="hs-txt"><b>' + esc(s.name) + '</b><i>' + esc(s.blurb) + '</i></span>' +
+            '<span class="hs-play">' + PLAY_ICON + '</span>' +
+          '</button>').join('') +
+      '</div>' +
+      '<div class="hs-label micro">Your videos</div>' +
+      '<div class="hs-list" id="hvList">' +
+        vids.map((v) =>
+          '<div class="hs-item hs-vid" data-hv="' + esc(v.id) + '" role="button" tabindex="0">' +
+            '<span class="hv-frame">' + ytThumb(v) + '<span class="hv-ico">' + PLAY_ICON + '</span></span>' +
+            '<span class="hs-txt"><b>' + esc(v.name) + '</b><i>' + esc([v.by, v.min ? v.min + ' min' : '', v.focus].filter(Boolean).join(' · ')) + '</i></span>' +
+            '<button class="icon-btn hv-del" data-hvdel="' + esc(v.id) + '" aria-label="Remove video">' + BIN_ICON + '</button>' +
+          '</div>').join('') +
+        (vids.length ? '' : '<p class="empty-note" style="padding:12px">No videos. Add one you like to follow.</p>') +
+        '<button class="tpl-add" id="hvAdd"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>Add a YouTube video</button>' +
+      '</div>',
+    (body) => {
+      $$('[data-hs]', body).forEach((b) => b.addEventListener('click', () => startHomeSession(b.dataset.hs)));
+      $$('[data-hv]', body).forEach((el) => el.addEventListener('click', (e) => {
+        const del = e.target.closest('[data-hvdel]');
+        const id = el.dataset.hv;
+        if (del) {
+          const v = homeVideos().find((x) => x.id === id);
+          undoable('Video removed', () => { state.settings.homeVideos = homeVideos().filter((x) => x.id !== id); });
+          if (v) openHomeSheet();
+          return;
+        }
+        openHomeVideo(id);
+      }));
+      $('#hvAdd', body).addEventListener('click', () => openAddVideo());
+    });
+  }
+
+  function openHomeVideo(id) {
+    const v = homeVideos().find((x) => x.id === id);
+    if (!v) return;
+    openSheet(v.name, '' +
+      '<div class="hv-big">' + ytThumb(v) + '<span class="hv-ico">' + PLAY_ICON + '</span></div>' +
+      '<p class="muted" style="margin:10px 2px 14px">' + esc([v.by, v.min ? v.min + ' min' : '', v.focus].filter(Boolean).join(' · ')) +
+        '<br>Plays in YouTube. Come back here when it is done.</p>' +
+      '<button class="btn btn-primary" id="hvPlay">' + PLAY_ICON + 'Play on YouTube</button>' +
+      '<button class="btn btn-quiet" id="hvLog" style="margin-top:10px">I did it — log ' + (v.min || '') + (v.min ? ' min' : 'it') + '</button>' +
+      '<button class="btn btn-quiet" id="hvBack" style="margin-top:10px">Back</button>',
+    (body) => {
+      const play = () => {
+        openOutside(v.url);
+        // once it has been played, logging it is the next thing to do
+        $('#hvLog', body).classList.replace('btn-quiet', 'btn-primary');
+        $('#hvPlay', body).classList.replace('btn-primary', 'btn-quiet');
+      };
+      $('#hvPlay', body).addEventListener('click', play);
+      $('.hv-big', body).addEventListener('click', play);
+      $('#hvLog', body).addEventListener('click', () => logHomeVideo(v));
+      $('#hvBack', body).addEventListener('click', () => openHomeSheet());
+    });
+  }
+
+  function logHomeVideo(v) {
+    if (state.activeWorkout) { toast('Finish the session in progress first'); return; }
+    const end = Date.now();
+    const w = { id: uid(), name: v.name, startedAt: end - (v.min || 10) * 60000, finishedAt: end,
+      home: { kind: 'video', url: v.url, min: v.min || 10, focus: v.focus || '' }, exercises: [] };
+    state.workouts.unshift(w);
+    haptic('done');
+    save(); closeSheetNow(); render();
+    openWorkoutSummary(w, []);
+  }
+
+  function openAddVideo() {
+    const focusSeg = HOME.FOCUS.map((f, i) => '<button data-f="' + esc(f) + '"' + (i === 0 ? ' class="is-on"' : '') + '>' + esc(f) + '</button>').join('');
+    openSheet('Add a video', '' +
+      '<div class="field"><label for="hvUrl">YouTube link</label>' +
+        '<input id="hvUrl" type="url" inputmode="url" placeholder="https://youtu.be/…" autocomplete="off"></div>' +
+      '<div class="field"><label for="hvName">Name</label><input id="hvName" type="text" placeholder="10 min abs"></div>' +
+      '<div class="field"><label for="hvMin">Minutes</label><input id="hvMin" type="number" inputmode="numeric" min="1" max="180" value="10"></div>' +
+      '<div class="field"><label>What it works</label><div class="hv-chips" id="hvFocus">' + focusSeg + '</div></div>' +
+      '<button class="btn btn-primary" id="hvSave">Save video</button>',
+    (body) => {
+      let focus = HOME.FOCUS[0], by = '';
+      $$('#hvFocus button', body).forEach((b) => b.addEventListener('click', () => {
+        focus = b.dataset.f;
+        $$('#hvFocus button', body).forEach((x) => x.classList.toggle('is-on', x === b));
+      }));
+      const url = $('#hvUrl', body);
+      // the title and channel, asked of YouTube itself; typed in by hand if offline
+      url.addEventListener('change', async () => {
+        const clean = HOME.cleanUrl(url.value);
+        if (!clean || !HOME.youtubeId(clean)) return;
+        try {
+          const r = await fetch('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent(clean));
+          if (!r.ok) return;
+          const d = await r.json();
+          by = String(d.author_name || '').slice(0, 60);
+          const name = $('#hvName', body);
+          if (name && !name.value.trim() && d.title) name.value = String(d.title).split(/\s*(?:\/\/|\||–)\s*/)[0].slice(0, 60);
+          const m = String(d.title || '').match(/(\d{1,3})\s*-?\s*min/i);
+          if (m && $('#hvMin', body)) $('#hvMin', body).value = m[1];
+        } catch (e) { /* offline: the name is typed */ }
+      });
+      $('#hvSave', body).addEventListener('click', () => {
+        const clean = HOME.cleanUrl(url.value);
+        if (!clean) { toast('Paste a YouTube link'); url.focus(); return; }
+        const name = $('#hvName', body).value.trim() || 'Video workout';
+        const min = Math.max(1, Math.min(180, Math.round(Number($('#hvMin', body).value) || 10)));
+        state.settings.homeVideos = [...homeVideos(), { id: uid(), name, ...(by ? { by } : {}), url: clean, min, focus }];
+        save();
+        toast('Video saved');
+        openHomeSheet();
+      });
+    });
+  }
+
+  /* -------- the follow-along player --------
+     A fixed end time per phase, like the rest timer, so a glance away loses
+     nothing. It draws once and then only touches the numbers. */
+  let homeRun = null;
+  let hrHasEntry = false;
+  let hrTick = null;
+  let audioCtx = null;
+  function beep(freq = 880, ms = 120) {
+    if (state.settings.homeSound === false) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = freq; o.type = 'sine';
+      g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.25, audioCtx.currentTime + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + ms / 1000);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime + ms / 1000 + 0.02);
+    } catch (e) { /* no audio here */ }
+  }
+
+  function startHomeSession(id) {
+    const s = HOME.SESSIONS.find((x) => x.id === id);
+    if (!s) return;
+    if (state.activeWorkout) { toast('Finish the session in progress first'); return; }
+    // the sheet's history entry becomes the player's, so back still lands right
+    closeSheetNow();
+    if (sheetHasEntry) { sheetHasEntry = false; hrHasEntry = true; }
+    else if (!hrHasEntry) { history.pushState({ t: 'home' }, ''); hrHasEntry = true; }
+    const ph = HOME.phases(s);
+    homeRun = { s, ph, i: 0, endAt: Date.now() + ph[0].secs * 1000, paused: null, startedAt: Date.now(), done: [], said: null };
+    holdWakeLock();
+    drawHomeRun();
+    clearInterval(hrTick);
+    hrTick = setInterval(tickHomeRun, 200);
+    beep(660, 90);
+  }
+
+  function hrLeft() {
+    const r = homeRun;
+    return r.paused != null ? r.paused : Math.max(0, r.endAt - Date.now());
+  }
+
+  function drawHomeRun() {
+    const r = homeRun;
+    let el = $('#homeRun');
+    if (!r) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'homeRun';
+      el.className = 'hr';
+      el.setAttribute('role', 'dialog');
+      el.setAttribute('aria-label', 'Home workout');
+      document.body.appendChild(el);
+    }
+    const p = r.ph[r.i];
+    const info = exerciseById(p.ex);
+    const guide = typeof EXERCISE_GUIDE !== 'undefined' ? EXERCISE_GUIDE[p.ex] : null;
+    const total = r.s.moves.length * r.s.rounds;
+    const nextWork = r.ph.slice(r.i + 1).find((x) => x.kind === 'work');
+    const label = p.kind === 'prep' ? 'Get ready' : p.kind === 'rest' ? 'Rest' : 'Work';
+    const nextLine = p.kind === 'work'
+      ? (nextWork ? 'Next · ' + (exerciseById(nextWork.ex)?.name ?? '') : 'Last move')
+      : 'Up next · move ' + (p.n + 1) + ' of ' + total;
+    el.dataset.kind = p.kind;
+    el.innerHTML = '' +
+      '<div class="hr-top">' +
+        '<button class="icon-btn" id="hrClose" aria-label="End session"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>' +
+        '<div class="hr-title"><b>' + esc(r.s.name) + '</b><i>' + (r.s.rounds > 1 ? 'Round ' + p.round + ' of ' + r.s.rounds + ' · ' : '') +
+          'move ' + Math.max(1, p.kind === 'rest' ? p.n + 1 : p.n || 1) + ' of ' + total + '</i></div>' +
+        '<button class="icon-btn" id="hrSound" aria-label="' + (state.settings.homeSound === false ? 'Sound on' : 'Sound off') + '">' +
+          (state.settings.homeSound === false
+            ? '<svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4ZM16 9.5l5 5M21 9.5l-5 5"/></svg>'
+            : '<svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4ZM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>') + '</button>' +
+      '</div>' +
+      '<div class="hr-steps">' + r.ph.filter((x) => x.kind === 'work').map((x) =>
+        '<i class="' + (x.n < (p.kind === 'work' ? p.n : p.n + 1) ? 'is-done' : x.n === (p.kind === 'work' ? p.n : -1) ? 'is-now' : '') + '"></i>').join('') + '</div>' +
+      '<div class="hr-main">' +
+        '<div class="hr-phase">' + label + '</div>' +
+        '<div class="hr-ring"><svg viewBox="0 0 200 200" aria-hidden="true">' +
+          '<circle class="hr-track" cx="100" cy="100" r="88"/>' +
+          '<circle class="hr-arc" id="hrArc" cx="100" cy="100" r="88" stroke-dasharray="552.92" stroke-dashoffset="0"/></svg>' +
+          '<b id="hrLeft">' + Math.ceil(hrLeft() / 1000) + '</b></div>' +
+        '<div class="hr-name">' + esc(info?.name ?? '') + '</div>' +
+        (guide && guide.how ? '<p class="hr-how">' + esc(guide.how.join(' ')) + '</p>' : '') +
+        '<div class="hr-next">' + esc(nextLine) + '</div>' +
+      '</div>' +
+      '<div class="hr-ctrls">' +
+        '<button class="icon-btn hr-btn" id="hrPrev" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M6.5 6v12M18 6.5 9.5 12l8.5 5.5Z"/></svg></button>' +
+        '<button class="hr-play" id="hrPause" aria-label="' + (r.paused != null ? 'Resume' : 'Pause') + '">' +
+          (r.paused != null ? PLAY_ICON : '<svg viewBox="0 0 24 24"><path d="M8.5 5.5v13M15.5 5.5v13"/></svg>') + '</button>' +
+        '<button class="icon-btn hr-btn" id="hrNext" aria-label="Skip"><svg viewBox="0 0 24 24"><path d="M17.5 6v12M6 6.5l8.5 5.5L6 17.5Z"/></svg></button>' +
+      '</div>';
+    $('#hrClose', el).addEventListener('click', () => askEndHomeRun());
+    $('#hrSound', el).addEventListener('click', () => {
+      state.settings.homeSound = state.settings.homeSound === false ? true : false;
+      if (state.settings.homeSound) delete state.settings.homeSound;
+      save(); drawHomeRun();
+    });
+    $('#hrPause', el).addEventListener('click', () => {
+      if (r.paused != null) { r.endAt = Date.now() + r.paused; r.paused = null; }
+      else { r.paused = Math.max(0, r.endAt - Date.now()); }
+      haptic('tap'); drawHomeRun();
+    });
+    $('#hrNext', el).addEventListener('click', () => { haptic('tap'); homeStep(+1, false); });
+    $('#hrPrev', el).addEventListener('click', () => {
+      haptic('tap');
+      // a few seconds in, back means "start this one again"
+      if (r.ph[r.i].secs * 1000 - hrLeft() > 2500 || r.i === 0) {
+        const full = r.ph[r.i].secs * 1000;
+        if (r.paused != null) r.paused = full; else r.endAt = Date.now() + full;
+        drawHomeRun();
+      } else homeStep(-1, false);
+    });
+    tickHomeRun(true);
+  }
+
+  // move to another phase; `earned` = the work phase ran to its end
+  function homeStep(dir, earned) {
+    const r = homeRun;
+    if (!r) return;
+    const p = r.ph[r.i];
+    if (dir > 0 && p.kind === 'work' && earned) r.done.push({ ex: p.ex, secs: p.secs, at: Date.now(), n: p.n });
+    if (dir < 0) {
+      // going back over a move takes its record off; it is done again
+      const prev = r.ph[r.i - 1];
+      if (prev && prev.kind === 'work') r.done = r.done.filter((d) => d.n !== prev.n);
+    }
+    r.i += dir;
+    if (r.i >= r.ph.length) { finishHomeRun(); return; }
+    r.i = Math.max(0, r.i);
+    const now = Date.now();
+    if (r.paused != null) r.paused = r.ph[r.i].secs * 1000;
+    else r.endAt = now + r.ph[r.i].secs * 1000;
+    r.said = null;
+    const k = r.ph[r.i].kind;
+    beep(k === 'work' ? 1046 : 587, k === 'work' ? 260 : 180);
+    haptic(k === 'work' ? 'alert' : 'tap');
+    drawHomeRun();
+  }
+
+  function tickHomeRun(drawOnly) {
+    const r = homeRun;
+    if (!r) { clearInterval(hrTick); return; }
+    const left = hrLeft();
+    const p = r.ph[r.i];
+    const sec = Math.ceil(left / 1000);
+    const lt = $('#hrLeft');
+    if (lt && lt.textContent !== String(sec)) lt.textContent = sec;
+    const arc = $('#hrArc');
+    if (arc) arc.setAttribute('stroke-dashoffset', (552.92 * (1 - left / (p.secs * 1000))).toFixed(1));
+    if (drawOnly === true || r.paused != null) return;
+    // 3-2-1 before the change
+    if (sec <= 3 && sec >= 1 && r.said !== sec) { r.said = sec; beep(784, 90); }
+    if (left <= 0) {
+      /* A phone that slept through several phases catches up in one go:
+         each work phase that ran out while it slept still counts. */
+      let over = Date.now() - r.endAt;
+      homeStep(+1, true);
+      while (homeRun && homeRun.paused == null && over > homeRun.ph[homeRun.i].secs * 1000) {
+        over -= homeRun.ph[homeRun.i].secs * 1000;
+        homeStep(+1, true);
+      }
+    }
+  }
+
+  function askEndHomeRun() {
+    const r = homeRun;
+    if (!r) return;
+    const n = r.done.length;
+    confirmAction({
+      title: 'End the session?',
+      message: n ? n + (n === 1 ? ' move is' : ' moves are') + ' done — they will be saved as a workout.' : 'Nothing is done yet, so nothing will be saved.',
+      confirm: n ? 'End and save' : 'End',
+      danger: !n,
+      onConfirm: () => finishHomeRun(),
+    });
+  }
+
+  function closeHomeRun() {
+    clearInterval(hrTick); hrTick = null;
+    homeRun = null;
+    drawHomeRun();
+    dropWakeLock();
+    if (hrHasEntry) { hrHasEntry = false; skipPop++; history.back(); }
+  }
+
+  function finishHomeRun() {
+    const r = homeRun;
+    if (!r) return;
+    closeHomeRun();
+    if (!r.done.length) { toast('Session ended — nothing to save'); return; }
+    const by = new Map();
+    r.done.forEach((d) => {
+      if (!by.has(d.ex)) by.set(d.ex, []);
+      by.get(d.ex).push({ weight: null, reps: null, secs: d.secs, done: true, at: d.at });
+    });
+    const w = {
+      id: uid(), name: 'Home · ' + r.s.name, startedAt: r.startedAt, finishedAt: Date.now(),
+      home: { kind: 'timer', session: r.s.id, focus: r.s.focus },
+      exercises: [...by].map(([exerciseId, sets]) => ({ exerciseId, sets })),
+    };
+    state.workouts.unshift(w);
+    haptic('done');
+    save(); render();
+    openWorkoutSummary(w, []);
   }
 
   /* -------- full-screen workout logger (Hevy-style) -------- */
@@ -9151,6 +9515,7 @@
     const fmtHistSet = (s, cardio) => {
       const t = s.type || 'N';
       const tag = t === 'N' ? '' : t + ' ';
+      if (!cardio && timedText(s)) return tag + timedText(s);
       return cardio ? cardioText(s) : `${tag}${fmtNum(s.weight ?? 0)}×${s.reps}${s.pr ? ' ' + prIcon('pr-mark pr-inline') : ''}`;
     };
     const q = histQuery.trim().toLowerCase();
@@ -9180,8 +9545,8 @@
           <span class="muted">${fmtDate(w.startedAt)}</span>
         </div>
         <div class="hist-stats">
-          <span><b>${sets.length}</b> sets</span>
-          <span><b>${fmtNum(workoutVolume(w))}</b> ${esc(unit())} volume</span>
+          ${w.home && w.home.kind === 'video' ? `<span>${HOUSE_ICON.replace('<svg', '<svg class="hist-home"')}<b>Video</b>${w.home.focus ? ' · ' + esc(w.home.focus) : ''}</span>` : `<span><b>${sets.length}</b> sets</span>`}
+          ${w.home ? (w.home.kind === 'video' ? '' : `<span>${HOUSE_ICON.replace('<svg', '<svg class="hist-home"')}<b>At home</b></span>`) : `<span><b>${fmtNum(workoutVolume(w))}</b> ${esc(unit())} volume</span>`}
           <span><b>${fmtDuration((w.finishedAt ?? w.startedAt) - w.startedAt)}</b></span>
         </div>
         ${open ? `
@@ -9200,15 +9565,15 @@
               return `<tr>
                 <td>${esc(info?.name ?? '?')}${ex.note ? ' 📝' : ''}</td>
                 <td>${ex.sets.map((s) => fmtHistSet(s, cardio)).join(', ')}</td>
-                <td>${best ? (cardio ? `${best.reps} min` : `${fmtNum(best.weight ?? 0)} × ${best.reps}`) : '—'}</td>
+                <td>${best ? (cardio ? esc(cardioText(best)) : timedText(best) || `${fmtNum(best.weight ?? 0)} × ${best.reps}`) : '—'}</td>
               </tr>`;
             }).join('')}
             </tbody>
           </table>
           <div class="btn-row" style="margin-top:12px">
-            <button class="btn btn-quiet" data-edit="${esc(w.id)}">Edit</button>
-            <button class="btn btn-quiet" data-repeat="${esc(w.id)}">Repeat</button>
-            <button class="btn btn-quiet" data-share="${esc(w.id)}" aria-label="Share">Share</button>
+            ${w.home ? `<button class="btn btn-quiet" data-again="${esc(w.id)}">Do it again</button>` : `<button class="btn btn-quiet" data-edit="${esc(w.id)}">Edit</button>
+            <button class="btn btn-quiet" data-repeat="${esc(w.id)}">Repeat</button>`}
+            ${w.home && w.home.kind === 'video' ? '' : `<button class="btn btn-quiet" data-share="${esc(w.id)}" aria-label="Share">Share</button>`}
             <button class="btn btn-danger" data-delete="${esc(w.id)}">Delete</button>
           </div>
         </div>` : ''}
@@ -9273,6 +9638,16 @@
         if (shr) {
           const w = state.workouts.find((x) => x.id === shr.dataset.share);
           if (w) shareWorkout(w);
+          return;
+        }
+        const again = e.target.closest('[data-again]');
+        if (again) {
+          const w = state.workouts.find((x) => x.id === again.dataset.again);
+          if (w && w.home && w.home.kind === 'timer') startHomeSession(w.home.session);
+          else if (w && w.home) {
+            const v = homeVideos().find((x) => x.url === w.home.url);
+            if (v) openHomeVideo(v.id); else openOutside(w.home.url);
+          }
           return;
         }
         const rep = e.target.closest('[data-repeat]');
