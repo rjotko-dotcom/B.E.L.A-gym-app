@@ -3231,7 +3231,7 @@ body.pad-open .rest-panel { opacity: 0; pointer-events: none; transform: transla
   position: relative; min-height: 36px; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--card-edge);
   background: var(--surface-2); color: var(--ink-2); font: inherit; font-size: 0.84rem; font-weight: 600; cursor: pointer;
 }
-.hv-chips button.is-on { background: var(--pill); color: var(--pill-ink); border-color: transparent; }
+.hv-chips button.is-on { background: var(--ink-1); color: var(--page); border-color: transparent; }
 
 /* the player: one screen, one number */
 .hr {
@@ -3271,3 +3271,10 @@ body.pad-open .rest-panel { opacity: 0; pointer-events: none; transform: transla
 .hr-play svg path[d^="M8.5 5.8"] { fill: currentColor; stroke: none; }
 .hr-play:active { transform: scale(0.95); }
 @media (prefers-reduced-motion: reduce) { .hr-arc, .hr-steps i { transition: none; } }
+.when-pick { margin-top: 2px; }
+.when-pick .dp-other {
+  position: relative; display: inline-flex; align-items: center; min-height: 36px; padding: 7px 14px; border-radius: 999px;
+  border: 1px solid var(--card-edge); background: var(--surface-2); color: var(--ink-2); font-size: 0.84rem; font-weight: 600; cursor: pointer;
+}
+.when-pick .dp-other.is-on { background: var(--ink-1); color: var(--page); border-color: transparent; }
+.when-pick .dp-other input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }

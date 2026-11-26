@@ -6,7 +6,7 @@
   'use strict';
 
   const STORE_KEY = 'bela-gym-v1';
-  const APP_VERSION = '16.12';
+  const APP_VERSION = '16.13';
 
   /* ---------------- state ---------------- */
 
@@ -5779,10 +5779,12 @@
       '<div class="sm-list">' + rows + '</div>' +
       '<div class="btn-row" style="margin-top:18px">' +
         (w.home && w.home.kind === 'video' ? '' : '<button class="btn btn-quiet" id="smShare"><svg class="btn-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3.5M7.5 8 12 3.5 16.5 8M5 12.5v6A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-6"/></svg>Share</button>') +
+        (w.home ? '<button class="btn btn-quiet" id="smDay">Change day</button>' : '') +
         '<button class="btn btn-primary" id="smDone">Done</button>' +
       '</div>',
     (body) => {
       $('#smDone', body).addEventListener('click', () => closeSheet());
+      if ($('#smDay', body)) $('#smDay', body).addEventListener('click', () => openChangeDay(w.id));
       if ($('#smShare', body)) $('#smShare', body).addEventListener('click', () => shareWorkout(w));
       if (w.exercises.length) wireMuscleMap(body, muscleLoad([w]), ' this session', sessionLevel);
       setTimeout(() => burst($('.sm-badge', body), { count: prs.length ? 60 : 40 }), 260);
@@ -5865,7 +5867,8 @@
       '<p class="muted" style="margin:10px 2px 14px">' + esc([v.by, v.min ? v.min + ' min' : '', v.focus].filter(Boolean).join(' · ')) +
         '<br>Plays in YouTube. Come back here when it is done.</p>' +
       '<button class="btn btn-primary" id="hvPlay">' + PLAY_ICON + 'Play on YouTube</button>' +
-      '<button class="btn btn-quiet" id="hvLog" style="margin-top:10px">I did it — log ' + (v.min || '') + (v.min ? ' min' : 'it') + '</button>' +
+      '<div class="hs-label micro">Done on</div>' + dayPickerHTML('hvDay') +
+      '<button class="btn btn-quiet" id="hvLog" style="margin-top:12px">I did it — log ' + (v.min || '') + (v.min ? ' min' : 'it') + '</button>' +
       '<button class="btn btn-quiet" id="hvBack" style="margin-top:10px">Back</button>',
     (body) => {
       const play = () => {
@@ -5876,20 +5879,105 @@
       };
       $('#hvPlay', body).addEventListener('click', play);
       $('.hv-big', body).addEventListener('click', play);
-      $('#hvLog', body).addEventListener('click', () => logHomeVideo(v));
+      const day = wireDayPicker(body, 'hvDay');
+      $('#hvLog', body).addEventListener('click', () => logHomeVideo(v, day()));
       $('#hvBack', body).addEventListener('click', () => openHomeSheet());
     });
   }
 
-  function logHomeVideo(v) {
+  function logHomeVideo(v, dayKey) {
     if (state.activeWorkout) { toast('Finish the session in progress first'); return; }
     const end = Date.now();
     const w = { id: uid(), name: v.name, startedAt: end - (v.min || 10) * 60000, finishedAt: end,
       home: { kind: 'video', url: v.url, min: v.min || 10, focus: v.focus || '' }, exercises: [] };
+    if (dayKey) moveWorkoutTo(w, dayKey);
     state.workouts.unshift(w);
+    // another day goes where it belongs in the history, not on top
+    if (dayKey && dayKey !== dateKey()) state.workouts.sort((x, y) => y.startedAt - x.startedAt);
     haptic('done');
     save(); closeSheetNow(); render();
     openWorkoutSummary(w, []);
+    offerUndoLog(w);
+  }
+
+  /* -------- which day it was --------
+     Logged on the wrong day happens: the session was last night, the phone
+     was opened this morning. Today / Yesterday / any earlier day; the clock
+     times stay, only the date moves. */
+  function dayPickerHTML(id, current = dateKey()) {
+    const y = new Date(); y.setDate(y.getDate() - 1);
+    const yk = dateKey(y), tk = dateKey();
+    const other = current !== tk && current !== yk;
+    return '<div class="hv-chips when-pick" id="' + id + '">' +
+      '<button data-day="' + tk + '"' + (current === tk ? ' class="is-on"' : '') + '>Today</button>' +
+      '<button data-day="' + yk + '"' + (current === yk ? ' class="is-on"' : '') + '>Yesterday</button>' +
+      '<label class="dp-other' + (other ? ' is-on' : '') + '"><span>' + (other ? esc(fmtShortDate(new Date(current + 'T12:00:00').getTime())) : 'Earlier…') + '</span>' +
+        '<input type="date" max="' + tk + '" value="' + esc(current) + '" aria-label="Pick a day"></label>' +
+    '</div>';
+  }
+  function wireDayPicker(body, id) {
+    const root = $('#' + id, body);
+    let picked = $('button.is-on', root)?.dataset.day || $('input', root).value || dateKey();
+    const mark = (el) => [...root.children].forEach((c) => c.classList.toggle('is-on', c === el));
+    $$('button', root).forEach((b) => b.addEventListener('click', () => { picked = b.dataset.day; mark(b); haptic('tick'); }));
+    const inp = $('input', root);
+    const lab = $('.dp-other', root);
+    inp.addEventListener('change', () => {
+      if (!inp.value || inp.value > dateKey()) return;
+      picked = inp.value;
+      $('span', lab).textContent = fmtShortDate(new Date(picked + 'T12:00:00').getTime());
+      mark(lab);
+    });
+    return () => picked;
+  }
+  function moveWorkoutTo(w, key) {
+    const [y, mo, dd] = key.split('-').map(Number);
+    const from = new Date(w.startedAt);
+    const to = new Date(y, mo - 1, dd, from.getHours(), from.getMinutes(), from.getSeconds());
+    // a time later than now on today's date would be in the future
+    const shift = Math.min(to.getTime(), Date.now() - ((w.finishedAt ?? w.startedAt) - w.startedAt)) - w.startedAt;
+    w.startedAt += shift;
+    if (w.finishedAt != null) w.finishedAt += shift;
+    (w.exercises || []).forEach((ex) => ex.sets.forEach((s) => { if (s.at) s.at += shift; }));
+  }
+  function offerUndoLog(w) {
+    const when = dateKey(new Date(w.startedAt)) === dateKey() ? 'today' : fmtShortDate(w.startedAt);
+    toast('Logged for ' + when, false, {
+      label: 'Undo',
+      onClick: () => {
+        state.workouts = state.workouts.filter((x) => x.id !== w.id);
+        save(); closeSheet(); render();
+        haptic('tick');
+        toast('Removed');
+      },
+    });
+  }
+  function openChangeDay(id) {
+    const w = state.workouts.find((x) => x.id === id);
+    if (!w) return;
+    $('#toastRoot').replaceChildren();   // the "Logged" toast would sit on the buttons
+    openSheet('Change day', '' +
+      '<p class="muted" style="margin:0 2px 12px">' + esc(w.name) + ' · now on ' + esc(fmtDate(w.startedAt)) + '</p>' +
+      dayPickerHTML('cdDay', dateKey(new Date(w.startedAt))) +
+      '<button class="btn btn-primary" id="cdMove" style="margin-top:16px">Move it</button>' +
+      '<button class="btn btn-danger" id="cdDelete" style="margin-top:10px">Remove it from history</button>',
+    (body) => {
+      const day = wireDayPicker(body, 'cdDay');
+      $('#cdMove', body).addEventListener('click', () => {
+        const key = day();
+        closeSheet();
+        if (key === dateKey(new Date(w.startedAt))) return;
+        undoable('Moved to ' + (key === dateKey() ? 'today' : fmtShortDate(new Date(key + 'T12:00:00').getTime())), () => {
+          const it = state.workouts.find((x) => x.id === id);
+          if (it) moveWorkoutTo(it, key);
+          state.workouts.sort((x, y) => y.startedAt - x.startedAt);
+        });
+      });
+      $('#cdDelete', body).addEventListener('click', () => {
+        closeSheet();
+        undoable('Workout removed', () => { state.workouts = state.workouts.filter((x) => x.id !== id); });
+      });
+    });
   }
 
   function openAddVideo() {
@@ -6142,6 +6230,7 @@
     haptic('done');
     save(); render();
     openWorkoutSummary(w, []);
+    offerUndoLog(w);
   }
 
   /* -------- full-screen workout logger (Hevy-style) -------- */
@@ -9571,7 +9660,8 @@
             </tbody>
           </table>
           <div class="btn-row" style="margin-top:12px">
-            ${w.home ? `<button class="btn btn-quiet" data-again="${esc(w.id)}">Do it again</button>` : `<button class="btn btn-quiet" data-edit="${esc(w.id)}">Edit</button>
+            ${w.home ? `<button class="btn btn-quiet" data-again="${esc(w.id)}">Do it again</button>
+            <button class="btn btn-quiet" data-chday="${esc(w.id)}">Change day</button>` : `<button class="btn btn-quiet" data-edit="${esc(w.id)}">Edit</button>
             <button class="btn btn-quiet" data-repeat="${esc(w.id)}">Repeat</button>`}
             ${w.home && w.home.kind === 'video' ? '' : `<button class="btn btn-quiet" data-share="${esc(w.id)}" aria-label="Share">Share</button>`}
             <button class="btn btn-danger" data-delete="${esc(w.id)}">Delete</button>
@@ -9640,6 +9730,8 @@
           if (w) shareWorkout(w);
           return;
         }
+        const chDay = e.target.closest('[data-chday]');
+        if (chDay) { openChangeDay(chDay.dataset.chday); return; }
         const again = e.target.closest('[data-again]');
         if (again) {
           const w = state.workouts.find((x) => x.id === again.dataset.again);

@@ -100,6 +100,46 @@ module.exports = async (t) => {
   await page.click('#smDone');
   await page.waitForTimeout(300);
 
+  // logged on the wrong day: undo right away, or move it afterwards
+  const keyOf = (ms) => { const d = new Date(ms); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const yKey = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return keyOf(d.getTime()); })();
+  await page.click('#wkHome');
+  await page.waitForTimeout(400);
+  await page.click('[data-hv="v-sixpack"]');
+  await page.waitForTimeout(400);
+  t.check('the video asks which day, today first', /Today/.test(await page.textContent('#hvDay button.is-on')));
+  await page.click('#hvDay [data-day="' + yKey + '"]');
+  await page.click('#hvLog');
+  await page.waitForTimeout(500);
+  st = await readState(page);
+  const yv = st.workouts.find((x) => x.home && x.home.kind === 'video' && keyOf(x.startedAt) === yKey);
+  t.check('logged on yesterday', !!yv && yv.finishedAt - yv.startedAt === 600000, JSON.stringify(st.workouts.slice(0, 3).map((x) => [x.name, keyOf(x.startedAt)])));
+  t.check('and the toast offers an undo', /Logged for/.test(await page.textContent('#toastRoot')) && !!(await page.$('#toastRoot .toast-btn')));
+  const n0 = st.workouts.length;
+  await page.click('#toastRoot .toast-btn');
+  await page.waitForTimeout(400);
+  st = await readState(page);
+  t.check('undo takes it off again', st.workouts.length === n0 - 1 && !st.workouts.some((x) => x.id === yv.id));
+  // the one logged today earlier: move it to yesterday from the summary-less history
+  const today = st.workouts.find((x) => x.home && x.home.kind === 'video');
+  await page.evaluate(() => { document.querySelector('#sheetRoot').innerHTML = ''; });
+  await page.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+  await page.waitForTimeout(300);
+  await page.click('#wkLast');
+  await page.waitForTimeout(500);
+  if (!(await page.$('[data-chday="' + today.id + '"]'))) await page.click('.hist-item[data-id="' + today.id + '"] .hist-top');
+  await page.waitForTimeout(300);
+  await page.click('[data-chday="' + today.id + '"]');
+  await page.waitForTimeout(400);
+  await page.click('#cdDay [data-day="' + yKey + '"]');
+  await page.click('#cdMove');
+  await page.waitForTimeout(400);
+  st = await readState(page);
+  const moved = st.workouts.find((x) => x.id === today.id);
+  t.check('Change day moves a saved one, clock time kept', keyOf(moved.startedAt) === yKey && new Date(moved.startedAt).getHours() === new Date(today.startedAt).getHours() && moved.finishedAt - moved.startedAt === 600000);
+  await page.evaluate(() => document.querySelector('.tab[data-tab="workout"]').click());
+  await page.waitForTimeout(300);
+
   // adding one: the name and minutes come from YouTube
   await page.click('#wkHome');
   await page.waitForTimeout(400);
